@@ -79,6 +79,9 @@ fn generate_bindings(release: bool) -> Result<()> {
     })
     .context("failed to generate Kotlin bindings")?;
 
+    normalize_generated_directory(&workspace_root.join("bindings/ios/generated"))?;
+    normalize_generated_directory(&workspace_root.join("bindings/android/generated"))?;
+
     println!("generated bindings into bindings/ios/generated and bindings/android/generated");
     Ok(())
 }
@@ -113,6 +116,48 @@ fn reset_directory(path: &Utf8PathBuf) -> Result<()> {
     }
     fs::create_dir_all(path).with_context(|| format!("failed to create {}", path))?;
     Ok(())
+}
+
+fn normalize_generated_directory(path: &Utf8PathBuf) -> Result<()> {
+    for entry in fs::read_dir(path).with_context(|| format!("failed to read {}", path))? {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", path))?;
+        let entry_path = Utf8PathBuf::from_path_buf(entry.path())
+            .map_err(|raw| anyhow::anyhow!("generated path is not valid UTF-8: {:?}", raw))?;
+
+        if entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", entry_path))?
+            .is_dir()
+        {
+            normalize_generated_directory(&entry_path)?;
+            continue;
+        }
+
+        let contents = fs::read_to_string(&entry_path)
+            .with_context(|| format!("failed to read generated file {}", entry_path))?;
+        let normalized = strip_trailing_whitespace(&contents);
+
+        if normalized != contents {
+            fs::write(&entry_path, normalized)
+                .with_context(|| format!("failed to normalize generated file {}", entry_path))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn strip_trailing_whitespace(contents: &str) -> String {
+    let ends_with_newline = contents.ends_with('\n');
+    let mut normalized_lines: Vec<String> = contents
+        .lines()
+        .map(|line| line.trim_end_matches([' ', '\t']).to_owned())
+        .collect();
+
+    if ends_with_newline {
+        normalized_lines.push(String::new());
+    }
+
+    normalized_lines.join("\n")
 }
 
 fn workspace_root() -> Result<Utf8PathBuf> {
