@@ -47,6 +47,23 @@ pub enum SdkError {
     Signer(#[from] signer::SignerError),
     #[error("local proof verification failed")]
     ProofRejected,
+    #[error(
+        "withdrawal amount {withdrawal_amount} exceeds existing commitment value {existing_value}"
+    )]
+    WithdrawalAmountExceedsExistingValue {
+        existing_value: U256,
+        withdrawal_amount: U256,
+    },
+    #[error("state witness leaf mismatch: expected commitment hash {expected}, got {actual}")]
+    StateWitnessLeafMismatch { expected: U256, actual: U256 },
+    #[error("asp witness leaf mismatch: expected label {expected}, got {actual}")]
+    AspWitnessLeafMismatch { expected: U256, actual: U256 },
+    #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
+    WithdrawProofSignalMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -211,6 +228,13 @@ impl PrivacyPoolsSdk {
         validate_witness_shape("state", &request.state_witness)?;
         validate_witness_shape("asp", &request.asp_witness)?;
 
+        if request.withdrawal_amount > request.commitment.preimage.value {
+            return Err(SdkError::WithdrawalAmountExceedsExistingValue {
+                existing_value: request.commitment.preimage.value,
+                withdrawal_amount: request.withdrawal_amount,
+            });
+        }
+
         Ok(core::WithdrawalCircuitInput {
             withdrawn_value: request.withdrawal_amount,
             state_root: request.state_witness.root,
@@ -300,6 +324,52 @@ impl PrivacyPoolsSdk {
             .map_err(Into::into)
     }
 
+    pub fn validate_withdrawal_proof_against_request(
+        &self,
+        request: &core::WithdrawalWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<(), SdkError> {
+        validate_withdrawal_request_semantics(request)?;
+
+        let public_signals = chain::withdraw_public_signals(proof)?;
+        let remaining_value = request.commitment.preimage.value - request.withdrawal_amount;
+        let new_commitment = crypto::get_commitment(
+            remaining_value,
+            request.commitment.preimage.label,
+            request.new_nullifier,
+            request.new_secret,
+        )?;
+        let expected_context = crypto::calculate_context_field(&request.withdrawal, request.scope)?;
+        let expected_signals = [
+            ("newCommitmentHash", new_commitment.hash),
+            (
+                "existingNullifierHash",
+                request.commitment.preimage.precommitment.hash,
+            ),
+            ("withdrawnValue", request.withdrawal_amount),
+            ("stateRoot", request.state_witness.root),
+            (
+                "stateTreeDepth",
+                U256::from(request.state_witness.depth as u64),
+            ),
+            ("ASPRoot", request.asp_witness.root),
+            ("ASPTreeDepth", U256::from(request.asp_witness.depth as u64)),
+            ("context", expected_context),
+        ];
+
+        for ((field, expected), actual) in expected_signals.into_iter().zip(public_signals) {
+            if expected != actual {
+                return Err(SdkError::WithdrawProofSignalMismatch {
+                    field,
+                    expected: expected.to_string(),
+                    actual: actual.to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn prepare_withdrawal_execution_with_client<C: chain::ExecutionClient>(
         &self,
         profile: BackendProfile,
@@ -309,7 +379,9 @@ impl PrivacyPoolsSdk {
         config: &core::WithdrawalExecutionConfig,
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
+        validate_withdrawal_request_semantics(request)?;
         let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
         if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
             return Err(SdkError::ProofRejected);
         }
@@ -345,7 +417,9 @@ impl PrivacyPoolsSdk {
         config: &core::RelayExecutionConfig,
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
+        validate_withdrawal_request_semantics(request)?;
         let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
         if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
             return Err(SdkError::ProofRejected);
         }
@@ -500,6 +574,36 @@ fn validate_witness_shape(
             name,
             expected: witness.depth,
             actual: witness.siblings.len(),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_withdrawal_request_semantics(
+    request: &core::WithdrawalWitnessRequest,
+) -> Result<(), SdkError> {
+    validate_witness_shape("state", &request.state_witness)?;
+    validate_witness_shape("asp", &request.asp_witness)?;
+
+    if request.withdrawal_amount > request.commitment.preimage.value {
+        return Err(SdkError::WithdrawalAmountExceedsExistingValue {
+            existing_value: request.commitment.preimage.value,
+            withdrawal_amount: request.withdrawal_amount,
+        });
+    }
+
+    if request.state_witness.leaf != request.commitment.hash {
+        return Err(SdkError::StateWitnessLeafMismatch {
+            expected: request.commitment.hash,
+            actual: request.state_witness.leaf,
+        });
+    }
+
+    if request.asp_witness.leaf != request.commitment.preimage.label {
+        return Err(SdkError::AspWitnessLeafMismatch {
+            expected: request.commitment.preimage.label,
+            actual: request.asp_witness.leaf,
         });
     }
 
@@ -814,6 +918,139 @@ mod tests {
     }
 
     #[test]
+    fn rejects_witness_leaf_mismatches_before_execution() {
+        let sdk = PrivacyPoolsSdk::default();
+        let request = core::WithdrawalWitnessRequest {
+            commitment: core::Commitment {
+                hash: U256::from(44_u64),
+                nullifier_hash: U256::from(55_u64),
+                preimage: core::CommitmentPreimage {
+                    value: U256::from(1000_u64),
+                    label: U256::from(456_u64),
+                    precommitment: core::Precommitment {
+                        hash: U256::from(55_u64),
+                        nullifier: U256::from(66_u64),
+                        secret: U256::from(77_u64),
+                    },
+                },
+            },
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(123_u64),
+            withdrawal_amount: U256::from(250_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from(88_u64),
+                leaf: U256::from(99_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(111_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+        let proof = core::ProofBundle {
+            proof: core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["0".to_owned(); 8],
+        };
+
+        assert!(matches!(
+            sdk.validate_withdrawal_proof_against_request(&request, &proof),
+            Err(SdkError::StateWitnessLeafMismatch { expected, actual })
+                if expected == U256::from(44_u64) && actual == U256::from(99_u64)
+        ));
+    }
+
+    #[test]
+    fn rejects_public_signal_mismatches_against_request() {
+        let sdk = PrivacyPoolsSdk::default();
+        let request = core::WithdrawalWitnessRequest {
+            commitment: core::Commitment {
+                hash: U256::from(44_u64),
+                nullifier_hash: U256::from(55_u64),
+                preimage: core::CommitmentPreimage {
+                    value: U256::from(1000_u64),
+                    label: U256::from(456_u64),
+                    precommitment: core::Precommitment {
+                        hash: U256::from(55_u64),
+                        nullifier: U256::from(66_u64),
+                        secret: U256::from(77_u64),
+                    },
+                },
+            },
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(123_u64),
+            withdrawal_amount: U256::from(250_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from(88_u64),
+                leaf: U256::from(44_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(111_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+        let proof = core::ProofBundle {
+            proof: core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "999".to_owned(),
+                "55".to_owned(),
+                "250".to_owned(),
+                "88".to_owned(),
+                "32".to_owned(),
+                "111".to_owned(),
+                "32".to_owned(),
+                crypto::calculate_context_field(&request.withdrawal, request.scope)
+                    .unwrap()
+                    .to_string(),
+            ],
+        };
+
+        assert!(matches!(
+            sdk.validate_withdrawal_proof_against_request(&request, &proof),
+            Err(SdkError::WithdrawProofSignalMismatch { field, .. })
+                if field == "newCommitmentHash"
+        ));
+    }
+
+    #[test]
     fn plans_offline_withdrawal_and_relay_transactions() {
         let sdk = PrivacyPoolsSdk::default();
         let proof = core::ProofBundle {
@@ -829,8 +1066,13 @@ mod tests {
             },
             public_signals: vec!["911".to_owned(); 8],
         };
+        let relay_entrypoint = address!("1234567890123456789012345678901234567890");
         let withdrawal = core::Withdrawal {
             processooor: address!("1111111111111111111111111111111111111111"),
+            data: bytes!("1234"),
+        };
+        let relay_withdrawal = core::Withdrawal {
+            processooor: relay_entrypoint,
             data: bytes!("1234"),
         };
 
@@ -845,8 +1087,8 @@ mod tests {
         let relay = sdk
             .plan_relay_transaction(
                 1,
-                address!("1234567890123456789012345678901234567890"),
-                &withdrawal,
+                relay_entrypoint,
+                &relay_withdrawal,
                 &proof,
                 U256::from(123_u64),
             )

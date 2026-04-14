@@ -47,6 +47,16 @@ pub enum ChainError {
     Core(#[from] privacy_pools_sdk_core::CoreError),
     #[error("withdraw proof must contain exactly 8 public signals, got {0}")]
     InvalidWithdrawPublicSignals(usize),
+    #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
+    WithdrawProofSignalMismatch {
+        field: &'static str,
+        expected: U256,
+        actual: U256,
+    },
+    #[error("relay transactions require a non-zero withdrawn value")]
+    RelayRequiresNonZeroWithdrawValue,
+    #[error("relay withdrawal processooor mismatch: expected {expected}, got {actual}")]
+    RelayProcessooorMismatch { expected: Address, actual: Address },
     #[error("invalid rpc url: {0}")]
     InvalidRpcUrl(String),
     #[error("invalid root response length: expected at least 32 bytes, got {0}")]
@@ -416,6 +426,17 @@ pub fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof
     })
 }
 
+pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainError> {
+    let public_signals = proof
+        .public_signals
+        .iter()
+        .map(|value| parse_decimal_field(value))
+        .collect::<Result<Vec<_>, _>>()?;
+    public_signals
+        .try_into()
+        .map_err(|signals: Vec<U256>| ChainError::InvalidWithdrawPublicSignals(signals.len()))
+}
+
 pub fn state_root_read(pool_address: Address) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
@@ -470,6 +491,18 @@ pub fn plan_relay_transaction(
     proof: &ProofBundle,
     scope: U256,
 ) -> Result<TransactionPlan, ChainError> {
+    if withdrawal.processooor != entrypoint_address {
+        return Err(ChainError::RelayProcessooorMismatch {
+            expected: entrypoint_address,
+            actual: withdrawal.processooor,
+        });
+    }
+
+    let public_signals = withdraw_public_signals(proof)?;
+    if public_signals[2].is_zero() {
+        return Err(ChainError::RelayRequiresNonZeroWithdrawValue);
+    }
+
     let formatted = format_groth16_proof(proof)?;
     let calldata = Bytes::from(
         IEntrypoint::relayCall {
@@ -959,14 +992,7 @@ fn withdrawal_abi(withdrawal: &Withdrawal) -> WithdrawalAbi {
 }
 
 fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi, ChainError> {
-    let public_signals = proof
-        .public_signals
-        .iter()
-        .map(|value| parse_decimal_field(value))
-        .collect::<Result<Vec<_>, _>>()?;
-    let public_signals: [U256; 8] = public_signals
-        .try_into()
-        .map_err(|signals: Vec<U256>| ChainError::InvalidWithdrawPublicSignals(signals.len()))?;
+    let public_signals = withdraw_public_signals(proof)?;
 
     Ok(WithdrawProofAbi {
         pA: [
@@ -995,6 +1021,7 @@ fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi, ChainErro
 mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
+    use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
     use serde_json::Value;
 
     #[derive(Debug, Clone)]
@@ -1119,6 +1146,7 @@ mod tests {
 
     #[test]
     fn plans_withdraw_and_relay_transactions() {
+        let entrypoint = address!("1234567890123456789012345678901234567890");
         let proof = ProofBundle {
             proof: privacy_pools_sdk_core::SnarkJsProof {
                 pi_a: ["123".to_owned(), "123".to_owned()],
@@ -1136,6 +1164,10 @@ mod tests {
             processooor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
         };
+        let relay_withdrawal = Withdrawal {
+            processooor: entrypoint,
+            data: bytes!("1234"),
+        };
 
         let withdraw = plan_withdrawal_transaction(
             1,
@@ -1146,8 +1178,8 @@ mod tests {
         .unwrap();
         let relay = plan_relay_transaction(
             1,
-            address!("1234567890123456789012345678901234567890"),
-            &withdrawal,
+            entrypoint,
+            &relay_withdrawal,
             &proof,
             U256::from(123_u64),
         )
@@ -1195,6 +1227,90 @@ mod tests {
                 &proof,
             ),
             Err(ChainError::InvalidWithdrawPublicSignals(6))
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_value_relay_transactions() {
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "10".to_owned(),
+                "11".to_owned(),
+                "0".to_owned(),
+                "12".to_owned(),
+                "32".to_owned(),
+                "13".to_owned(),
+                "32".to_owned(),
+                "14".to_owned(),
+            ],
+        };
+
+        assert!(matches!(
+            plan_relay_transaction(
+                1,
+                entrypoint,
+                &Withdrawal {
+                    processooor: entrypoint,
+                    data: bytes!("1234"),
+                },
+                &proof,
+                U256::from(123_u64),
+            ),
+            Err(ChainError::RelayRequiresNonZeroWithdrawValue)
+        ));
+    }
+
+    #[test]
+    fn rejects_relay_transactions_with_wrong_processooor() {
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "10".to_owned(),
+                "11".to_owned(),
+                "1".to_owned(),
+                "12".to_owned(),
+                "32".to_owned(),
+                "13".to_owned(),
+                "32".to_owned(),
+                "14".to_owned(),
+            ],
+        };
+
+        assert!(matches!(
+            plan_relay_transaction(
+                1,
+                entrypoint,
+                &Withdrawal {
+                    processooor: address!("1111111111111111111111111111111111111111"),
+                    data: bytes!("1234"),
+                },
+                &proof,
+                U256::from(123_u64),
+            ),
+            Err(ChainError::RelayProcessooorMismatch { expected, actual })
+                if expected == entrypoint
+                    && actual == address!("1111111111111111111111111111111111111111")
         ));
     }
 
@@ -1307,6 +1423,154 @@ mod tests {
             preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), &policy).await,
             Err(ChainError::StateRootMismatch { expected, actual })
                 if expected == U256::from(123_u64) && actual == U256::from(555_u64)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_stale_asp_roots_during_relay_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "100".to_owned(),
+                "200".to_owned(),
+                "250".to_owned(),
+                state_root.to_string(),
+                "32".to_owned(),
+                "999".to_owned(),
+                "32".to_owned(),
+                "300".to_owned(),
+            ],
+        };
+        let plan = plan_relay_transaction(
+            1,
+            entrypoint,
+            &Withdrawal {
+                processooor: entrypoint,
+                data: bytes!("1234"),
+            },
+            &proof,
+            U256::from(123_u64),
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                ((RootReadKind::PoolState, pool), state_root),
+                ((RootReadKind::Asp, entrypoint), U256::from(888_u64)),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        assert!(matches!(
+            preflight_relay(
+                &client,
+                &plan,
+                entrypoint,
+                pool,
+                state_root,
+                U256::from(999_u64),
+                &policy
+            )
+            .await,
+            Err(ChainError::AspRootMismatch { expected, actual })
+                if expected == U256::from(999_u64) && actual == U256::from(888_u64)
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_trailing_bytes() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let mut signed = signer.sign_transaction_request(&request).unwrap().to_vec();
+        signed.extend_from_slice(&[0xaa, 0xbb]);
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &request),
+            Err(ChainError::InvalidSignedTransaction(message))
+                if message.contains("trailing bytes")
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_wrong_fee_model() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let dynamic_request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: None,
+            max_fee_per_gas: Some(10),
+            max_priority_fee_per_gas: Some(2),
+        };
+        let signed = signer.sign_transaction_request(&dynamic_request).unwrap();
+        let legacy_request = FinalizedTransactionRequest {
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+            ..dynamic_request
+        };
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &legacy_request),
+            Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
+                if field == "fee_model" && expected == "legacy" && actual == "dynamic"
         ));
     }
 }

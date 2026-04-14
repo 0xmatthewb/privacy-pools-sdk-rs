@@ -2547,8 +2547,13 @@ mod tests {
             },
             public_signals: vec!["911".to_owned(); 8],
         };
+        let relay_entrypoint = "0x1234567890123456789012345678901234567890".to_owned();
         let withdrawal = FfiWithdrawal {
             processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+            data: vec![0x12, 0x34],
+        };
+        let relay_withdrawal = FfiWithdrawal {
+            processooor: relay_entrypoint.clone(),
             data: vec![0x12, 0x34],
         };
 
@@ -2561,8 +2566,8 @@ mod tests {
         .unwrap();
         let relay = plan_relay_transaction(
             1,
-            "0x1234567890123456789012345678901234567890".to_owned(),
-            withdrawal,
+            relay_entrypoint,
+            relay_withdrawal,
             proof,
             "123".to_owned(),
         )
@@ -2645,6 +2650,30 @@ mod tests {
     }
 
     #[test]
+    fn ffi_fails_closed_on_artifact_hash_mismatch() {
+        let manifest = serde_json::to_string(&ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                circuit: "withdraw".to_owned(),
+                kind: ArtifactKind::Wasm,
+                filename: "sample-artifact.bin".to_owned(),
+                sha256: "00".repeat(32),
+            }],
+        })
+        .unwrap();
+
+        assert!(matches!(
+            verify_artifact_bytes(
+                manifest,
+                "withdraw".to_owned(),
+                "wasm".to_owned(),
+                include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec(),
+            ),
+            Err(FfiError::OperationFailed(message)) if message.contains("sha256 mismatch")
+        ));
+    }
+
+    #[test]
     fn ffi_formats_groth16_proofs() {
         let formatted = format_groth16_proof_bundle(FfiProofBundle {
             proof: FfiSnarkJsProof {
@@ -2682,6 +2711,49 @@ mod tests {
             formatted.pub_signals[0],
             fixture["expected"]["pubSignals"][0].as_str().unwrap()
         );
+    }
+
+    #[test]
+    fn ffi_rejects_malformed_proof_shapes() {
+        assert!(matches!(
+            format_groth16_proof_bundle(FfiProofBundle {
+                proof: FfiSnarkJsProof {
+                    pi_a: vec!["123".to_owned(), "123".to_owned()],
+                    pi_b: vec![vec!["69".to_owned()], vec!["12".to_owned(), "123".to_owned()]],
+                    pi_c: vec!["12".to_owned(), "828".to_owned()],
+                    protocol: "groth16".to_owned(),
+                    curve: "bn128".to_owned(),
+                },
+                public_signals: vec!["911".to_owned(); 8],
+            }),
+            Err(FfiError::InvalidProofShape(message)) if message.contains("pi_b")
+        ));
+
+        assert!(matches!(
+            plan_withdrawal_transaction(
+                1,
+                "0x0987654321098765432109876543210987654321".to_owned(),
+                FfiWithdrawal {
+                    processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+                    data: vec![0x12, 0x34],
+                },
+                FfiProofBundle {
+                    proof: FfiSnarkJsProof {
+                        pi_a: vec!["123".to_owned(), "123".to_owned()],
+                        pi_b: vec![
+                            vec!["69".to_owned(), "123".to_owned()],
+                            vec!["12".to_owned(), "123".to_owned()],
+                        ],
+                        pi_c: vec!["12".to_owned(), "828".to_owned()],
+                        protocol: "groth16".to_owned(),
+                        curve: "bn128".to_owned(),
+                    },
+                    public_signals: vec!["911".to_owned(); 7],
+                },
+            ),
+            Err(FfiError::OperationFailed(message))
+                if message.contains("exactly 8 public signals")
+        ));
     }
 
     #[test]

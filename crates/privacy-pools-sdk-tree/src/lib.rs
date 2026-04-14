@@ -135,4 +135,29 @@ mod tests {
         assert_eq!(witness.siblings[3], U256::ZERO);
         assert!(verify_merkle_proof(&proof).unwrap());
     }
+
+    #[test]
+    fn duplicate_leaves_use_first_match() {
+        let proof = generate_merkle_proof(
+            &[
+                U256::from(11),
+                U256::from(22),
+                U256::from(22),
+                U256::from(44),
+            ],
+            U256::from(22),
+        )
+        .unwrap();
+
+        assert_eq!(proof.index, 1);
+        assert!(verify_merkle_proof(&proof).unwrap());
+    }
+
+    #[test]
+    fn missing_leaves_fail_closed() {
+        assert!(matches!(
+            generate_merkle_proof(&[U256::from(11), U256::from(22)], U256::from(33)),
+            Err(TreeError::LeafNotFound)
+        ));
+    }
 }
