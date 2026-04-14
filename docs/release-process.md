@@ -1,8 +1,9 @@
 # Release Process
 
-The repo now has a manual release workflow at `.github/workflows/release.yml`.
+Use the manual release workflow at `.github/workflows/release.yml` to assemble
+release artifacts for a chosen channel.
 
-It is designed to harden release channels before publish time:
+The workflow:
 
 - validates that all Rust crates share one version
 - validates that the React Native package and both podspecs share one version
@@ -11,7 +12,7 @@ It is designed to harden release channels before publish time:
 - builds release Android native artifacts on Linux
 - assembles a publishable React Native tarball that includes both native asset sets
 
-## Channel rules
+## Channel Rules
 
 - `alpha`: mobile version must use an `-alpha.N` prerelease suffix
 - `beta`: mobile version must use a `-beta.N` prerelease suffix
@@ -22,7 +23,7 @@ The Rust crate version is validated against the same base version as the mobile
 package surface. For example, Rust `0.1.0` is compatible with mobile
 `0.1.0-alpha.1`, but not with mobile `0.2.0-alpha.1`.
 
-## Local validation
+## Local Validation
 
 ```sh
 cargo run -p xtask -- release-check --channel alpha
@@ -42,8 +43,8 @@ xcrun --sdk iphoneos --show-sdk-path
 xcrun --sdk iphonesimulator --show-sdk-path
 ```
 
-Once benchmark captures and canary notes exist for a candidate release, validate the
-evidence bundle too:
+Once benchmark captures and canary notes exist for a candidate release,
+validate the evidence bundle too:
 
 ```sh
 cargo run -p xtask -- evidence-check \
@@ -51,7 +52,7 @@ cargo run -p xtask -- evidence-check \
   --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
 ```
 
-## GitHub workflow
+## GitHub Workflow
 
 Trigger the `release` workflow manually and choose the target channel. The
 workflow uploads:

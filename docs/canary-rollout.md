@@ -1,11 +1,9 @@
 # Canary Rollout
 
-This repository now has the build, packaging, and smoke-test plumbing needed to
-collect real release evidence. The remaining work for alpha, beta, rc, and
-stable promotion is operational: run the SDK on real devices, record benchmark
-reports, and capture limited canary usage evidence before widening rollout.
+Use this guide to collect the release evidence required for alpha, beta, rc,
+and stable promotion.
 
-## Required evidence
+## Required Evidence
 
 Before promoting a release channel, collect:
 
@@ -15,7 +13,7 @@ Before promoting a release channel, collect:
 - the matching release workflow artifacts for the same commit
 - canary notes covering the rollout scope, success criteria, and any incidents
 
-## Suggested evidence layout
+## Suggested Evidence Layout
 
 Store evidence outside the repo or in an internal release bucket using a layout
 like:
@@ -31,7 +29,7 @@ release-evidence/
     canary-notes.md
 ```
 
-## Benchmark capture
+## Benchmark Capture
 
 Use the benchmark CLI documented in `docs/benchmarking.md` with a real verified
 artifact manifest:
@@ -48,8 +46,8 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
 
 Repeat the same capture on one recent iPhone and one recent Android flagship.
 
-After the benchmark reports, release-artifact manifest, commit, and canary notes
-are assembled in one directory, validate the bundle with:
+After the benchmark reports, release-artifact manifest, commit, and canary
+notes are assembled in one directory, validate the bundle with:
 
 ```sh
 cargo run -p xtask -- evidence-check \
@@ -57,7 +55,7 @@ cargo run -p xtask -- evidence-check \
   --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
 ```
 
-## Canary stages
+## Canary Stages
 
 Use the rollout order from the execution plan:
 
@@ -75,7 +73,7 @@ For each stage, record:
 - whether all preflight/root checks passed
 - any proof failures, signing mismatches, or broadcast issues
 
-## Promotion rule
+## Promotion Rule
 
 Do not promote a channel on build status alone. Promotion should require:
 

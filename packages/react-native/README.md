@@ -1,11 +1,11 @@
 # @0xbow/privacy-pools-sdk
 
-Thin React Native delivery surface for the Rust-first Privacy Pools SDK.
+React Native package for the Privacy Pools SDK.
 
-The JavaScript layer should stay intentionally small and delegate all proving,
-Merkle, recovery, and planning work to native Rust-backed bindings.
+JavaScript stays intentionally small here. Proving, Merkle logic, recovery,
+artifact handling, and transaction planning all run in the native SDK bindings.
 
-Current package status:
+This package:
 
 - `src/index.ts` is a native-module facade only
 - no protocol logic is implemented in JavaScript

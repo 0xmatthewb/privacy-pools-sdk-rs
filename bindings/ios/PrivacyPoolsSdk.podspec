@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
   s.name = "PrivacyPoolsSdk"
   s.version = "0.1.0-alpha.1"
-  s.summary = "Rust-first Privacy Pools SDK for iOS."
+  s.summary = "Privacy Pools SDK for iOS."
   s.description = <<-DESC
-  Generated Swift bindings and packaged Rust FFI artifacts for the Privacy Pools SDK.
+  Generated Swift bindings and packaged native artifacts for the Privacy Pools SDK.
   DESC
   s.homepage = "https://github.com/0xmatthewb/privacy-pools-sdk-rs"
   s.license = { :type => "Apache-2.0" }

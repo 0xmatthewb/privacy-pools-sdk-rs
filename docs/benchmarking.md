@@ -1,7 +1,6 @@
 # Benchmarking
 
-The workspace ships a narrow benchmark entrypoint for the Rust withdraw proving
-path:
+Use `benchmark-withdraw` to measure the SDK's local `withdraw` proving path.
 
 ```sh
 cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
@@ -13,7 +12,7 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --report-json ./dist/withdraw-benchmark.json
 ```
 
-What it measures:
+The benchmark reports:
 
 - artifact resolution time for the verified withdraw bundle
 - cold first-proof latency for the first end-to-end Rust SDK iteration
@@ -28,8 +27,7 @@ What it measures:
 Notes:
 
 - The benchmark uses the checked-in compatibility fixtures for the withdraw
-  witness shape, but it expects a real verified artifact bundle for the
-  `withdraw` circuit.
+  witness shape, but it expects a real verified artifact bundle for `withdraw`.
 - `fixtures/artifacts/sample-proving-manifest.json` is only a structural sample
   and does not contain a real proving key, so it is not suitable for real
   benchmark runs.

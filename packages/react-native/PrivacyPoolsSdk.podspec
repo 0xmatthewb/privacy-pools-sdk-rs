@@ -1,9 +1,9 @@
 Pod::Spec.new do |s|
   s.name = "PrivacyPoolsSdk"
   s.version = "0.1.0-alpha.1"
-  s.summary = "React Native bridge for the Rust-first Privacy Pools SDK."
+  s.summary = "React Native bridge for the Privacy Pools SDK."
   s.description = <<-DESC
-  Thin React Native bridge over the generated Swift bindings and Rust FFI artifacts
+  React Native bridge over the generated Swift bindings and packaged native artifacts
   for the Privacy Pools SDK.
   DESC
   s.homepage = "https://github.com/0xmatthewb/privacy-pools-sdk-rs"

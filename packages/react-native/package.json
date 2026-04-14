@@ -2,7 +2,7 @@
   "name": "@0xbow/privacy-pools-sdk",
   "version": "0.1.0-alpha.1",
   "private": false,
-  "description": "React Native bindings for the Rust-first Privacy Pools SDK",
+  "description": "React Native package for the Privacy Pools SDK",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

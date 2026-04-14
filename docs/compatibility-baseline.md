@@ -4,7 +4,7 @@ This repository targets protocol and wire compatibility with the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` package, with one mandatory semantic fix
 from `0xbow-io/privacy-pools-core#122`.
 
-## Baseline rules
+## Baseline Rules
 
 - Preserve commitment, withdrawal, Merkle, proof-shaping, and calldata behavior
   expected by the deployed contracts and circuits.
@@ -14,9 +14,9 @@ from `0xbow-io/privacy-pools-core#122`.
   SDK account index usage.
 - Do not preserve known SDK bugs or unsafe defaults.
 
-## Mandatory corrections carried forward
+## Mandatory Corrections Carried Forward
 
-### State root semantics
+### State Root Semantics
 
 The Rust SDK must treat the pool state root as:
 
@@ -27,13 +27,13 @@ The Rust SDK must treat the pool state root as:
 This is the behavior proposed in `privacy-pools-core#122`, and it is a required
 baseline even if the upstream TypeScript SDK has not yet released it.
 
-### Unsafe defaults not carried forward
+### Unsafe Defaults Not Carried Forward
 
 - No mutable `latest` artifact resolution in trusted paths
 - No raw private-key-first signing API as the primary SDK experience
 - No ambiguous root helpers that blur pool state roots and ASP roots
 
-## Reference sources
+## Reference Sources
 
 - Local npm bundle:
   `/Users/matthewb/Documents/0xbow/v1 SDK/npm/privacy-pools-core-sdk-1.2.0/package`
