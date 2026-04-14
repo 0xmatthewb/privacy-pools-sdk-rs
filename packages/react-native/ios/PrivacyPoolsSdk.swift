@@ -119,6 +119,21 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(calculateWithdrawalContext:scope:resolver:rejecter:)
+    func calculateWithdrawalContext(
+        withdrawal: [String: Any],
+        scope: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let ffiWithdrawal = try withdrawalRecord(from: withdrawal)
+            resolve(try PrivacyPoolsSdkClient.withdrawalContext(withdrawal: ffiWithdrawal, scope: scope))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(generateMerkleProof:leaf:resolver:rejecter:)
     func generateMerkleProof(
         leaves: [String],
@@ -180,6 +195,39 @@ final class PrivacyPoolsSdk: NSObject {
                 poolAddress: poolAddress
             )
             resolve(rootReadMap(read))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(isCurrentStateRoot:currentRoot:resolver:rejecter:)
+    func isCurrentStateRoot(
+        expectedRoot: String,
+        currentRoot: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.isCurrentStateRoot(
+                expectedRoot: expectedRoot,
+                currentRoot: currentRoot
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(formatGroth16ProofBundle:resolver:rejecter:)
+    func formatGroth16ProofBundle(
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let formatted = try PrivacyPoolsSdkClient.formatGroth16Proof(
+                proof: try proofBundleRecord(from: proof)
+            )
+            resolve(formattedGroth16ProofMap(formatted))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -276,6 +324,21 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func withdrawalRecord(from value: [String: Any]) throws -> FfiWithdrawal {
+        guard let processooor = value["processooor"] as? String else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid withdrawal payload"]
+            )
+        }
+
+        return FfiWithdrawal(
+            processooor: processooor,
+            data: try byteData(from: value["data"], field: "data")
+        )
+    }
+
     private func merkleProofMap(_ proof: FfiMerkleProof) -> [String: Any] {
         [
             "root": proof.root,
@@ -310,6 +373,51 @@ final class PrivacyPoolsSdk: NSObject {
             "siblings": witness.siblings,
             "depth": NSNumber(value: witness.depth),
         ]
+    }
+
+    private func formattedGroth16ProofMap(_ proof: FfiFormattedGroth16Proof) -> [String: Any] {
+        [
+            "p_a": proof.pA,
+            "p_b": proof.pB,
+            "p_c": proof.pC,
+            "pub_signals": proof.pubSignals,
+        ]
+    }
+
+    private func proofBundleRecord(from value: [String: Any]) throws -> FfiProofBundle {
+        guard let proof = value["proof"] as? [String: Any] else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid proof bundle payload"]
+            )
+        }
+
+        return FfiProofBundle(
+            proof: try snarkJsProofRecord(from: proof),
+            publicSignals: try stringArray(from: value["public_signals"], field: "public_signals")
+        )
+    }
+
+    private func snarkJsProofRecord(from value: [String: Any]) throws -> FfiSnarkJsProof {
+        guard
+            let protocolName = value["protocol"] as? String,
+            let curve = value["curve"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid proof payload"]
+            )
+        }
+
+        return FfiSnarkJsProof(
+            piA: try stringArray(from: value["pi_a"], field: "pi_a"),
+            piB: try stringMatrix(from: value["pi_b"], field: "pi_b"),
+            piC: try stringArray(from: value["pi_c"], field: "pi_c"),
+            protocol: protocolName,
+            curve: curve
+        )
     }
 
     private func artifactStatusMap(_ status: FfiArtifactStatus) -> [String: Any] {
@@ -364,6 +472,42 @@ final class PrivacyPoolsSdk: NSObject {
             compatibilityMode: compatibilityMode,
             failClosed: failClosed
         )
+    }
+
+    private func stringArray(from value: Any?, field: String) throws -> [String] {
+        guard let values = value as? [String] else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid \(field) payload"]
+            )
+        }
+
+        return values
+    }
+
+    private func stringMatrix(from value: Any?, field: String) throws -> [[String]] {
+        guard let values = value as? [[String]] else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid \(field) payload"]
+            )
+        }
+
+        return values
+    }
+
+    private func byteData(from value: Any?, field: String) throws -> Data {
+        guard let values = value as? [NSNumber] else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid \(field) payload"]
+            )
+        }
+
+        return Data(values.map(\.uint8Value))
     }
 
     private func rootReadMap(_ read: FfiRootRead) -> [String: String] {

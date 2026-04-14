@@ -12,13 +12,17 @@ import io.oxbow.privacypoolssdk.FfiArtifactStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
 import io.oxbow.privacypoolssdk.FfiCommitment
 import io.oxbow.privacypoolssdk.FfiException
+import io.oxbow.privacypoolssdk.FfiFormattedGroth16Proof
 import io.oxbow.privacypoolssdk.FfiMasterKeys
 import io.oxbow.privacypoolssdk.FfiMerkleProof
 import io.oxbow.privacypoolssdk.FfiPoolEvent
+import io.oxbow.privacypoolssdk.FfiProofBundle
 import io.oxbow.privacypoolssdk.FfiRecoveryCheckpoint
 import io.oxbow.privacypoolssdk.FfiRecoveryPolicy
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
+import io.oxbow.privacypoolssdk.FfiSnarkJsProof
+import io.oxbow.privacypoolssdk.FfiWithdrawal
 import io.oxbow.privacypoolssdk.PrivacyPoolsSdk as NativeSdk
 
 class PrivacyPoolsSdkModule(
@@ -112,6 +116,19 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun calculateWithdrawalContext(withdrawal: ReadableMap, scope: String, promise: Promise) {
+        try {
+            promise.resolve(
+                NativeSdk.withdrawalContext(withdrawalRecord(withdrawal), scope)
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun generateMerkleProof(leaves: ReadableArray, leaf: String, promise: Promise) {
         try {
             promise.resolve(
@@ -158,6 +175,30 @@ class PrivacyPoolsSdkModule(
         try {
             promise.resolve(rootReadMap(NativeSdk.aspRootRead(entrypointAddress, poolAddress)))
         } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun isCurrentStateRoot(expectedRoot: String, currentRoot: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.isCurrentStateRoot(expectedRoot, currentRoot))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun formatGroth16ProofBundle(proof: ReadableMap, promise: Promise) {
+        try {
+            promise.resolve(
+                formattedGroth16ProofMap(
+                    NativeSdk.formatGroth16Proof(proofBundleRecord(proof))
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
             promise.reject("ffi_error", error.message, error)
         }
     }
@@ -247,6 +288,17 @@ class PrivacyPoolsSdkModule(
         putString("secret", commitment.secret)
     }
 
+    private fun withdrawalRecord(withdrawal: ReadableMap): FfiWithdrawal {
+        val processooor =
+            withdrawal.getString("processooor") ?: error("missing processooor in withdrawal")
+        val data = withdrawal.getArray("data") ?: error("missing data in withdrawal")
+
+        return FfiWithdrawal(
+            processooor = processooor,
+            data = readableByteArray(data),
+        )
+    }
+
     private fun merkleProofMap(proof: FfiMerkleProof) = Arguments.createMap().apply {
         putString("root", proof.root)
         putString("leaf", proof.leaf)
@@ -276,6 +328,41 @@ class PrivacyPoolsSdkModule(
             putArray("siblings", Arguments.fromList(witness.siblings))
             putDouble("depth", witness.depth.toDouble())
         }
+
+    private fun formattedGroth16ProofMap(proof: FfiFormattedGroth16Proof) =
+        Arguments.createMap().apply {
+            putArray("p_a", Arguments.fromList(proof.pA))
+            putArray("p_b", stringMatrixArray(proof.pB))
+            putArray("p_c", Arguments.fromList(proof.pC))
+            putArray("pub_signals", Arguments.fromList(proof.pubSignals))
+        }
+
+    private fun proofBundleRecord(proof: ReadableMap): FfiProofBundle {
+        val snarkProof = proof.getMap("proof") ?: error("missing proof in proof bundle")
+        val publicSignals =
+            proof.getArray("public_signals") ?: error("missing public_signals in proof bundle")
+
+        return FfiProofBundle(
+            proof = snarkJsProofRecord(snarkProof),
+            publicSignals = readableStringList(publicSignals),
+        )
+    }
+
+    private fun snarkJsProofRecord(proof: ReadableMap): FfiSnarkJsProof {
+        val piA = proof.getArray("pi_a") ?: error("missing pi_a in proof")
+        val piB = proof.getArray("pi_b") ?: error("missing pi_b in proof")
+        val piC = proof.getArray("pi_c") ?: error("missing pi_c in proof")
+        val protocol = proof.getString("protocol") ?: error("missing protocol in proof")
+        val curve = proof.getString("curve") ?: error("missing curve in proof")
+
+        return FfiSnarkJsProof(
+            piA = readableStringList(piA),
+            piB = readableStringMatrix(piB),
+            piC = readableStringList(piC),
+            protocol = protocol,
+            curve = curve,
+        )
+    }
 
     private fun rootReadMap(read: FfiRootRead) = Arguments.createMap().apply {
         putString("kind", read.kind)
@@ -335,4 +422,18 @@ class PrivacyPoolsSdkModule(
         List(values.size()) { index ->
             values.getString(index) ?: error("expected string at index $index")
         }
+
+    private fun readableStringMatrix(values: ReadableArray): List<List<String>> =
+        List(values.size()) { index ->
+            readableStringList(values.getArray(index) ?: error("expected string array at index $index"))
+        }
+
+    private fun readableByteArray(values: ReadableArray): ByteArray =
+        ByteArray(values.size()) { index ->
+            values.getInt(index).toByte()
+        }
+
+    private fun stringMatrixArray(values: List<List<String>>) = Arguments.createArray().apply {
+        values.forEach { row -> pushArray(Arguments.fromList(row)) }
+    }
 }

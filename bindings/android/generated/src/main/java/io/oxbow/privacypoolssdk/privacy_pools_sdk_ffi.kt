@@ -306,7 +306,7 @@ internal inline fun<T, reified E: Throwable> uniffiTraitInterfaceCallWithError(
         }
     }
 }
-// Initial value and increment amount for handles. 
+// Initial value and increment amount for handles.
 // These ensure that Kotlin-generated handles always have the lowest bit set
 private const val UNIFFI_HANDLEMAP_INITIAL = 1.toLong()
 private const val UNIFFI_HANDLEMAP_DELTA = 2.toLong()
@@ -316,7 +316,7 @@ private const val UNIFFI_HANDLEMAP_DELTA = 2.toLong()
 // This is used pass an opaque 64-bit handle representing a foreign object to the Rust code.
 internal class UniffiHandleMap<T: Any> {
     private val map = ConcurrentHashMap<Long, T>()
-    // Start 
+    // Start
     private val counter = java.util.concurrent.atomic.AtomicLong(UNIFFI_HANDLEMAP_INITIAL)
 
     val size: Int
@@ -637,6 +637,8 @@ internal object IntegrityCheckingUniffiLib {
     }
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets(
@@ -646,6 +648,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
     ): Short
@@ -657,6 +661,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_version(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_is_current_state_root(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_asp_root_read(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read(
@@ -666,51 +672,57 @@ internal object IntegrityCheckingUniffiLib {
     external fun ffi_privacy_pools_sdk_ffi_uniffi_contract_version(
     ): Int
 
-        
+
 }
 
 internal object UniffiLib {
-    
+
 
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "privacy_pools_sdk_ffi"))
-        
+
     }
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(`proof`: RustBuffer.ByValue,`depth`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(`proof`: RustBuffer.ByValue,`depth`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(`withdrawal`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus,
     ): Byte
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_version(uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_version(uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_is_current_state_root(`expectedRoot`: RustBuffer.ByValue,`currentRoot`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): Byte
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -718,7 +730,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u8(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Byte
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -726,7 +738,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i8(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Byte
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -734,7 +746,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u16(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Short
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -742,7 +754,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i16(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Short
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -750,7 +762,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u32(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Int
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -758,7 +770,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i32(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Int
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -766,7 +778,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u64(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Long
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -774,7 +786,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i64(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Long
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -782,7 +794,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f32(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Float
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -790,7 +802,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f64(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Double
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -798,7 +810,7 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_rust_buffer(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
     ): Unit
@@ -806,10 +818,10 @@ internal object UniffiLib {
     ): Unit
     external fun ffi_privacy_pools_sdk_ffi_rust_future_free_void(`handle`: Long,
     ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
-        
+
 }
 
 private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
@@ -824,6 +836,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901.toShort()) {
@@ -841,6 +856,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -854,6 +872,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_version() != 46430.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_is_current_state_root() != 43197.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_asp_root_read() != 33713.toShort()) {
@@ -940,7 +961,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
-/** 
+/**
  * Placeholder object used to signal that we're constructing an interface with a FFI handle.
  *
  * This is the first argument for interface constructors that input a raw handle. It exists is that
@@ -951,7 +972,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
  * */
 object UniffiWithHandle
 
-/** 
+/**
  * Used to instantiate an interface without an actual pointer, for fakes in tests, mostly.
  *
  * @suppress
@@ -1084,25 +1105,25 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 
 data class FfiArtifactStatus (
     var `version`: kotlin.String
-    , 
+    ,
     var `circuit`: kotlin.String
-    , 
+    ,
     var `kind`: kotlin.String
-    , 
+    ,
     var `filename`: kotlin.String
-    , 
+    ,
     var `path`: kotlin.String
-    , 
+    ,
     var `exists`: kotlin.Boolean
-    , 
+    ,
     var `verified`: kotlin.Boolean
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1147,19 +1168,19 @@ public object FfiConverterTypeFfiArtifactStatus: FfiConverterRustBuffer<FfiArtif
 
 data class FfiArtifactVerification (
     var `version`: kotlin.String
-    , 
+    ,
     var `circuit`: kotlin.String
-    , 
+    ,
     var `kind`: kotlin.String
-    , 
+    ,
     var `filename`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1195,21 +1216,21 @@ public object FfiConverterTypeFfiArtifactVerification: FfiConverterRustBuffer<Ff
 
 data class FfiCircuitMerkleWitness (
     var `root`: kotlin.String
-    , 
+    ,
     var `leaf`: kotlin.String
-    , 
+    ,
     var `index`: kotlin.ULong
-    , 
+    ,
     var `siblings`: List<kotlin.String>
-    , 
+    ,
     var `depth`: kotlin.ULong
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1248,25 +1269,25 @@ public object FfiConverterTypeFfiCircuitMerkleWitness: FfiConverterRustBuffer<Ff
 
 data class FfiCommitment (
     var `hash`: kotlin.String
-    , 
+    ,
     var `nullifierHash`: kotlin.String
-    , 
+    ,
     var `precommitmentHash`: kotlin.String
-    , 
+    ,
     var `value`: kotlin.String
-    , 
+    ,
     var `label`: kotlin.String
-    , 
+    ,
     var `nullifier`: kotlin.String
-    , 
+    ,
     var `secret`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1309,17 +1330,65 @@ public object FfiConverterTypeFfiCommitment: FfiConverterRustBuffer<FfiCommitmen
 
 
 
+data class FfiFormattedGroth16Proof (
+    var `pA`: List<kotlin.String>
+    ,
+    var `pB`: List<List<kotlin.String>>
+    ,
+    var `pC`: List<kotlin.String>
+    ,
+    var `pubSignals`: List<kotlin.String>
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiFormattedGroth16Proof: FfiConverterRustBuffer<FfiFormattedGroth16Proof> {
+    override fun read(buf: ByteBuffer): FfiFormattedGroth16Proof {
+        return FfiFormattedGroth16Proof(
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiFormattedGroth16Proof) = (
+            FfiConverterSequenceString.allocationSize(value.`pA`) +
+            FfiConverterSequenceSequenceString.allocationSize(value.`pB`) +
+            FfiConverterSequenceString.allocationSize(value.`pC`) +
+            FfiConverterSequenceString.allocationSize(value.`pubSignals`)
+    )
+
+    override fun write(value: FfiFormattedGroth16Proof, buf: ByteBuffer) {
+            FfiConverterSequenceString.write(value.`pA`, buf)
+            FfiConverterSequenceSequenceString.write(value.`pB`, buf)
+            FfiConverterSequenceString.write(value.`pC`, buf)
+            FfiConverterSequenceString.write(value.`pubSignals`, buf)
+    }
+}
+
+
+
 data class FfiMasterKeys (
     var `masterNullifier`: kotlin.String
-    , 
+    ,
     var `masterSecret`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1349,19 +1418,19 @@ public object FfiConverterTypeFfiMasterKeys: FfiConverterRustBuffer<FfiMasterKey
 
 data class FfiMerkleProof (
     var `root`: kotlin.String
-    , 
+    ,
     var `leaf`: kotlin.String
-    , 
+    ,
     var `index`: kotlin.ULong
-    , 
+    ,
     var `siblings`: List<kotlin.String>
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1397,21 +1466,21 @@ public object FfiConverterTypeFfiMerkleProof: FfiConverterRustBuffer<FfiMerklePr
 
 data class FfiPoolEvent (
     var `blockNumber`: kotlin.ULong
-    , 
+    ,
     var `transactionIndex`: kotlin.ULong
-    , 
+    ,
     var `logIndex`: kotlin.ULong
-    , 
+    ,
     var `poolAddress`: kotlin.String
-    , 
+    ,
     var `commitmentHash`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1448,17 +1517,55 @@ public object FfiConverterTypeFfiPoolEvent: FfiConverterRustBuffer<FfiPoolEvent>
 
 
 
+data class FfiProofBundle (
+    var `proof`: FfiSnarkJsProof
+    ,
+    var `publicSignals`: List<kotlin.String>
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiProofBundle: FfiConverterRustBuffer<FfiProofBundle> {
+    override fun read(buf: ByteBuffer): FfiProofBundle {
+        return FfiProofBundle(
+            FfiConverterTypeFfiSnarkJsProof.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiProofBundle) = (
+            FfiConverterTypeFfiSnarkJsProof.allocationSize(value.`proof`) +
+            FfiConverterSequenceString.allocationSize(value.`publicSignals`)
+    )
+
+    override fun write(value: FfiProofBundle, buf: ByteBuffer) {
+            FfiConverterTypeFfiSnarkJsProof.write(value.`proof`, buf)
+            FfiConverterSequenceString.write(value.`publicSignals`, buf)
+    }
+}
+
+
+
 data class FfiRecoveryCheckpoint (
     var `latestBlock`: kotlin.ULong
-    , 
+    ,
     var `commitmentsSeen`: kotlin.ULong
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1488,15 +1595,15 @@ public object FfiConverterTypeFfiRecoveryCheckpoint: FfiConverterRustBuffer<FfiR
 
 data class FfiRecoveryPolicy (
     var `compatibilityMode`: kotlin.String
-    , 
+    ,
     var `failClosed`: kotlin.Boolean
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1526,19 +1633,19 @@ public object FfiConverterTypeFfiRecoveryPolicy: FfiConverterRustBuffer<FfiRecov
 
 data class FfiRootRead (
     var `kind`: kotlin.String
-    , 
+    ,
     var `contractAddress`: kotlin.String
-    , 
+    ,
     var `poolAddress`: kotlin.String
-    , 
+    ,
     var `callData`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1574,15 +1681,15 @@ public object FfiConverterTypeFfiRootRead: FfiConverterRustBuffer<FfiRootRead> {
 
 data class FfiSecrets (
     var `nullifier`: kotlin.String
-    , 
+    ,
     var `secret`: kotlin.String
-    
+
 ){
-    
 
-    
 
-    
+
+
+
     companion object
 }
 
@@ -1610,67 +1717,166 @@ public object FfiConverterTypeFfiSecrets: FfiConverterRustBuffer<FfiSecrets> {
 
 
 
+data class FfiSnarkJsProof (
+    var `piA`: List<kotlin.String>
+    ,
+    var `piB`: List<List<kotlin.String>>
+    ,
+    var `piC`: List<kotlin.String>
+    ,
+    var `protocol`: kotlin.String
+    ,
+    var `curve`: kotlin.String
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSnarkJsProof: FfiConverterRustBuffer<FfiSnarkJsProof> {
+    override fun read(buf: ByteBuffer): FfiSnarkJsProof {
+        return FfiSnarkJsProof(
+            FfiConverterSequenceString.read(buf),
+            FfiConverterSequenceSequenceString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSnarkJsProof) = (
+            FfiConverterSequenceString.allocationSize(value.`piA`) +
+            FfiConverterSequenceSequenceString.allocationSize(value.`piB`) +
+            FfiConverterSequenceString.allocationSize(value.`piC`) +
+            FfiConverterString.allocationSize(value.`protocol`) +
+            FfiConverterString.allocationSize(value.`curve`)
+    )
+
+    override fun write(value: FfiSnarkJsProof, buf: ByteBuffer) {
+            FfiConverterSequenceString.write(value.`piA`, buf)
+            FfiConverterSequenceSequenceString.write(value.`piB`, buf)
+            FfiConverterSequenceString.write(value.`piC`, buf)
+            FfiConverterString.write(value.`protocol`, buf)
+            FfiConverterString.write(value.`curve`, buf)
+    }
+}
+
+
+
+data class FfiWithdrawal (
+    var `processooor`: kotlin.String
+    ,
+    var `data`: kotlin.ByteArray
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWithdrawal: FfiConverterRustBuffer<FfiWithdrawal> {
+    override fun read(buf: ByteBuffer): FfiWithdrawal {
+        return FfiWithdrawal(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWithdrawal) = (
+            FfiConverterString.allocationSize(value.`processooor`) +
+            FfiConverterByteArray.allocationSize(value.`data`)
+    )
+
+    override fun write(value: FfiWithdrawal, buf: ByteBuffer) {
+            FfiConverterString.write(value.`processooor`, buf)
+            FfiConverterByteArray.write(value.`data`, buf)
+    }
+}
+
+
+
 
 
 sealed class FfiException: kotlin.Exception() {
-    
-    class InvalidAddress(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
-    class InvalidField(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
-    class InvalidArtifactKind(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
-    class InvalidCompatibilityMode(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
-    class InvalidManifest(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
-    class OperationFailed(
-        
-        val v1: kotlin.String
-        ) : FfiException() {
-        override val message
-            get() = "v1=${ v1 }"
-    }
-    
 
-    
+    class InvalidAddress(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidField(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidProofShape(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidArtifactKind(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidCompatibilityMode(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidManifest(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class OperationFailed(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+
+
 
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<FfiException> {
         override fun lift(error_buf: RustBuffer.ByValue): FfiException = FfiConverterTypeFfiError.lift(error_buf)
     }
 
-    
+
 }
 
 /**
@@ -1678,7 +1884,7 @@ sealed class FfiException: kotlin.Exception() {
  */
 public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
     override fun read(buf: ByteBuffer): FfiException {
-        
+
 
         return when(buf.getInt()) {
             1 -> FfiException.InvalidAddress(
@@ -1687,16 +1893,19 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             2 -> FfiException.InvalidField(
                 FfiConverterString.read(buf),
                 )
-            3 -> FfiException.InvalidArtifactKind(
+            3 -> FfiException.InvalidProofShape(
                 FfiConverterString.read(buf),
                 )
-            4 -> FfiException.InvalidCompatibilityMode(
+            4 -> FfiException.InvalidArtifactKind(
                 FfiConverterString.read(buf),
                 )
-            5 -> FfiException.InvalidManifest(
+            5 -> FfiException.InvalidCompatibilityMode(
                 FfiConverterString.read(buf),
                 )
-            6 -> FfiException.OperationFailed(
+            6 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            7 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -1711,6 +1920,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidField -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidProofShape -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -1750,23 +1964,28 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidArtifactKind -> {
+            is FfiException.InvalidProofShape -> {
                 buf.putInt(3)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidCompatibilityMode -> {
+            is FfiException.InvalidArtifactKind -> {
                 buf.putInt(4)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.InvalidCompatibilityMode -> {
                 buf.putInt(5)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(6)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(7)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
@@ -1858,156 +2077,217 @@ public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<
         }
     }
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<List<kotlin.String>>> {
+    override fun read(buf: ByteBuffer): List<List<kotlin.String>> {
+        val len = buf.getInt()
+        return List<List<kotlin.String>>(len) {
+            FfiConverterSequenceString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<List<kotlin.String>>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterSequenceString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<List<kotlin.String>>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterSequenceString.write(it, buf)
+        }
+    }
+}
     @Throws(FfiException::class) fun `buildCircuitMerkleWitness`(`proof`: FfiMerkleProof, `depth`: kotlin.ULong): FfiCircuitMerkleWitness {
             return FfiConverterTypeFfiCircuitMerkleWitness.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(
-    
+
         FfiConverterTypeFfiMerkleProof.lower(`proof`),FfiConverterULong.lower(`depth`),_status)
 }
     )
     }
-    
+
+
+    @Throws(FfiException::class) fun `calculateWithdrawalContext`(`withdrawal`: FfiWithdrawal, `scope`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(
+
+        FfiConverterTypeFfiWithdrawal.lower(`withdrawal`),FfiConverterString.lower(`scope`),_status)
+}
+    )
+    }
+
 
     @Throws(FfiException::class) fun `checkpointRecovery`(`events`: List<FfiPoolEvent>, `policy`: FfiRecoveryPolicy): FfiRecoveryCheckpoint {
             return FfiConverterTypeFfiRecoveryCheckpoint.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(
-    
+
         FfiConverterSequenceTypeFfiPoolEvent.lower(`events`),FfiConverterTypeFfiRecoveryPolicy.lower(`policy`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `deriveDepositSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `scope`: kotlin.String, `index`: kotlin.String): FfiSecrets {
             return FfiConverterTypeFfiSecrets.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
-    
+
         FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`scope`),FfiConverterString.lower(`index`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `deriveMasterKeys`(`mnemonic`: kotlin.String): FfiMasterKeys {
             return FfiConverterTypeFfiMasterKeys.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(
-    
+
         FfiConverterString.lower(`mnemonic`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `deriveWithdrawalSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `label`: kotlin.String, `index`: kotlin.String): FfiSecrets {
             return FfiConverterTypeFfiSecrets.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
-    
+
         FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`label`),FfiConverterString.lower(`index`),_status)
 }
     )
     }
-    
+
  fun `fastBackendSupportedOnTarget`(): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(
-    
+
         _status)
 }
     )
     }
-    
+
+
+    @Throws(FfiException::class) fun `formatGroth16ProofBundle`(`proof`: FfiProofBundle): FfiFormattedGroth16Proof {
+            return FfiConverterTypeFfiFormattedGroth16Proof.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(
+
+        FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
+}
+    )
+    }
+
 
     @Throws(FfiException::class) fun `generateMerkleProof`(`leaves`: List<kotlin.String>, `leaf`: kotlin.String): FfiMerkleProof {
             return FfiConverterTypeFfiMerkleProof.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
-    
+
         FfiConverterSequenceString.lower(`leaves`),FfiConverterString.lower(`leaf`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `getArtifactStatuses`(`manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `circuit`: kotlin.String): List<FfiArtifactStatus> {
             return FfiConverterSequenceTypeFfiArtifactStatus.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(
-    
+
         FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`circuit`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `getCommitment`(`value`: kotlin.String, `label`: kotlin.String, `nullifier`: kotlin.String, `secret`: kotlin.String): FfiCommitment {
             return FfiConverterTypeFfiCommitment.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(
-    
+
         FfiConverterString.lower(`value`),FfiConverterString.lower(`label`),FfiConverterString.lower(`nullifier`),FfiConverterString.lower(`secret`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `getStableBackendName`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(
-    
+
         _status)
 }
     )
     }
-    
+
  fun `getVersion`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_version(
-    
+
         _status)
 }
     )
     }
-    
+
+
+    @Throws(FfiException::class) fun `isCurrentStateRoot`(`expectedRoot`: kotlin.String, `currentRoot`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_is_current_state_root(
+
+        FfiConverterString.lower(`expectedRoot`),FfiConverterString.lower(`currentRoot`),_status)
+}
+    )
+    }
+
 
     @Throws(FfiException::class) fun `planAspRootRead`(`entrypointAddress`: kotlin.String, `poolAddress`: kotlin.String): FfiRootRead {
             return FfiConverterTypeFfiRootRead.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(
-    
+
         FfiConverterString.lower(`entrypointAddress`),FfiConverterString.lower(`poolAddress`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `planPoolStateRootRead`(`poolAddress`: kotlin.String): FfiRootRead {
             return FfiConverterTypeFfiRootRead.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(
-    
+
         FfiConverterString.lower(`poolAddress`),_status)
 }
     )
     }
-    
+
 
     @Throws(FfiException::class) fun `verifyArtifactBytes`(`manifestJson`: kotlin.String, `circuit`: kotlin.String, `kind`: kotlin.String, `bytes`: kotlin.ByteArray): FfiArtifactVerification {
             return FfiConverterTypeFfiArtifactVerification.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(
-    
+
         FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`circuit`),FfiConverterString.lower(`kind`),FfiConverterByteArray.lower(`bytes`),_status)
 }
     )
     }
-    
+
 
 

@@ -125,6 +125,10 @@ impl PrivacyPoolsSdk {
         chain::asp_root_read(entrypoint_address, pool_address)
     }
 
+    pub fn is_current_state_root(&self, expected_root: U256, current_root: U256) -> bool {
+        chain::is_current_state_root(expected_root, current_root)
+    }
+
     pub fn format_groth16_proof(
         &self,
         proof: &core::ProofBundle,

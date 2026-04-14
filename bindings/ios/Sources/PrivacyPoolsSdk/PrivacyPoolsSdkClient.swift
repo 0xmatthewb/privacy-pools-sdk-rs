@@ -59,6 +59,13 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func withdrawalContext(
+        withdrawal: FfiWithdrawal,
+        scope: String,
+    ) throws -> String {
+        try calculateWithdrawalContext(withdrawal: withdrawal, scope: scope)
+    }
+
     public static func merkleProof(
         leaves: [String],
         leaf: String,
@@ -87,6 +94,22 @@ public enum PrivacyPoolsSdkClient {
             entrypointAddress: entrypointAddress,
             poolAddress: poolAddress
         )
+    }
+
+    public static func isCurrentStateRoot(
+        expectedRoot: String,
+        currentRoot: String,
+    ) throws -> Bool {
+        try PrivacyPoolsSdk.isCurrentStateRoot(
+            expectedRoot: expectedRoot,
+            currentRoot: currentRoot
+        )
+    }
+
+    public static func formatGroth16Proof(
+        proof: FfiProofBundle,
+    ) throws -> FfiFormattedGroth16Proof {
+        try formatGroth16ProofBundle(proof: proof)
     }
 
     public static func verifyArtifactDescriptorBytes(

@@ -2,7 +2,10 @@ use alloy_primitives::{Address, U256};
 use privacy_pools_sdk::{
     PrivacyPoolsSdk,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus},
-    core::{CircuitMerkleWitness, MasterKeys, MerkleProof, RootReadKind},
+    core::{
+        CircuitMerkleWitness, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
+        RootReadKind, SnarkJsProof, Withdrawal,
+    },
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
 use std::{path::PathBuf, str::FromStr};
@@ -13,6 +16,8 @@ pub enum FfiError {
     InvalidAddress(String),
     #[error("invalid field element: {0}")]
     InvalidField(String),
+    #[error("invalid proof shape: {0}")]
+    InvalidProofShape(String),
     #[error("invalid artifact kind: {0}")]
     InvalidArtifactKind(String),
     #[error("invalid compatibility mode: {0}")]
@@ -44,6 +49,35 @@ pub struct FfiCommitment {
     pub label: String,
     pub nullifier: String,
     pub secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiWithdrawal {
+    pub processooor: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiSnarkJsProof {
+    pub pi_a: Vec<String>,
+    pub pi_b: Vec<Vec<String>>,
+    pub pi_c: Vec<String>,
+    pub protocol: String,
+    pub curve: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiProofBundle {
+    pub proof: FfiSnarkJsProof,
+    pub public_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiFormattedGroth16Proof {
+    pub p_a: Vec<String>,
+    pub p_b: Vec<Vec<String>>,
+    pub p_c: Vec<String>,
+    pub pub_signals: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -147,6 +181,29 @@ fn to_master_keys(master_nullifier: &str, master_secret: &str) -> Result<MasterK
     })
 }
 
+fn validate_pair(values: Vec<String>, label: &str) -> Result<[String; 2], FfiError> {
+    values.try_into().map_err(|values: Vec<String>| {
+        FfiError::InvalidProofShape(format!(
+            "{label} must have exactly 2 elements, got {}",
+            values.len()
+        ))
+    })
+}
+
+fn validate_pair_rows(values: Vec<Vec<String>>, label: &str) -> Result<[[String; 2]; 2], FfiError> {
+    let rows: Vec<[String; 2]> = values
+        .into_iter()
+        .map(|row| validate_pair(row, label))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    rows.try_into().map_err(|rows: Vec<[String; 2]>| {
+        FfiError::InvalidProofShape(format!(
+            "{label} must have exactly 2 rows, got {}",
+            rows.len()
+        ))
+    })
+}
+
 fn root_read_kind_label(kind: RootReadKind) -> String {
     match kind {
         RootReadKind::PoolState => "pool_state".to_owned(),
@@ -197,6 +254,39 @@ fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiComm
         nullifier: field_label(commitment.preimage.precommitment.nullifier),
         secret: field_label(commitment.preimage.precommitment.secret),
     }
+}
+
+fn to_ffi_formatted_groth16_proof(proof: FormattedGroth16Proof) -> FfiFormattedGroth16Proof {
+    FfiFormattedGroth16Proof {
+        p_a: proof.p_a.into_iter().collect(),
+        p_b: proof
+            .p_b
+            .into_iter()
+            .map(|row| row.into_iter().collect())
+            .collect(),
+        p_c: proof.p_c.into_iter().collect(),
+        pub_signals: proof.pub_signals,
+    }
+}
+
+fn from_ffi_withdrawal(withdrawal: FfiWithdrawal) -> Result<Withdrawal, FfiError> {
+    Ok(Withdrawal {
+        processooor: parse_address(&withdrawal.processooor)?,
+        data: withdrawal.data.into(),
+    })
+}
+
+fn from_ffi_proof_bundle(bundle: FfiProofBundle) -> Result<ProofBundle, FfiError> {
+    Ok(ProofBundle {
+        proof: SnarkJsProof {
+            pi_a: validate_pair(bundle.proof.pi_a, "pi_a")?,
+            pi_b: validate_pair_rows(bundle.proof.pi_b, "pi_b")?,
+            pi_c: validate_pair(bundle.proof.pi_c, "pi_c")?,
+            protocol: bundle.proof.protocol,
+            curve: bundle.proof.curve,
+        },
+        public_signals: bundle.public_signals,
+    })
 }
 
 fn to_ffi_merkle_proof(proof: MerkleProof) -> Result<FfiMerkleProof, FfiError> {
@@ -328,6 +418,16 @@ pub fn derive_deposit_secrets(
 }
 
 #[uniffi::export]
+pub fn calculate_withdrawal_context(
+    withdrawal: FfiWithdrawal,
+    scope: String,
+) -> Result<String, FfiError> {
+    sdk()
+        .calculate_context(&from_ffi_withdrawal(withdrawal)?, parse_field(&scope)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
 pub fn derive_withdrawal_secrets(
     master_nullifier: String,
     master_secret: String,
@@ -394,6 +494,14 @@ pub fn build_circuit_merkle_witness(
 }
 
 #[uniffi::export]
+pub fn is_current_state_root(
+    expected_root: String,
+    current_root: String,
+) -> Result<bool, FfiError> {
+    Ok(sdk().is_current_state_root(parse_field(&expected_root)?, parse_field(&current_root)?))
+}
+
+#[uniffi::export]
 pub fn plan_pool_state_root_read(pool_address: String) -> Result<FfiRootRead, FfiError> {
     let pool_address = parse_address(&pool_address)?;
     Ok(to_ffi_root_read(
@@ -412,6 +520,17 @@ pub fn plan_asp_root_read(
     Ok(to_ffi_root_read(
         sdk().plan_asp_root_read(entrypoint_address, pool_address),
     ))
+}
+
+#[uniffi::export]
+pub fn format_groth16_proof_bundle(
+    proof: FfiProofBundle,
+) -> Result<FfiFormattedGroth16Proof, FfiError> {
+    let formatted = sdk()
+        .format_groth16_proof(&from_ffi_proof_bundle(proof)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_formatted_groth16_proof(formatted))
 }
 
 #[uniffi::export]
@@ -569,6 +688,16 @@ mod tests {
             witness.siblings.len(),
             privacy_pools_sdk::tree::DEFAULT_CIRCUIT_DEPTH
         );
+
+        let context = calculate_withdrawal_context(
+            FfiWithdrawal {
+                processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+                data: vec![0x12, 0x34],
+            },
+            fixture["scope"].as_str().unwrap().to_owned(),
+        )
+        .unwrap();
+        assert_eq!(context, fixture["context"].as_str().unwrap());
     }
 
     #[test]
@@ -613,6 +742,8 @@ mod tests {
 
         assert_eq!(checkpoint.latest_block, 18);
         assert_eq!(checkpoint.commitments_seen, 2);
+        assert!(is_current_state_root("12".to_owned(), "12".to_owned()).unwrap());
+        assert!(!is_current_state_root("12".to_owned(), "18".to_owned()).unwrap());
     }
 
     #[test]
@@ -652,5 +783,45 @@ mod tests {
         assert_eq!(statuses[1].kind, "zkey");
         assert!(!statuses[1].exists);
         assert!(!statuses[1].verified);
+    }
+
+    #[test]
+    fn ffi_formats_groth16_proofs() {
+        let formatted = format_groth16_proof_bundle(FfiProofBundle {
+            proof: FfiSnarkJsProof {
+                pi_a: vec!["123".to_owned(), "123".to_owned()],
+                pi_b: vec![
+                    vec!["69".to_owned(), "123".to_owned()],
+                    vec!["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: vec!["12".to_owned(), "828".to_owned()],
+                protocol: "milady".to_owned(),
+                curve: "nsa-definitely-non-backdoored-curve-69".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 6],
+        })
+        .unwrap();
+
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/proof-formatting.json"
+        ))
+        .unwrap();
+
+        assert_eq!(
+            formatted.p_a[0],
+            fixture["expected"]["pA"][0].as_str().unwrap()
+        );
+        assert_eq!(
+            formatted.p_b[0][0],
+            fixture["expected"]["pB"][0][0].as_str().unwrap()
+        );
+        assert_eq!(
+            formatted.p_c[1],
+            fixture["expected"]["pC"][1].as_str().unwrap()
+        );
+        assert_eq!(
+            formatted.pub_signals[0],
+            fixture["expected"]["pubSignals"][0].as_str().unwrap()
+        );
     }
 }

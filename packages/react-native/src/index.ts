@@ -27,6 +27,31 @@ type Commitment = {
   secret: string;
 };
 
+type Withdrawal = {
+  processooor: string;
+  data: number[];
+};
+
+type SnarkJsProof = {
+  pi_a: string[];
+  pi_b: string[][];
+  pi_c: string[];
+  protocol: string;
+  curve: string;
+};
+
+type ProofBundle = {
+  proof: SnarkJsProof;
+  public_signals: string[];
+};
+
+type FormattedGroth16Proof = {
+  p_a: string[];
+  p_b: string[][];
+  p_c: string[];
+  pub_signals: string[];
+};
+
 type ArtifactVerification = {
   version: string;
   circuit: string;
@@ -100,6 +125,10 @@ export type NativePrivacyPoolsSdkModule = {
     nullifier: string,
     secret: string,
   ): Promise<Commitment>;
+  calculateWithdrawalContext(
+    withdrawal: Withdrawal,
+    scope: string,
+  ): Promise<string>;
   generateMerkleProof(leaves: string[], leaf: string): Promise<MerkleProof>;
   buildCircuitMerkleWitness(
     proof: MerkleProof,
@@ -107,6 +136,10 @@ export type NativePrivacyPoolsSdkModule = {
   ): Promise<CircuitMerkleWitness>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
+  isCurrentStateRoot(expectedRoot: string, currentRoot: string): Promise<boolean>;
+  formatGroth16ProofBundle(
+    proof: ProofBundle,
+  ): Promise<FormattedGroth16Proof>;
   verifyArtifactBytes(
     manifestJson: string,
     circuit: string,
@@ -188,6 +221,12 @@ export const getCommitment = (
 ): Promise<Commitment> =>
   requireNativeModule().getCommitment(value, label, nullifier, secret);
 
+export const calculateWithdrawalContext = (
+  withdrawal: Withdrawal,
+  scope: string,
+): Promise<string> =>
+  requireNativeModule().calculateWithdrawalContext(withdrawal, scope);
+
 export const generateMerkleProof = (
   leaves: string[],
   leaf: string,
@@ -207,6 +246,17 @@ export const planAspRootRead = (
   poolAddress: string,
 ): Promise<RootRead> =>
   requireNativeModule().planAspRootRead(entrypointAddress, poolAddress);
+
+export const isCurrentStateRoot = (
+  expectedRoot: string,
+  currentRoot: string,
+): Promise<boolean> =>
+  requireNativeModule().isCurrentStateRoot(expectedRoot, currentRoot);
+
+export const formatGroth16ProofBundle = (
+  proof: ProofBundle,
+): Promise<FormattedGroth16Proof> =>
+  requireNativeModule().formatGroth16ProofBundle(proof);
 
 export const verifyArtifactBytes = (
   manifestJson: string,

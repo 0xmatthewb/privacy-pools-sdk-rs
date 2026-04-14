@@ -36,6 +36,11 @@ RCT_EXTERN_METHOD(getCommitment:(NSString *)value
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(calculateWithdrawalContext:(NSDictionary *)withdrawal
+                  scope:(NSString *)scope
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(generateMerkleProof:(NSArray<NSString *> *)leaves
                   leaf:(NSString *)leaf
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -52,6 +57,15 @@ RCT_EXTERN_METHOD(planPoolStateRootRead:(NSString *)poolAddress
 
 RCT_EXTERN_METHOD(planAspRootRead:(NSString *)entrypointAddress
                   poolAddress:(NSString *)poolAddress
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(isCurrentStateRoot:(NSString *)expectedRoot
+                  currentRoot:(NSString *)currentRoot
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(formatGroth16ProofBundle:(NSDictionary *)proof
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
