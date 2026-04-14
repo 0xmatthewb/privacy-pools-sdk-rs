@@ -48,6 +48,15 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
 
 Repeat the same capture on one recent iPhone and one recent Android flagship.
 
+After the benchmark reports, release-artifact manifest, commit, and canary notes
+are assembled in one directory, validate the bundle with:
+
+```sh
+cargo run -p xtask -- evidence-check \
+  --channel alpha \
+  --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
+```
+
 ## Canary stages
 
 Use the rollout order from the execution plan:

@@ -21,6 +21,7 @@ fn run() -> Result<()> {
         Some("react-native-package") => stage_react_native_package(args.collect()),
         Some("react-native-smoke") => react_native_smoke(),
         Some("release-check") => release_check(args.collect()),
+        Some("evidence-check") => evidence_check(args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
             Ok(())
@@ -46,6 +47,10 @@ fn print_help() {
     );
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
+    println!("  evidence-check   validate release evidence for a channel");
+    println!(
+        "                   flags: --channel alpha|beta|rc|stable --dir <path> [--backend stable|fast]"
+    );
 }
 
 fn generate_bindings(release: bool) -> Result<()> {
@@ -534,6 +539,61 @@ fn release_check(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+fn evidence_check(args: Vec<String>) -> Result<()> {
+    let options = EvidenceCheckOptions::parse(args)?;
+
+    ensure!(
+        options.dir.exists(),
+        "evidence directory does not exist: {}",
+        options.dir
+    );
+    ensure!(
+        options.dir.is_dir(),
+        "evidence path is not a directory: {}",
+        options.dir
+    );
+
+    let commit = read_required_text_file(&options.dir.join("commit.txt"))?;
+    ensure!(
+        is_hex_commit(&commit),
+        "commit.txt must contain a short or full hex git commit, found `{commit}`"
+    );
+
+    let release_artifacts = read_required_text_file(&options.dir.join("release-artifacts.txt"))?;
+    ensure!(
+        !release_artifacts.is_empty(),
+        "release-artifacts.txt must not be empty"
+    );
+
+    let canary_notes = read_required_text_file(&options.dir.join("canary-notes.md"))?;
+    ensure!(
+        !canary_notes.is_empty(),
+        "canary-notes.md must not be empty"
+    );
+
+    let expected_backend_profile = options.backend.report_label();
+    for device in ["desktop", "ios", "android"] {
+        let report_path = options.dir.join(format!(
+            "{}-withdraw-{}.json",
+            device,
+            options.backend.as_str()
+        ));
+        validate_benchmark_report(
+            &report_path,
+            expected_backend_profile,
+            options.backend.as_str(),
+        )
+        .with_context(|| format!("invalid benchmark report for {device}"))?;
+    }
+
+    println!("evidence-check ok");
+    println!("channel: {}", options.channel.as_str());
+    println!("backend: {}", options.backend.as_str());
+    println!("commit: {commit}");
+    println!("evidence directory: {}", options.dir);
+    Ok(())
+}
+
 fn cdylib_filename() -> &'static str {
     if cfg!(target_os = "macos") {
         "libprivacy_pools_sdk_ffi.dylib"
@@ -652,6 +712,79 @@ impl ReleaseCheckOptions {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum BenchmarkBackendProfile {
+    Stable,
+    Fast,
+}
+
+impl BenchmarkBackendProfile {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "stable" => Ok(Self::Stable),
+            "fast" => Ok(Self::Fast),
+            other => bail!("unsupported benchmark backend: {other}"),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Stable => "stable",
+            Self::Fast => "fast",
+        }
+    }
+
+    fn report_label(self) -> &'static str {
+        match self {
+            Self::Stable => "Stable",
+            Self::Fast => "Fast",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct EvidenceCheckOptions {
+    channel: ReleaseChannel,
+    dir: Utf8PathBuf,
+    backend: BenchmarkBackendProfile,
+}
+
+impl EvidenceCheckOptions {
+    fn parse(args: Vec<String>) -> Result<Self> {
+        let mut channel = None;
+        let mut dir = None;
+        let mut backend = BenchmarkBackendProfile::Stable;
+        let mut iter = args.into_iter();
+
+        while let Some(flag) = iter.next() {
+            match flag.as_str() {
+                "--channel" => {
+                    channel = Some(ReleaseChannel::parse(
+                        &iter.next().context("--channel requires a value")?,
+                    )?);
+                }
+                "--dir" => {
+                    dir = Some(Utf8PathBuf::from(
+                        iter.next().context("--dir requires a value")?,
+                    ));
+                }
+                "--backend" => {
+                    backend = BenchmarkBackendProfile::parse(
+                        &iter.next().context("--backend requires a value")?,
+                    )?;
+                }
+                other => bail!("unknown evidence-check flag: {other}"),
+            }
+        }
+
+        Ok(Self {
+            channel: channel.context("--channel is required")?,
+            dir: dir.context("--dir is required")?,
+            backend,
+        })
+    }
+}
+
 fn read_package_json_version(path: &Utf8PathBuf) -> Result<String> {
     let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
     let json: Value =
@@ -695,4 +828,119 @@ fn ensure_same_versions(label: &str, versions: &[(String, String)]) -> Result<St
 
 fn base_version(version: &str) -> &str {
     version.split_once('-').map_or(version, |(base, _)| base)
+}
+
+fn read_required_text_file(path: &Utf8PathBuf) -> Result<String> {
+    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+    let trimmed = contents.trim().to_owned();
+    ensure!(!trimmed.is_empty(), "{} must not be empty", path);
+    Ok(trimmed)
+}
+
+fn validate_benchmark_report(
+    path: &Utf8PathBuf,
+    expected_backend_profile: &str,
+    expected_backend_name: &str,
+) -> Result<()> {
+    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+    let json: Value =
+        serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path))?;
+
+    ensure_json_u64(&json, "generated_at_unix_seconds", path)?;
+    ensure_json_string(&json, "artifact_version", path)?;
+    ensure_json_string(&json, "manifest_path", path)?;
+    ensure_json_string(&json, "artifacts_root", path)?;
+
+    let backend_profile = ensure_json_string(&json, "backend_profile", path)?;
+    ensure!(
+        backend_profile == expected_backend_profile,
+        "{} backend_profile mismatch: expected {} but found {}",
+        path,
+        expected_backend_profile,
+        backend_profile
+    );
+
+    for field in [
+        "artifact_resolution_ms",
+        "first_input_preparation_ms",
+        "first_witness_generation_ms",
+        "first_proof_generation_ms",
+        "first_verification_ms",
+        "first_prove_and_verify_ms",
+    ] {
+        ensure_json_number(&json, field, path)?;
+    }
+
+    let iterations = ensure_json_u64(&json, "iterations", path)? as usize;
+    ensure_json_u64(&json, "warmup", path)?;
+
+    for field in [
+        "input_preparation",
+        "witness_generation",
+        "proof_generation",
+        "verification",
+        "prove_and_verify",
+    ] {
+        let summary = json
+            .get(field)
+            .and_then(Value::as_object)
+            .with_context(|| format!("{} missing object field `{field}`", path))?;
+        for summary_field in ["average_ms", "min_ms", "max_ms"] {
+            ensure!(
+                summary
+                    .get(summary_field)
+                    .and_then(Value::as_f64)
+                    .is_some_and(|value| value >= 0.0),
+                "{} missing non-negative numeric field `{}.{}`",
+                path,
+                field,
+                summary_field
+            );
+        }
+    }
+
+    let samples = json
+        .get("samples")
+        .and_then(Value::as_array)
+        .with_context(|| format!("{} missing array field `samples`", path))?;
+    ensure!(
+        !samples.is_empty(),
+        "{} samples array must not be empty",
+        path
+    );
+    ensure!(
+        samples.len() == iterations,
+        "{} samples length {} does not match iterations {} for backend {}",
+        path,
+        samples.len(),
+        iterations,
+        expected_backend_name
+    );
+
+    Ok(())
+}
+
+fn ensure_json_string<'a>(json: &'a Value, field: &str, path: &Utf8PathBuf) -> Result<&'a str> {
+    json.get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .with_context(|| format!("{} missing non-empty string field `{field}`", path))
+}
+
+fn ensure_json_number(json: &Value, field: &str, path: &Utf8PathBuf) -> Result<f64> {
+    json.get(field)
+        .and_then(Value::as_f64)
+        .filter(|value| *value >= 0.0)
+        .with_context(|| format!("{} missing non-negative numeric field `{field}`", path))
+}
+
+fn ensure_json_u64(json: &Value, field: &str, path: &Utf8PathBuf) -> Result<u64> {
+    json.get(field)
+        .and_then(Value::as_u64)
+        .with_context(|| format!("{} missing unsigned integer field `{field}`", path))
+}
+
+fn is_hex_commit(value: &str) -> bool {
+    let length = value.len();
+    (7..=40).contains(&length) && value.chars().all(|character| character.is_ascii_hexdigit())
 }

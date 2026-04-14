@@ -101,6 +101,8 @@ Benchmarking:
 - see `docs/benchmarking.md` for the `privacy-pools-sdk-cli benchmark-withdraw`
   workflow
 - see `docs/release-process.md` for release-channel validation and packaging
+- see `cargo run -p xtask -- evidence-check --channel <channel> --dir <evidence-dir>`
+  for release-evidence validation
 - see `docs/canary-rollout.md` for the benchmark/canary evidence required before
   promotion
 

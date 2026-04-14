@@ -28,6 +28,15 @@ package surface. For example, Rust `0.1.0` is compatible with mobile
 cargo run -p xtask -- release-check --channel alpha
 ```
 
+Once benchmark captures and canary notes exist for a candidate release, validate the
+evidence bundle too:
+
+```sh
+cargo run -p xtask -- evidence-check \
+  --channel alpha \
+  --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
+```
+
 ## GitHub workflow
 
 Trigger the `release` workflow manually and choose the target channel. The
