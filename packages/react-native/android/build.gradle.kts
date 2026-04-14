@@ -16,10 +16,10 @@ android {
         manifest.srcFile("src/main/AndroidManifest.xml")
         java.srcDirs(
             "src/main/java",
-            "../../../bindings/android/generated/src/main/java",
-            "../../../bindings/android/src/main/kotlin",
+            "src/main/kotlin",
+            "generated/src/main/java",
         )
-        jniLibs.srcDir("../../../bindings/android/src/main/jniLibs")
+        jniLibs.srcDir("src/main/jniLibs")
     }
 
     compileOptions {

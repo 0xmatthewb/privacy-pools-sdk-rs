@@ -9,3 +9,5 @@
 /bindings/ios/build
 /bindings/android/build
 /bindings/android/src/main/jniLibs
+/packages/react-native/android/src/main/jniLibs
+/packages/react-native/ios/frameworks

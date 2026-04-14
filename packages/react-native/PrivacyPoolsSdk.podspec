@@ -13,11 +13,15 @@ Pod::Spec.new do |s|
   s.swift_version = "5.10"
   s.ios.deployment_target = "15.0"
 
-  s.prepare_command = "bash ../../bindings/ios/scripts/build-xcframework.sh"
   s.source_files = [
     "ios/**/*.{swift,m}",
-    "../../bindings/ios/generated/PrivacyPoolsSdk.swift",
+    "ios/generated/**/*.swift",
+  ]
+  s.preserve_paths = [
+    "ios/generated/PrivacyPoolsSdkFFI.h",
+    "ios/generated/PrivacyPoolsSdkFFI.modulemap",
+    "ios/frameworks/PrivacyPoolsSdkFFI.xcframework",
   ]
   s.dependency "React-Core"
-  s.vendored_frameworks = "../../bindings/ios/build/PrivacyPoolsSdkFFI.xcframework"
+  s.vendored_frameworks = "ios/frameworks/PrivacyPoolsSdkFFI.xcframework"
 end

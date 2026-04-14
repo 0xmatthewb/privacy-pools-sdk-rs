@@ -54,12 +54,15 @@ Implemented now:
 - React Native package updated to a native-module facade instead of a fake JS
   implementation, including typed withdraw-circuit input and transaction
   planning helpers
+- React Native package assembly now stages package-local generated Swift/Kotlin
+  bindings, with optional release staging for iOS XCFramework and Android JNI
+  libraries
 - CI expanded to include clippy, tests, cargo-deny, cargo-audit, and RN package
   smoke packaging
 
 Next milestone:
 
 - real `circom-prover` execution wired to a compiled withdraw witness adapter
-- generated iOS and Android bindings plus packaging automation
 - provider-backed transaction simulation, signing, and broadcast flows
-- mobile smoke builds once native entry points exist
+- publishable React Native release builds with staged native binaries and
+  mobile smoke builds

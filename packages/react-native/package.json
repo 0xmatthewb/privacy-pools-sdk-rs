@@ -1,12 +1,21 @@
 {
   "name": "@0xbow/privacy-pools-sdk",
   "version": "0.1.0-alpha.1",
-  "private": true,
+  "private": false,
   "description": "React Native bindings for the Rust-first Privacy Pools SDK",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xmatthewb/privacy-pools-sdk-rs.git",
+    "directory": "packages/react-native"
+  },
   "main": "./src/index.ts",
   "react-native": "./src/index.ts",
   "types": "./src/index.ts",
+  "scripts": {
+    "prepare:package": "cargo run -p xtask -- react-native-package",
+    "prepare:package-release": "cargo run -p xtask -- react-native-package --release --with-native"
+  },
   "files": [
     "src",
     "android",
