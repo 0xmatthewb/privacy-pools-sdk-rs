@@ -289,6 +289,59 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(registerLocalMnemonicSigner:mnemonic:index:resolver:rejecter:)
+    func registerLocalMnemonicSigner(
+        handle: String,
+        mnemonic: String,
+        index: NSNumber,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let signer = try PrivacyPoolsSdkClient.registerLocalMnemonicSigner(
+                handle: handle,
+                mnemonic: mnemonic,
+                index: index.uint32Value
+            )
+            resolve(signerHandleMap(signer))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(unregisterSigner:resolver:rejecter:)
+    func unregisterSigner(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.unregisterSigner(handle: handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(submitPreparedTransaction:signerHandle:prepared:resolver:rejecter:)
+    func submitPreparedTransaction(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let submitted = try PrivacyPoolsSdkClient.submitPreparedTransaction(
+                rpcUrl: rpcUrl,
+                signerHandle: signerHandle,
+                prepared: try preparedExecutionRecord(from: prepared)
+            )
+            resolve(submittedExecutionMap(submitted))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planWithdrawalTransaction:poolAddress:withdrawal:proof:resolver:rejecter:)
     func planWithdrawalTransaction(
         chainId: NSNumber,
@@ -682,6 +735,44 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func submittedExecutionMap(_ submitted: FfiSubmittedTransactionExecution) -> [String: Any] {
+        [
+            "prepared": preparedExecutionMap(submitted.prepared),
+            "receipt": transactionReceiptMap(submitted.receipt),
+        ]
+    }
+
+    private func signerHandleMap(_ handle: FfiSignerHandle) -> [String: Any] {
+        [
+            "handle": handle.handle,
+            "address": handle.address,
+            "kind": handle.kind,
+        ]
+    }
+
+    private func transactionReceiptMap(_ receipt: FfiTransactionReceiptSummary) -> [String: Any] {
+        var map: [String: Any] = [
+            "transaction_hash": receipt.transactionHash,
+            "success": receipt.success,
+            "gas_used": NSNumber(value: receipt.gasUsed),
+            "effective_gas_price": receipt.effectiveGasPrice,
+            "from": receipt.from,
+        ]
+        if let blockHash = receipt.blockHash {
+            map["block_hash"] = blockHash
+        }
+        if let blockNumber = receipt.blockNumber {
+            map["block_number"] = NSNumber(value: blockNumber)
+        }
+        if let transactionIndex = receipt.transactionIndex {
+            map["transaction_index"] = NSNumber(value: transactionIndex)
+        }
+        if let to = receipt.to {
+            map["to"] = to
+        }
+        return map
+    }
+
     private func executionPreflightMap(_ report: FfiExecutionPreflightReport) -> [String: Any] {
         [
             "kind": report.kind,
@@ -749,6 +840,43 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func transactionPlanRecord(from value: [String: Any]) throws -> FfiTransactionPlan {
+        guard
+            let kind = value["kind"] as? String,
+            let chainId = value["chain_id"] as? NSNumber,
+            let target = value["target"] as? String,
+            let calldata = value["calldata"] as? String,
+            let valueString = value["value"] as? String,
+            let proof = value["proof"] as? [String: Any]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid transaction plan payload"]
+            )
+        }
+
+        return FfiTransactionPlan(
+            kind: kind,
+            chainId: chainId.uint64Value,
+            target: target,
+            calldata: calldata,
+            value: valueString,
+            proof: try formattedGroth16ProofRecord(from: proof)
+        )
+    }
+
+    private func formattedGroth16ProofRecord(
+        from value: [String: Any]
+    ) throws -> FfiFormattedGroth16Proof {
+        FfiFormattedGroth16Proof(
+            pA: try stringArray(from: value["p_a"], field: "p_a"),
+            pB: try stringMatrix(from: value["p_b"], field: "p_b"),
+            pC: try stringArray(from: value["p_c"], field: "p_c"),
+            pubSignals: try stringArray(from: value["pub_signals"], field: "pub_signals")
+        )
+    }
+
     private func proofBundleRecord(from value: [String: Any]) throws -> FfiProofBundle {
         guard let proof = value["proof"] as? [String: Any] else {
             throw NSError(
@@ -761,6 +889,128 @@ final class PrivacyPoolsSdk: NSObject {
         return FfiProofBundle(
             proof: try snarkJsProofRecord(from: proof),
             publicSignals: try stringArray(from: value["public_signals"], field: "public_signals")
+        )
+    }
+
+    private func preparedExecutionRecord(
+        from value: [String: Any]
+    ) throws -> FfiPreparedTransactionExecution {
+        guard
+            let proving = value["proving"] as? [String: Any],
+            let transaction = value["transaction"] as? [String: Any],
+            let preflight = value["preflight"] as? [String: Any]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid prepared execution payload"]
+            )
+        }
+
+        return FfiPreparedTransactionExecution(
+            proving: try provingResultRecord(from: proving),
+            transaction: try transactionPlanRecord(from: transaction),
+            preflight: try executionPreflightRecord(from: preflight)
+        )
+    }
+
+    private func provingResultRecord(from value: [String: Any]) throws -> FfiProvingResult {
+        guard
+            let backend = value["backend"] as? String,
+            let proof = value["proof"] as? [String: Any]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid proving result payload"]
+            )
+        }
+
+        return FfiProvingResult(
+            backend: backend,
+            proof: try proofBundleRecord(from: proof)
+        )
+    }
+
+    private func executionPreflightRecord(
+        from value: [String: Any]
+    ) throws -> FfiExecutionPreflightReport {
+        guard
+            let kind = value["kind"] as? String,
+            let caller = value["caller"] as? String,
+            let target = value["target"] as? String,
+            let expectedChainId = value["expected_chain_id"] as? NSNumber,
+            let actualChainId = value["actual_chain_id"] as? NSNumber,
+            let chainIdMatches = value["chain_id_matches"] as? Bool,
+            let simulated = value["simulated"] as? Bool,
+            let estimatedGas = value["estimated_gas"] as? NSNumber,
+            let codeHashChecks = value["code_hash_checks"] as? [[String: Any]],
+            let rootChecks = value["root_checks"] as? [[String: Any]]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid preflight payload"]
+            )
+        }
+
+        return FfiExecutionPreflightReport(
+            kind: kind,
+            caller: caller,
+            target: target,
+            expectedChainId: expectedChainId.uint64Value,
+            actualChainId: actualChainId.uint64Value,
+            chainIdMatches: chainIdMatches,
+            simulated: simulated,
+            estimatedGas: estimatedGas.uint64Value,
+            codeHashChecks: try codeHashChecks.map(codeHashCheckRecord),
+            rootChecks: try rootChecks.map(rootCheckRecord)
+        )
+    }
+
+    private func codeHashCheckRecord(from value: [String: Any]) throws -> FfiCodeHashCheck {
+        guard
+            let address = value["address"] as? String,
+            let actualCodeHash = value["actual_code_hash"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid code hash check payload"]
+            )
+        }
+
+        return FfiCodeHashCheck(
+            address: address,
+            expectedCodeHash: value["expected_code_hash"] as? String,
+            actualCodeHash: actualCodeHash,
+            matchesExpected: value["matches_expected"] as? Bool
+        )
+    }
+
+    private func rootCheckRecord(from value: [String: Any]) throws -> FfiRootCheck {
+        guard
+            let kind = value["kind"] as? String,
+            let contractAddress = value["contract_address"] as? String,
+            let poolAddress = value["pool_address"] as? String,
+            let expectedRoot = value["expected_root"] as? String,
+            let actualRoot = value["actual_root"] as? String,
+            let matches = value["matches"] as? Bool
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid root check payload"]
+            )
+        }
+
+        return FfiRootCheck(
+            kind: kind,
+            contractAddress: contractAddress,
+            poolAddress: poolAddress,
+            expectedRoot: expectedRoot,
+            actualRoot: actualRoot,
+            matches: matches
         )
     }
 

@@ -18,3 +18,7 @@ privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
 privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tokio.workspace = true

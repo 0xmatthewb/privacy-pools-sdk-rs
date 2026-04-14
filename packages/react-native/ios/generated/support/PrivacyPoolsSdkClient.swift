@@ -160,6 +160,36 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func registerLocalMnemonicSigner(
+        handle: String,
+        mnemonic: String,
+        index: UInt32
+    ) throws -> FfiSignerHandle {
+        try PrivacyPoolsSdk.registerLocalMnemonicSigner(
+            handle: handle,
+            mnemonic: mnemonic,
+            index: index
+        )
+    }
+
+    public static func unregisterSigner(
+        handle: String
+    ) throws -> Bool {
+        try PrivacyPoolsSdk.unregisterSigner(handle: handle)
+    }
+
+    public static func submitPreparedTransaction(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: FfiPreparedTransactionExecution
+    ) throws -> FfiSubmittedTransactionExecution {
+        try PrivacyPoolsSdk.submitPreparedTransaction(
+            rpcUrl: rpcUrl,
+            signerHandle: signerHandle,
+            prepared: prepared
+        )
+    }
+
     public static func withdrawalTransactionPlan(
         chainId: UInt64,
         poolAddress: String,

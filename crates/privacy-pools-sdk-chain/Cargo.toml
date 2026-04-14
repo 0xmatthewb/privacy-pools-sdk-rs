@@ -15,6 +15,7 @@ alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rpc-types-eth.workspace = true
 alloy-sol-types.workspace = true
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
 serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true

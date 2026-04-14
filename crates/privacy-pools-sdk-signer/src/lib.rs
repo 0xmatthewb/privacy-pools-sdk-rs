@@ -35,6 +35,10 @@ impl LocalMnemonicSigner {
     pub fn private_key_bytes(&self) -> B256 {
         self.signer.to_bytes()
     }
+
+    pub fn private_key_signer(&self) -> PrivateKeySigner {
+        self.signer.clone()
+    }
 }
 
 impl SignerAdapter for LocalMnemonicSigner {

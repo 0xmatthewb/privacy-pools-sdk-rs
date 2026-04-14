@@ -419,6 +419,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -1826,6 +1842,64 @@ public func FfiConverterTypeFfiSecrets_lower(_ value: FfiSecrets) -> RustBuffer 
 }
 
 
+public struct FfiSignerHandle: Equatable, Hashable {
+    public var handle: String
+    public var address: String
+    public var kind: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(handle: String, address: String, kind: String) {
+        self.handle = handle
+        self.address = address
+        self.kind = kind
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiSignerHandle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSignerHandle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSignerHandle {
+        return
+            try FfiSignerHandle(
+                handle: FfiConverterString.read(from: &buf),
+                address: FfiConverterString.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSignerHandle, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.handle, into: &buf)
+        FfiConverterString.write(value.address, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignerHandle_lift(_ buf: RustBuffer) throws -> FfiSignerHandle {
+    return try FfiConverterTypeFfiSignerHandle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignerHandle_lower(_ value: FfiSignerHandle) -> RustBuffer {
+    return FfiConverterTypeFfiSignerHandle.lower(value)
+}
+
+
 public struct FfiSnarkJsProof: Equatable, Hashable {
     public var piA: [String]
     public var piB: [[String]]
@@ -1889,6 +1963,60 @@ public func FfiConverterTypeFfiSnarkJsProof_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiSnarkJsProof_lower(_ value: FfiSnarkJsProof) -> RustBuffer {
     return FfiConverterTypeFfiSnarkJsProof.lower(value)
+}
+
+
+public struct FfiSubmittedTransactionExecution: Equatable, Hashable {
+    public var prepared: FfiPreparedTransactionExecution
+    public var receipt: FfiTransactionReceiptSummary
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(prepared: FfiPreparedTransactionExecution, receipt: FfiTransactionReceiptSummary) {
+        self.prepared = prepared
+        self.receipt = receipt
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiSubmittedTransactionExecution: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSubmittedTransactionExecution: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSubmittedTransactionExecution {
+        return
+            try FfiSubmittedTransactionExecution(
+                prepared: FfiConverterTypeFfiPreparedTransactionExecution.read(from: &buf),
+                receipt: FfiConverterTypeFfiTransactionReceiptSummary.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSubmittedTransactionExecution, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiPreparedTransactionExecution.write(value.prepared, into: &buf)
+        FfiConverterTypeFfiTransactionReceiptSummary.write(value.receipt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSubmittedTransactionExecution_lift(_ buf: RustBuffer) throws -> FfiSubmittedTransactionExecution {
+    return try FfiConverterTypeFfiSubmittedTransactionExecution.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSubmittedTransactionExecution_lower(_ value: FfiSubmittedTransactionExecution) -> RustBuffer {
+    return FfiConverterTypeFfiSubmittedTransactionExecution.lower(value)
 }
 
 
@@ -1959,6 +2087,88 @@ public func FfiConverterTypeFfiTransactionPlan_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeFfiTransactionPlan_lower(_ value: FfiTransactionPlan) -> RustBuffer {
     return FfiConverterTypeFfiTransactionPlan.lower(value)
+}
+
+
+public struct FfiTransactionReceiptSummary: Equatable, Hashable {
+    public var transactionHash: String
+    public var blockHash: String?
+    public var blockNumber: UInt64?
+    public var transactionIndex: UInt64?
+    public var success: Bool
+    public var gasUsed: UInt64
+    public var effectiveGasPrice: String
+    public var from: String
+    public var to: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(transactionHash: String, blockHash: String?, blockNumber: UInt64?, transactionIndex: UInt64?, success: Bool, gasUsed: UInt64, effectiveGasPrice: String, from: String, to: String?) {
+        self.transactionHash = transactionHash
+        self.blockHash = blockHash
+        self.blockNumber = blockNumber
+        self.transactionIndex = transactionIndex
+        self.success = success
+        self.gasUsed = gasUsed
+        self.effectiveGasPrice = effectiveGasPrice
+        self.from = from
+        self.to = to
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiTransactionReceiptSummary: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTransactionReceiptSummary: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTransactionReceiptSummary {
+        return
+            try FfiTransactionReceiptSummary(
+                transactionHash: FfiConverterString.read(from: &buf),
+                blockHash: FfiConverterOptionString.read(from: &buf),
+                blockNumber: FfiConverterOptionUInt64.read(from: &buf),
+                transactionIndex: FfiConverterOptionUInt64.read(from: &buf),
+                success: FfiConverterBool.read(from: &buf),
+                gasUsed: FfiConverterUInt64.read(from: &buf),
+                effectiveGasPrice: FfiConverterString.read(from: &buf),
+                from: FfiConverterString.read(from: &buf),
+                to: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTransactionReceiptSummary, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.transactionHash, into: &buf)
+        FfiConverterOptionString.write(value.blockHash, into: &buf)
+        FfiConverterOptionUInt64.write(value.blockNumber, into: &buf)
+        FfiConverterOptionUInt64.write(value.transactionIndex, into: &buf)
+        FfiConverterBool.write(value.success, into: &buf)
+        FfiConverterUInt64.write(value.gasUsed, into: &buf)
+        FfiConverterString.write(value.effectiveGasPrice, into: &buf)
+        FfiConverterString.write(value.from, into: &buf)
+        FfiConverterOptionString.write(value.to, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTransactionReceiptSummary_lift(_ buf: RustBuffer) throws -> FfiTransactionReceiptSummary {
+    return try FfiConverterTypeFfiTransactionReceiptSummary.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTransactionReceiptSummary_lower(_ value: FfiTransactionReceiptSummary) -> RustBuffer {
+    return FfiConverterTypeFfiTransactionReceiptSummary.lower(value)
 }
 
 
@@ -2220,6 +2430,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case InvalidCompatibilityMode(String
     )
+    case SignerNotFound(String
+    )
     case InvalidManifest(String
     )
     case OperationFailed(String
@@ -2271,10 +2483,13 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 6: return .InvalidCompatibilityMode(
             try FfiConverterString.read(from: &buf)
             )
-        case 7: return .InvalidManifest(
+        case 7: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .OperationFailed(
+        case 8: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 9: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -2319,13 +2534,18 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerNotFound(v1):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .InvalidManifest(v1):
             writeInt(&buf, Int32(8))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
 
         }
@@ -2345,6 +2565,30 @@ public func FfiConverterTypeFfiError_lift(_ buf: RustBuffer) throws -> FfiError 
 #endif
 public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
     return FfiConverterTypeFfiError.lower(value)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
+    typealias SwiftType = UInt64?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt64.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt64.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
 }
 
 #if swift(>=5.8)
@@ -2762,12 +3006,37 @@ public func proveWithdrawal(backendProfile: String, manifestJson: String, artifa
     )
 })
 }
+public func registerLocalMnemonicSigner(handle: String, mnemonic: String, index: UInt32)throws  -> FfiSignerHandle  {
+    return try  FfiConverterTypeFfiSignerHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
+        FfiConverterString.lower(handle),
+        FfiConverterString.lower(mnemonic),
+        FfiConverterUInt32.lower(index),$0
+    )
+})
+}
 public func resolveVerifiedArtifactBundle(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> FfiResolvedArtifactBundle  {
     return try  FfiConverterTypeFfiResolvedArtifactBundle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
         FfiConverterString.lower(manifestJson),
         FfiConverterString.lower(artifactsRoot),
         FfiConverterString.lower(circuit),$0
+    )
+})
+}
+public func submitPreparedTransaction(rpcUrl: String, signerHandle: String, prepared: FfiPreparedTransactionExecution)throws  -> FfiSubmittedTransactionExecution  {
+    return try  FfiConverterTypeFfiSubmittedTransactionExecution_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterString.lower(signerHandle),
+        FfiConverterTypeFfiPreparedTransactionExecution_lower(prepared),$0
+    )
+})
+}
+public func unregisterSigner(handle: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_unregister_signer(
+        FfiConverterString.lower(handle),$0
     )
 })
 }
@@ -2873,7 +3142,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer() != 15372) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157) {

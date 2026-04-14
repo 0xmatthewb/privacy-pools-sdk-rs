@@ -679,7 +679,13 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes(
     ): Short
@@ -742,8 +748,14 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_execution(`
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(`handle`: RustBuffer.ByValue,`mnemonic`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_unregister_signer(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -933,7 +945,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer() != 15372.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157.toShort()) {
@@ -1034,6 +1055,29 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
 
 /**
  * @suppress
@@ -2177,6 +2221,49 @@ public object FfiConverterTypeFfiSecrets: FfiConverterRustBuffer<FfiSecrets> {
 
 
 
+data class FfiSignerHandle (
+    var `handle`: kotlin.String
+    ,
+    var `address`: kotlin.String
+    ,
+    var `kind`: kotlin.String
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSignerHandle: FfiConverterRustBuffer<FfiSignerHandle> {
+    override fun read(buf: ByteBuffer): FfiSignerHandle {
+        return FfiSignerHandle(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSignerHandle) = (
+            FfiConverterString.allocationSize(value.`handle`) +
+            FfiConverterString.allocationSize(value.`address`) +
+            FfiConverterString.allocationSize(value.`kind`)
+    )
+
+    override fun write(value: FfiSignerHandle, buf: ByteBuffer) {
+            FfiConverterString.write(value.`handle`, buf)
+            FfiConverterString.write(value.`address`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+    }
+}
+
+
+
 data class FfiSnarkJsProof (
     var `piA`: List<kotlin.String>
     ,
@@ -2225,6 +2312,44 @@ public object FfiConverterTypeFfiSnarkJsProof: FfiConverterRustBuffer<FfiSnarkJs
             FfiConverterSequenceString.write(value.`piC`, buf)
             FfiConverterString.write(value.`protocol`, buf)
             FfiConverterString.write(value.`curve`, buf)
+    }
+}
+
+
+
+data class FfiSubmittedTransactionExecution (
+    var `prepared`: FfiPreparedTransactionExecution
+    ,
+    var `receipt`: FfiTransactionReceiptSummary
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSubmittedTransactionExecution: FfiConverterRustBuffer<FfiSubmittedTransactionExecution> {
+    override fun read(buf: ByteBuffer): FfiSubmittedTransactionExecution {
+        return FfiSubmittedTransactionExecution(
+            FfiConverterTypeFfiPreparedTransactionExecution.read(buf),
+            FfiConverterTypeFfiTransactionReceiptSummary.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSubmittedTransactionExecution) = (
+            FfiConverterTypeFfiPreparedTransactionExecution.allocationSize(value.`prepared`) +
+            FfiConverterTypeFfiTransactionReceiptSummary.allocationSize(value.`receipt`)
+    )
+
+    override fun write(value: FfiSubmittedTransactionExecution, buf: ByteBuffer) {
+            FfiConverterTypeFfiPreparedTransactionExecution.write(value.`prepared`, buf)
+            FfiConverterTypeFfiTransactionReceiptSummary.write(value.`receipt`, buf)
     }
 }
 
@@ -2283,6 +2408,79 @@ public object FfiConverterTypeFfiTransactionPlan: FfiConverterRustBuffer<FfiTran
             FfiConverterString.write(value.`calldata`, buf)
             FfiConverterString.write(value.`value`, buf)
             FfiConverterTypeFfiFormattedGroth16Proof.write(value.`proof`, buf)
+    }
+}
+
+
+
+data class FfiTransactionReceiptSummary (
+    var `transactionHash`: kotlin.String
+    ,
+    var `blockHash`: kotlin.String?
+    ,
+    var `blockNumber`: kotlin.ULong?
+    ,
+    var `transactionIndex`: kotlin.ULong?
+    ,
+    var `success`: kotlin.Boolean
+    ,
+    var `gasUsed`: kotlin.ULong
+    ,
+    var `effectiveGasPrice`: kotlin.String
+    ,
+    var `from`: kotlin.String
+    ,
+    var `to`: kotlin.String?
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiTransactionReceiptSummary: FfiConverterRustBuffer<FfiTransactionReceiptSummary> {
+    override fun read(buf: ByteBuffer): FfiTransactionReceiptSummary {
+        return FfiTransactionReceiptSummary(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterOptionalULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiTransactionReceiptSummary) = (
+            FfiConverterString.allocationSize(value.`transactionHash`) +
+            FfiConverterOptionalString.allocationSize(value.`blockHash`) +
+            FfiConverterOptionalULong.allocationSize(value.`blockNumber`) +
+            FfiConverterOptionalULong.allocationSize(value.`transactionIndex`) +
+            FfiConverterBoolean.allocationSize(value.`success`) +
+            FfiConverterULong.allocationSize(value.`gasUsed`) +
+            FfiConverterString.allocationSize(value.`effectiveGasPrice`) +
+            FfiConverterString.allocationSize(value.`from`) +
+            FfiConverterOptionalString.allocationSize(value.`to`)
+    )
+
+    override fun write(value: FfiTransactionReceiptSummary, buf: ByteBuffer) {
+            FfiConverterString.write(value.`transactionHash`, buf)
+            FfiConverterOptionalString.write(value.`blockHash`, buf)
+            FfiConverterOptionalULong.write(value.`blockNumber`, buf)
+            FfiConverterOptionalULong.write(value.`transactionIndex`, buf)
+            FfiConverterBoolean.write(value.`success`, buf)
+            FfiConverterULong.write(value.`gasUsed`, buf)
+            FfiConverterString.write(value.`effectiveGasPrice`, buf)
+            FfiConverterString.write(value.`from`, buf)
+            FfiConverterOptionalString.write(value.`to`, buf)
     }
 }
 
@@ -2554,6 +2752,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class SignerNotFound(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class InvalidManifest(
 
         val v1: kotlin.String
@@ -2607,10 +2813,13 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             6 -> FfiException.InvalidCompatibilityMode(
                 FfiConverterString.read(buf),
                 )
-            7 -> FfiException.InvalidManifest(
+            7 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            8 -> FfiException.OperationFailed(
+            8 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            9 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -2645,6 +2854,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidCompatibilityMode -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.SignerNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -2694,19 +2908,56 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.SignerNotFound -> {
                 buf.putInt(7)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(8)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(9)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
+    override fun read(buf: ByteBuffer): kotlin.ULong? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterULong.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ULong?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterULong.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ULong?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterULong.write(value, buf)
+        }
+    }
 }
 
 
@@ -3208,12 +3459,45 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `registerLocalMnemonicSigner`(`handle`: kotlin.String, `mnemonic`: kotlin.String, `index`: kotlin.UInt): FfiSignerHandle {
+            return FfiConverterTypeFfiSignerHandle.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
+
+        FfiConverterString.lower(`handle`),FfiConverterString.lower(`mnemonic`),FfiConverterUInt.lower(`index`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `resolveVerifiedArtifactBundle`(`manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `circuit`: kotlin.String): FfiResolvedArtifactBundle {
             return FfiConverterTypeFfiResolvedArtifactBundle.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
 
         FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`circuit`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `submitPreparedTransaction`(`rpcUrl`: kotlin.String, `signerHandle`: kotlin.String, `prepared`: FfiPreparedTransactionExecution): FfiSubmittedTransactionExecution {
+            return FfiConverterTypeFfiSubmittedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`signerHandle`),FfiConverterTypeFfiPreparedTransactionExecution.lower(`prepared`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `unregisterSigner`(`handle`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_unregister_signer(
+
+        FfiConverterString.lower(`handle`),_status)
 }
     )
     }

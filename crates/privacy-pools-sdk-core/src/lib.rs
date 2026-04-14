@@ -205,6 +205,19 @@ pub struct ExecutionPreflightReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionReceiptSummary {
+    pub transaction_hash: B256,
+    pub block_hash: Option<B256>,
+    pub block_number: Option<u64>,
+    pub transaction_index: Option<u64>,
+    pub success: bool,
+    pub gas_used: u64,
+    pub effective_gas_price: String,
+    pub from: Address,
+    pub to: Option<Address>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithdrawalExecutionConfig {
     pub chain_id: u64,
     pub pool_address: Address,

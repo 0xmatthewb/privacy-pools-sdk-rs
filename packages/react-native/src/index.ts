@@ -108,6 +108,29 @@ type PreparedTransactionExecution = {
   preflight: ExecutionPreflightReport;
 };
 
+type SignerHandle = {
+  handle: string;
+  address: string;
+  kind: "local_dev" | "host_provided" | "mobile_secure_storage";
+};
+
+type TransactionReceiptSummary = {
+  transaction_hash: string;
+  block_hash?: string | null;
+  block_number?: number | null;
+  transaction_index?: number | null;
+  success: boolean;
+  gas_used: number;
+  effective_gas_price: string;
+  from: string;
+  to?: string | null;
+};
+
+type SubmittedTransactionExecution = {
+  prepared: PreparedTransactionExecution;
+  receipt: TransactionReceiptSummary;
+};
+
 type ArtifactVerification = {
   version: string;
   circuit: string;
@@ -269,6 +292,17 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<PreparedTransactionExecution>;
+  registerLocalMnemonicSigner(
+    handle: string,
+    mnemonic: string,
+    index: number,
+  ): Promise<SignerHandle>;
+  unregisterSigner(handle: string): Promise<boolean>;
+  submitPreparedTransaction(
+    rpcUrl: string,
+    signerHandle: string,
+    prepared: PreparedTransactionExecution,
+  ): Promise<SubmittedTransactionExecution>;
   planWithdrawalTransaction(
     chainId: number,
     poolAddress: string,
@@ -464,6 +498,27 @@ export const prepareRelayExecution = (
     poolAddress,
     rpcUrl,
     policy,
+  );
+
+export const registerLocalMnemonicSigner = (
+  handle: string,
+  mnemonic: string,
+  index: number,
+): Promise<SignerHandle> =>
+  requireNativeModule().registerLocalMnemonicSigner(handle, mnemonic, index);
+
+export const unregisterSigner = (handle: string): Promise<boolean> =>
+  requireNativeModule().unregisterSigner(handle);
+
+export const submitPreparedTransaction = (
+  rpcUrl: string,
+  signerHandle: string,
+  prepared: PreparedTransactionExecution,
+): Promise<SubmittedTransactionExecution> =>
+  requireNativeModule().submitPreparedTransaction(
+    rpcUrl,
+    signerHandle,
+    prepared,
   );
 
 export const planWithdrawalTransaction = (

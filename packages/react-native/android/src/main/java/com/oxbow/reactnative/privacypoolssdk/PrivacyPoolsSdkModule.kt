@@ -29,11 +29,14 @@ import io.oxbow.privacypoolssdk.FfiResolvedArtifactBundle
 import io.oxbow.privacypoolssdk.FfiRootCheck
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
+import io.oxbow.privacypoolssdk.FfiSignerHandle
 import io.oxbow.privacypoolssdk.FfiSnarkJsProof
 import io.oxbow.privacypoolssdk.FfiTransactionPlan
+import io.oxbow.privacypoolssdk.FfiTransactionReceiptSummary
 import io.oxbow.privacypoolssdk.FfiWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.FfiWithdrawal
 import io.oxbow.privacypoolssdk.FfiWithdrawalWitnessRequest
+import io.oxbow.privacypoolssdk.FfiSubmittedTransactionExecution
 import io.oxbow.privacypoolssdk.PrivacyPoolsSdk as NativeSdk
 
 class PrivacyPoolsSdkModule(
@@ -297,6 +300,65 @@ class PrivacyPoolsSdkModule(
                         poolAddress,
                         rpcUrl,
                         executionPolicyRecord(policy),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun registerLocalMnemonicSigner(
+        handle: String,
+        mnemonic: String,
+        index: Double,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                signerHandleMap(
+                    NativeSdk.registerLocalMnemonicSigner(
+                        handle,
+                        mnemonic,
+                        index.toLong().toUInt(),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun unregisterSigner(handle: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.unregisterSigner(handle))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun submitPreparedTransaction(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                submittedExecutionMap(
+                    NativeSdk.submitPreparedTransaction(
+                        rpcUrl,
+                        signerHandle,
+                        preparedExecutionRecord(prepared),
                     )
                 )
             )
@@ -639,6 +701,31 @@ class PrivacyPoolsSdkModule(
             putMap("preflight", executionPreflightMap(prepared.preflight))
         }
 
+    private fun submittedExecutionMap(submitted: FfiSubmittedTransactionExecution) =
+        Arguments.createMap().apply {
+            putMap("prepared", preparedExecutionMap(submitted.prepared))
+            putMap("receipt", transactionReceiptMap(submitted.receipt))
+        }
+
+    private fun signerHandleMap(handle: FfiSignerHandle) = Arguments.createMap().apply {
+        putString("handle", handle.handle)
+        putString("address", handle.address)
+        putString("kind", handle.kind)
+    }
+
+    private fun transactionReceiptMap(receipt: FfiTransactionReceiptSummary) =
+        Arguments.createMap().apply {
+            putString("transaction_hash", receipt.transactionHash)
+            receipt.blockHash?.let { putString("block_hash", it) }
+            receipt.blockNumber?.let { putDouble("block_number", it.toDouble()) }
+            receipt.transactionIndex?.let { putDouble("transaction_index", it.toDouble()) }
+            putBoolean("success", receipt.success)
+            putDouble("gas_used", receipt.gasUsed.toDouble())
+            putString("effective_gas_price", receipt.effectiveGasPrice)
+            putString("from", receipt.from)
+            receipt.to?.let { putString("to", it) }
+        }
+
     private fun executionPreflightMap(report: FfiExecutionPreflightReport) =
         Arguments.createMap().apply {
             putString("kind", report.kind)
@@ -696,6 +783,18 @@ class PrivacyPoolsSdkModule(
         putMap("proof", formattedGroth16ProofMap(plan.proof))
     }
 
+    private fun transactionPlanRecord(plan: ReadableMap): FfiTransactionPlan {
+        val proof = plan.getMap("proof") ?: error("missing proof in transaction plan")
+        return FfiTransactionPlan(
+            kind = plan.getString("kind") ?: error("missing kind in transaction plan"),
+            chainId = plan.getDouble("chain_id").toLong().toULong(),
+            target = plan.getString("target") ?: error("missing target in transaction plan"),
+            calldata = plan.getString("calldata") ?: error("missing calldata in transaction plan"),
+            value = plan.getString("value") ?: error("missing value in transaction plan"),
+            proof = formattedGroth16ProofRecord(proof),
+        )
+    }
+
     private fun formattedGroth16ProofMap(proof: FfiFormattedGroth16Proof) =
         Arguments.createMap().apply {
             putArray("p_a", Arguments.fromList(proof.pA))
@@ -703,6 +802,21 @@ class PrivacyPoolsSdkModule(
             putArray("p_c", Arguments.fromList(proof.pC))
             putArray("pub_signals", Arguments.fromList(proof.pubSignals))
         }
+
+    private fun formattedGroth16ProofRecord(proof: ReadableMap): FfiFormattedGroth16Proof {
+        val pA = proof.getArray("p_a") ?: error("missing p_a in formatted proof")
+        val pB = proof.getArray("p_b") ?: error("missing p_b in formatted proof")
+        val pC = proof.getArray("p_c") ?: error("missing p_c in formatted proof")
+        val pubSignals =
+            proof.getArray("pub_signals") ?: error("missing pub_signals in formatted proof")
+
+        return FfiFormattedGroth16Proof(
+            pA = readableStringList(pA),
+            pB = readableStringMatrix(pB),
+            pC = readableStringList(pC),
+            pubSignals = readableStringList(pubSignals),
+        )
+    }
 
     private fun proofBundleRecord(proof: ReadableMap): FfiProofBundle {
         val snarkProof = proof.getMap("proof") ?: error("missing proof in proof bundle")
@@ -730,6 +844,74 @@ class PrivacyPoolsSdkModule(
             curve = curve,
         )
     }
+
+    private fun preparedExecutionRecord(prepared: ReadableMap): FfiPreparedTransactionExecution {
+        val proving = prepared.getMap("proving") ?: error("missing proving in prepared execution")
+        val transaction =
+            prepared.getMap("transaction") ?: error("missing transaction in prepared execution")
+        val preflight =
+            prepared.getMap("preflight") ?: error("missing preflight in prepared execution")
+
+        return FfiPreparedTransactionExecution(
+            proving = provingResultRecord(proving),
+            transaction = transactionPlanRecord(transaction),
+            preflight = executionPreflightRecord(preflight),
+        )
+    }
+
+    private fun provingResultRecord(result: ReadableMap): FfiProvingResult {
+        val proof = result.getMap("proof") ?: error("missing proof in proving result")
+        return FfiProvingResult(
+            backend = result.getString("backend") ?: error("missing backend in proving result"),
+            proof = proofBundleRecord(proof),
+        )
+    }
+
+    private fun executionPreflightRecord(report: ReadableMap): FfiExecutionPreflightReport {
+        val codeHashChecks =
+            report.getArray("code_hash_checks") ?: error("missing code_hash_checks in preflight")
+        val rootChecks =
+            report.getArray("root_checks") ?: error("missing root_checks in preflight")
+
+        return FfiExecutionPreflightReport(
+            kind = report.getString("kind") ?: error("missing kind in preflight"),
+            caller = report.getString("caller") ?: error("missing caller in preflight"),
+            target = report.getString("target") ?: error("missing target in preflight"),
+            expectedChainId = report.getDouble("expected_chain_id").toLong().toULong(),
+            actualChainId = report.getDouble("actual_chain_id").toLong().toULong(),
+            chainIdMatches = report.getBoolean("chain_id_matches"),
+            simulated = report.getBoolean("simulated"),
+            estimatedGas = report.getDouble("estimated_gas").toLong().toULong(),
+            codeHashChecks = readableMapList(codeHashChecks).map(::codeHashCheckRecord),
+            rootChecks = readableMapList(rootChecks).map(::rootCheckRecord),
+        )
+    }
+
+    private fun codeHashCheckRecord(check: ReadableMap): FfiCodeHashCheck =
+        FfiCodeHashCheck(
+            address = check.getString("address") ?: error("missing address in code hash check"),
+            expectedCodeHash = check.getString("expected_code_hash"),
+            actualCodeHash =
+                check.getString("actual_code_hash")
+                    ?: error("missing actual_code_hash in code hash check"),
+            matchesExpected =
+                if (check.hasKey("matches_expected")) check.getBoolean("matches_expected") else null,
+        )
+
+    private fun rootCheckRecord(check: ReadableMap): FfiRootCheck =
+        FfiRootCheck(
+            kind = check.getString("kind") ?: error("missing kind in root check"),
+            contractAddress =
+                check.getString("contract_address")
+                    ?: error("missing contract_address in root check"),
+            poolAddress =
+                check.getString("pool_address") ?: error("missing pool_address in root check"),
+            expectedRoot =
+                check.getString("expected_root") ?: error("missing expected_root in root check"),
+            actualRoot =
+                check.getString("actual_root") ?: error("missing actual_root in root check"),
+            matches = check.getBoolean("matches"),
+        )
 
     private fun rootReadMap(read: FfiRootRead) = Arguments.createMap().apply {
         putString("kind", read.kind)
@@ -827,6 +1009,11 @@ class PrivacyPoolsSdkModule(
     private fun readableStringMatrix(values: ReadableArray): List<List<String>> =
         List(values.size()) { index ->
             readableStringList(values.getArray(index) ?: error("expected string array at index $index"))
+        }
+
+    private fun readableMapList(values: ReadableArray): List<ReadableMap> =
+        List(values.size()) { index ->
+            values.getMap(index) ?: error("expected map at index $index")
         }
 
     private fun readableByteArray(values: ReadableArray): ByteArray =

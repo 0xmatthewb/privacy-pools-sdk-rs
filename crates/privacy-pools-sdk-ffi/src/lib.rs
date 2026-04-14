@@ -1,17 +1,24 @@
 use alloy_primitives::{Address, B256, U256};
 use privacy_pools_sdk::{
-    PreparedTransactionExecution, PrivacyPoolsSdk,
+    PreparedTransactionExecution, PrivacyPoolsSdk, SubmittedTransactionExecution,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, CodeHashCheck, Commitment, ExecutionPolicy, ExecutionPreflightReport,
         FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle, RootCheck, RootReadKind,
-        SnarkJsProof, TransactionPlan, Withdrawal, WithdrawalCircuitInput,
-        WithdrawalWitnessRequest,
+        SnarkJsProof, TransactionPlan, TransactionReceiptSummary, Withdrawal,
+        WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
+    signer::{LocalMnemonicSigner, SignerAdapter, SignerKind},
 };
-use std::{future::Future, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::PathBuf,
+    str::FromStr,
+    sync::{LazyLock, RwLock},
+};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -27,6 +34,8 @@ pub enum FfiError {
     InvalidArtifactKind(String),
     #[error("invalid compatibility mode: {0}")]
     InvalidCompatibilityMode(String),
+    #[error("signer handle not found: {0}")]
+    SignerNotFound(String),
     #[error("artifact manifest parse failed: {0}")]
     InvalidManifest(String),
     #[error("sdk operation failed: {0}")]
@@ -149,6 +158,32 @@ pub struct FfiPreparedTransactionExecution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiSignerHandle {
+    pub handle: String,
+    pub address: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiTransactionReceiptSummary {
+    pub transaction_hash: String,
+    pub block_hash: Option<String>,
+    pub block_number: Option<u64>,
+    pub transaction_index: Option<u64>,
+    pub success: bool,
+    pub gas_used: u64,
+    pub effective_gas_price: String,
+    pub from: String,
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiSubmittedTransactionExecution {
+    pub prepared: FfiPreparedTransactionExecution,
+    pub receipt: FfiTransactionReceiptSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct FfiRootRead {
     pub kind: String,
     pub contract_address: String,
@@ -264,6 +299,34 @@ fn sdk() -> PrivacyPoolsSdk {
     PrivacyPoolsSdk::default()
 }
 
+#[derive(Debug, Clone)]
+enum RegisteredSigner {
+    LocalMnemonic(LocalMnemonicSigner),
+}
+
+impl RegisteredSigner {
+    fn address(&self) -> Address {
+        match self {
+            Self::LocalMnemonic(signer) => signer.address(),
+        }
+    }
+
+    fn kind(&self) -> SignerKind {
+        match self {
+            Self::LocalMnemonic(signer) => signer.kind(),
+        }
+    }
+
+    fn local_mnemonic(&self) -> &LocalMnemonicSigner {
+        match self {
+            Self::LocalMnemonic(signer) => signer,
+        }
+    }
+}
+
+static SIGNER_REGISTRY: LazyLock<RwLock<HashMap<String, RegisteredSigner>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
 fn parse_address(value: &str) -> Result<Address, FfiError> {
     Address::from_str(value).map_err(|_| FfiError::InvalidAddress(value.to_owned()))
 }
@@ -362,6 +425,14 @@ fn prover_backend_label(kind: ProverBackend) -> String {
     }
 }
 
+fn signer_kind_label(kind: SignerKind) -> String {
+    match kind {
+        SignerKind::LocalDev => "local_dev".to_owned(),
+        SignerKind::HostProvided => "host_provided".to_owned(),
+        SignerKind::MobileSecureStorage => "mobile_secure_storage".to_owned(),
+    }
+}
+
 fn field_label(value: U256) -> String {
     value.to_string()
 }
@@ -382,6 +453,32 @@ where
     runtime
         .block_on(future)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+fn register_signer(handle: String, signer: RegisteredSigner) -> Result<FfiSignerHandle, FfiError> {
+    let ffi = to_ffi_signer_handle(handle.clone(), &signer);
+    let mut registry = SIGNER_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry.insert(handle, signer);
+    Ok(ffi)
+}
+
+fn remove_signer(handle: &str) -> Result<bool, FfiError> {
+    let mut registry = SIGNER_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    Ok(registry.remove(handle).is_some())
+}
+
+fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
+    let registry = SIGNER_REGISTRY
+        .read()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| FfiError::SignerNotFound(handle.to_owned()))
 }
 
 fn to_ffi_secrets(
@@ -552,6 +649,37 @@ fn to_ffi_prepared_execution(
     }
 }
 
+fn to_ffi_signer_handle(handle: String, signer: &RegisteredSigner) -> FfiSignerHandle {
+    FfiSignerHandle {
+        handle,
+        address: signer.address().to_string(),
+        kind: signer_kind_label(signer.kind()),
+    }
+}
+
+fn to_ffi_receipt_summary(receipt: TransactionReceiptSummary) -> FfiTransactionReceiptSummary {
+    FfiTransactionReceiptSummary {
+        transaction_hash: hash_label(receipt.transaction_hash),
+        block_hash: receipt.block_hash.map(hash_label),
+        block_number: receipt.block_number,
+        transaction_index: receipt.transaction_index,
+        success: receipt.success,
+        gas_used: receipt.gas_used,
+        effective_gas_price: receipt.effective_gas_price,
+        from: receipt.from.to_string(),
+        to: receipt.to.map(|address| address.to_string()),
+    }
+}
+
+fn to_ffi_submitted_execution(
+    submitted: SubmittedTransactionExecution,
+) -> FfiSubmittedTransactionExecution {
+    FfiSubmittedTransactionExecution {
+        prepared: to_ffi_prepared_execution(submitted.prepared),
+        receipt: to_ffi_receipt_summary(submitted.receipt),
+    }
+}
+
 fn from_ffi_withdrawal(withdrawal: FfiWithdrawal) -> Result<Withdrawal, FfiError> {
     Ok(Withdrawal {
         processooor: parse_address(&withdrawal.processooor)?,
@@ -569,6 +697,144 @@ fn from_ffi_proof_bundle(bundle: FfiProofBundle) -> Result<ProofBundle, FfiError
             curve: bundle.proof.curve,
         },
         public_signals: bundle.public_signals,
+    })
+}
+
+fn from_ffi_formatted_groth16_proof(
+    proof: FfiFormattedGroth16Proof,
+) -> Result<FormattedGroth16Proof, FfiError> {
+    let p_a = validate_pair(proof.p_a, "p_a")?;
+    let p_b = validate_pair_rows(proof.p_b, "p_b")?;
+    let p_c = validate_pair(proof.p_c, "p_c")?;
+
+    Ok(FormattedGroth16Proof {
+        p_a,
+        p_b,
+        p_c,
+        pub_signals: proof.pub_signals,
+    })
+}
+
+fn from_ffi_transaction_plan(plan: FfiTransactionPlan) -> Result<TransactionPlan, FfiError> {
+    let kind = match plan.kind.as_str() {
+        "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
+        "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        _ => {
+            return Err(FfiError::OperationFailed(format!(
+                "invalid transaction kind: {}",
+                plan.kind
+            )));
+        }
+    };
+    let calldata = hex::decode(plan.calldata.trim_start_matches("0x"))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(TransactionPlan {
+        kind,
+        chain_id: plan.chain_id,
+        target: parse_address(&plan.target)?,
+        calldata: calldata.into(),
+        value: parse_field(&plan.value)?,
+        proof: from_ffi_formatted_groth16_proof(plan.proof)?,
+    })
+}
+
+fn from_ffi_root_check(check: FfiRootCheck) -> Result<RootCheck, FfiError> {
+    let kind = match check.kind.as_str() {
+        "pool_state" => RootReadKind::PoolState,
+        "asp" => RootReadKind::Asp,
+        _ => {
+            return Err(FfiError::OperationFailed(format!(
+                "invalid root read kind: {}",
+                check.kind
+            )));
+        }
+    };
+
+    Ok(RootCheck {
+        kind,
+        contract_address: parse_address(&check.contract_address)?,
+        pool_address: parse_address(&check.pool_address)?,
+        expected_root: parse_field(&check.expected_root)?,
+        actual_root: parse_field(&check.actual_root)?,
+        matches: check.matches,
+    })
+}
+
+fn from_ffi_code_hash_check(check: FfiCodeHashCheck) -> Result<CodeHashCheck, FfiError> {
+    Ok(CodeHashCheck {
+        address: parse_address(&check.address)?,
+        expected_code_hash: check
+            .expected_code_hash
+            .as_deref()
+            .map(parse_hash)
+            .transpose()?,
+        actual_code_hash: parse_hash(&check.actual_code_hash)?,
+        matches_expected: check.matches_expected,
+    })
+}
+
+fn from_ffi_execution_preflight(
+    report: FfiExecutionPreflightReport,
+) -> Result<ExecutionPreflightReport, FfiError> {
+    let kind = match report.kind.as_str() {
+        "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
+        "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        _ => {
+            return Err(FfiError::OperationFailed(format!(
+                "invalid transaction kind: {}",
+                report.kind
+            )));
+        }
+    };
+
+    Ok(ExecutionPreflightReport {
+        kind,
+        caller: parse_address(&report.caller)?,
+        target: parse_address(&report.target)?,
+        expected_chain_id: report.expected_chain_id,
+        actual_chain_id: report.actual_chain_id,
+        chain_id_matches: report.chain_id_matches,
+        simulated: report.simulated,
+        estimated_gas: report.estimated_gas,
+        code_hash_checks: report
+            .code_hash_checks
+            .into_iter()
+            .map(from_ffi_code_hash_check)
+            .collect::<Result<Vec<_>, _>>()?,
+        root_checks: report
+            .root_checks
+            .into_iter()
+            .map(from_ffi_root_check)
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn from_ffi_proving_result(result: FfiProvingResult) -> Result<ProvingResult, FfiError> {
+    let backend = match result.backend.as_str() {
+        "arkworks" => ProverBackend::Arkworks,
+        "rapidsnark" => ProverBackend::Rapidsnark,
+        _ => {
+            return Err(FfiError::OperationFailed(format!(
+                "invalid prover backend: {}",
+                result.backend
+            )));
+        }
+    };
+
+    Ok(ProvingResult {
+        backend,
+        proof: from_ffi_proof_bundle(result.proof)?,
+    })
+}
+
+fn from_ffi_prepared_execution(
+    prepared: FfiPreparedTransactionExecution,
+) -> Result<PreparedTransactionExecution, FfiError> {
+    Ok(PreparedTransactionExecution {
+        proving: from_ffi_proving_result(prepared.proving)?,
+        transaction: from_ffi_transaction_plan(prepared.transaction)?,
+        preflight: from_ffi_execution_preflight(prepared.preflight)?,
     })
 }
 
@@ -968,6 +1234,43 @@ pub fn prepare_relay_execution(
                 pool_address: parse_address(&pool_address)?,
                 policy: from_ffi_execution_policy(policy)?,
             },
+            &client,
+        ),
+    )?))
+}
+
+#[uniffi::export]
+pub fn register_local_mnemonic_signer(
+    handle: String,
+    mnemonic: String,
+    index: u32,
+) -> Result<FfiSignerHandle, FfiError> {
+    let signer = LocalMnemonicSigner::from_phrase_nth(&mnemonic, index)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    register_signer(handle, RegisteredSigner::LocalMnemonic(signer))
+}
+
+#[uniffi::export]
+pub fn unregister_signer(handle: String) -> Result<bool, FfiError> {
+    remove_signer(&handle)
+}
+
+#[uniffi::export]
+pub fn submit_prepared_transaction(
+    rpc_url: String,
+    signer_handle: String,
+    prepared: FfiPreparedTransactionExecution,
+) -> Result<FfiSubmittedTransactionExecution, FfiError> {
+    let signer = registered_signer(&signer_handle)?;
+    let client = privacy_pools_sdk::chain::LocalSignerExecutionClient::new(
+        &rpc_url,
+        signer.local_mnemonic(),
+    )
+    .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_submitted_execution(block_on_sdk(
+        sdk().submit_prepared_transaction_with_client(
+            from_ffi_prepared_execution(prepared)?,
             &client,
         ),
     )?))

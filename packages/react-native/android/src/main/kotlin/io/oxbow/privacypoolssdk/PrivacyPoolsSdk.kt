@@ -22,9 +22,12 @@ import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTr
 import io.oxbow.privacypoolssdk.prepareRelayExecution as ffiPrepareRelayExecution
 import io.oxbow.privacypoolssdk.prepareWithdrawalExecution as ffiPrepareWithdrawalExecution
 import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
+import io.oxbow.privacypoolssdk.registerLocalMnemonicSigner as ffiRegisterLocalMnemonicSigner
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
-import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
+import io.oxbow.privacypoolssdk.submitPreparedTransaction as ffiSubmitPreparedTransaction
+import io.oxbow.privacypoolssdk.unregisterSigner as ffiUnregisterSigner
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
+import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
 
 object PrivacyPoolsSdk {
     fun version(): String = ffiGetVersion()
@@ -145,6 +148,24 @@ object PrivacyPoolsSdk {
             rpcUrl,
             policy,
         )
+
+    @Throws(FfiException::class)
+    fun registerLocalMnemonicSigner(
+        handle: String,
+        mnemonic: String,
+        index: UInt,
+    ): FfiSignerHandle = ffiRegisterLocalMnemonicSigner(handle, mnemonic, index)
+
+    @Throws(FfiException::class)
+    fun unregisterSigner(handle: String): Boolean = ffiUnregisterSigner(handle)
+
+    @Throws(FfiException::class)
+    fun submitPreparedTransaction(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: FfiPreparedTransactionExecution,
+    ): FfiSubmittedTransactionExecution =
+        ffiSubmitPreparedTransaction(rpcUrl, signerHandle, prepared)
 
     @Throws(FfiException::class)
     fun withdrawalTransactionPlan(

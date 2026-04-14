@@ -56,13 +56,18 @@ Implemented now:
 - high-level prepared execution flows that compose proof generation, local
   proof verification, transaction planning, and provider-backed preflight into
   one Rust-owned safety boundary
+- signer-backed prepared transaction submission that re-confirms the saved
+  preflight checks immediately before broadcast and returns typed receipt
+  summaries
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
   typed withdraw circuit inputs, withdraw proof generation/verification,
-  prepared execution flows, transaction planning, root-read planning, proof
-  formatting, and artifact verification/resolution
+  prepared execution flows, signer-handle registration, prepared submission,
+  transaction planning, root-read planning, proof formatting, and artifact
+  verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
   implementation, including typed withdraw-circuit input, withdraw proof
-  generation/verification, prepared execution helpers, and transaction planning
+  generation/verification, prepared execution helpers, signer-handle based
+  submission, and transaction planning
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
@@ -71,7 +76,7 @@ Implemented now:
 
 Next milestone:
 
-- signer-backed transaction submission and receipt handling on top of the new
-  preflight layer
 - publishable React Native release builds with staged native binaries and
   mobile smoke builds
+- host-provided and mobile secure-storage signer adapters layered onto the same
+  prepared submission boundary

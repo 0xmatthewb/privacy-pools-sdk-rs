@@ -1,14 +1,15 @@
-use alloy_network::Ethereum;
+use alloy_network::{Ethereum, ReceiptResponse};
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
-use alloy_provider::{Provider, RootProvider};
+use alloy_provider::{DynProvider, Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
 use alloy_sol_types::{SolCall, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_core::{
     CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FormattedGroth16Proof, ProofBundle,
-    RootCheck, RootRead, RootReadKind, TransactionKind, TransactionPlan, Withdrawal,
-    field_to_hex_32, parse_decimal_field,
+    RootCheck, RootRead, RootReadKind, TransactionKind, TransactionPlan, TransactionReceiptSummary,
+    Withdrawal, field_to_hex_32, parse_decimal_field,
 };
+use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
 use thiserror::Error;
 use url::Url;
 
@@ -67,6 +68,15 @@ pub enum ChainError {
     StateRootMismatch { expected: U256, actual: U256 },
     #[error("asp root mismatch: expected {expected}, got {actual}")]
     AspRootMismatch { expected: U256, actual: U256 },
+    #[error("submission signer mismatch: expected caller {expected}, got {actual}")]
+    SignerAddressMismatch { expected: Address, actual: Address },
+    #[error("transaction submission failed: {0}")]
+    Submission(String),
+    #[error("waiting for receipt failed for {transaction_hash}: {message}")]
+    PendingTransaction {
+        transaction_hash: B256,
+        message: String,
+    },
     #[error("rpc request failed: {0}")]
     Transport(String),
 }
@@ -83,15 +93,44 @@ pub trait ExecutionClient: Send + Sync {
     ) -> Result<u64, ChainError>;
 }
 
+#[async_trait]
+pub trait SubmissionClient: ExecutionClient {
+    fn caller(&self) -> Address;
+    async fn submit_transaction(
+        &self,
+        plan: &TransactionPlan,
+    ) -> Result<TransactionReceiptSummary, ChainError>;
+}
+
 pub struct HttpExecutionClient {
-    provider: RootProvider<Ethereum>,
+    provider: DynProvider<Ethereum>,
+}
+
+pub struct LocalSignerExecutionClient {
+    provider: DynProvider<Ethereum>,
+    caller: Address,
 }
 
 impl HttpExecutionClient {
     pub fn new(rpc_url: &str) -> Result<Self, ChainError> {
         let url = Url::parse(rpc_url).map_err(|_| ChainError::InvalidRpcUrl(rpc_url.to_owned()))?;
         Ok(Self {
-            provider: RootProvider::<Ethereum>::new_http(url),
+            provider: ProviderBuilder::new().connect_http(url).erased(),
+        })
+    }
+}
+
+impl LocalSignerExecutionClient {
+    pub fn new(rpc_url: &str, signer: &LocalMnemonicSigner) -> Result<Self, ChainError> {
+        let url = Url::parse(rpc_url).map_err(|_| ChainError::InvalidRpcUrl(rpc_url.to_owned()))?;
+        let caller = signer.address();
+
+        Ok(Self {
+            provider: ProviderBuilder::new()
+                .wallet(signer.private_key_signer())
+                .connect_http(url)
+                .erased(),
+            caller,
         })
     }
 }
@@ -128,7 +167,7 @@ impl ExecutionClient for HttpExecutionClient {
         caller: Address,
         plan: &TransactionPlan,
     ) -> Result<u64, ChainError> {
-        let request = simulation_request(plan, caller);
+        let request = transaction_request(plan, caller);
         self.provider
             .call(request.clone())
             .await
@@ -137,6 +176,80 @@ impl ExecutionClient for HttpExecutionClient {
             .estimate_gas(request)
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+}
+
+#[async_trait]
+impl ExecutionClient for LocalSignerExecutionClient {
+    async fn chain_id(&self) -> Result<u64, ChainError> {
+        self.provider
+            .get_chain_id()
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+
+    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+        let code = self
+            .provider
+            .get_code_at(address)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        Ok(keccak256(code))
+    }
+
+    async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError> {
+        let output = self
+            .provider
+            .call(root_read_request(read))
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        decode_root_response(&output)
+    }
+
+    async fn simulate_transaction(
+        &self,
+        caller: Address,
+        plan: &TransactionPlan,
+    ) -> Result<u64, ChainError> {
+        let request = transaction_request(plan, caller);
+        self.provider
+            .call(request.clone())
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        self.provider
+            .estimate_gas(request)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+}
+
+#[async_trait]
+impl SubmissionClient for LocalSignerExecutionClient {
+    fn caller(&self) -> Address {
+        self.caller
+    }
+
+    async fn submit_transaction(
+        &self,
+        plan: &TransactionPlan,
+    ) -> Result<TransactionReceiptSummary, ChainError> {
+        let request = transaction_request(plan, self.caller);
+        let pending = self
+            .provider
+            .send_transaction(request)
+            .await
+            .map_err(|error| ChainError::Submission(error.to_string()))?;
+        let transaction_hash = *pending.tx_hash();
+        let receipt =
+            pending
+                .get_receipt()
+                .await
+                .map_err(|error| ChainError::PendingTransaction {
+                    transaction_hash,
+                    message: error.to_string(),
+                })?;
+
+        Ok(receipt_summary(receipt))
     }
 }
 
@@ -309,6 +422,92 @@ pub async fn preflight_relay<C: ExecutionClient>(
     .await
 }
 
+pub async fn reconfirm_preflight<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    report: &ExecutionPreflightReport,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    validate_plan(plan, report.kind, report.target, report.expected_chain_id)?;
+
+    let actual_chain_id = client.chain_id().await?;
+    if actual_chain_id != report.expected_chain_id {
+        return Err(ChainError::ChainIdMismatch {
+            expected: report.expected_chain_id,
+            actual: actual_chain_id,
+        });
+    }
+
+    let mut code_hash_checks = Vec::with_capacity(report.code_hash_checks.len());
+    for check in &report.code_hash_checks {
+        let actual_code_hash = client.code_hash(check.address).await?;
+        let matches_expected = check
+            .expected_code_hash
+            .map(|expected| expected == actual_code_hash);
+
+        if let Some(false) = matches_expected {
+            return Err(ChainError::CodeHashMismatch {
+                address: check.address,
+                expected: check.expected_code_hash.expect("checked some above"),
+                actual: actual_code_hash,
+            });
+        }
+
+        code_hash_checks.push(CodeHashCheck {
+            address: check.address,
+            expected_code_hash: check.expected_code_hash,
+            actual_code_hash,
+            matches_expected,
+        });
+    }
+
+    let mut root_checks = Vec::with_capacity(report.root_checks.len());
+    for check in &report.root_checks {
+        let read = RootRead {
+            kind: check.kind,
+            contract_address: check.contract_address,
+            pool_address: check.pool_address,
+            call_data: root_call_data(check.kind, check.contract_address, check.pool_address),
+        };
+        let actual_root = client.read_root(&read).await?;
+        if actual_root != check.expected_root {
+            return Err(match check.kind {
+                RootReadKind::PoolState => ChainError::StateRootMismatch {
+                    expected: check.expected_root,
+                    actual: actual_root,
+                },
+                RootReadKind::Asp => ChainError::AspRootMismatch {
+                    expected: check.expected_root,
+                    actual: actual_root,
+                },
+            });
+        }
+
+        root_checks.push(RootCheck {
+            kind: check.kind,
+            contract_address: check.contract_address,
+            pool_address: check.pool_address,
+            expected_root: check.expected_root,
+            actual_root,
+            matches: true,
+        });
+    }
+
+    let estimated_gas = client.simulate_transaction(report.caller, plan).await?;
+
+    Ok(ExecutionPreflightReport {
+        kind: plan.kind,
+        caller: report.caller,
+        target: plan.target,
+        expected_chain_id: report.expected_chain_id,
+        actual_chain_id,
+        chain_id_matches: true,
+        simulated: true,
+        estimated_gas,
+        code_hash_checks,
+        root_checks,
+    })
+}
+
 async fn preflight_transaction<C: ExecutionClient>(
     client: &C,
     plan: &TransactionPlan,
@@ -430,7 +629,16 @@ fn root_read_request(read: &RootRead) -> TransactionRequest {
         .input(TransactionInput::both(read.call_data.clone()))
 }
 
-fn simulation_request(plan: &TransactionPlan, caller: Address) -> TransactionRequest {
+fn root_call_data(kind: RootReadKind, _contract_address: Address, pool_address: Address) -> Bytes {
+    match kind {
+        RootReadKind::PoolState => Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
+        RootReadKind::Asp => {
+            Bytes::from(IEntrypoint::latestRootCall { pool: pool_address }.abi_encode())
+        }
+    }
+}
+
+fn transaction_request(plan: &TransactionPlan, caller: Address) -> TransactionRequest {
     let mut request = TransactionRequest::default()
         .from(caller)
         .to(plan.target)
@@ -445,6 +653,20 @@ fn decode_root_response(output: &Bytes) -> Result<U256, ChainError> {
         return Err(ChainError::InvalidRootResponse(output.len()));
     }
     Ok(U256::from_be_slice(&output[output.len() - 32..]))
+}
+
+fn receipt_summary<R: ReceiptResponse>(receipt: R) -> TransactionReceiptSummary {
+    TransactionReceiptSummary {
+        transaction_hash: receipt.transaction_hash(),
+        block_hash: receipt.block_hash(),
+        block_number: receipt.block_number(),
+        transaction_index: receipt.transaction_index(),
+        success: receipt.status(),
+        gas_used: receipt.gas_used(),
+        effective_gas_price: receipt.effective_gas_price().to_string(),
+        from: receipt.from(),
+        to: receipt.to(),
+    }
 }
 
 fn withdrawal_abi(withdrawal: &Withdrawal) -> WithdrawalAbi {

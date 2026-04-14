@@ -92,6 +92,22 @@ RCT_EXTERN_METHOD(prepareRelayExecution:(NSString *)backendProfile
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(registerLocalMnemonicSigner:(NSString *)handle
+                  mnemonic:(NSString *)mnemonic
+                  index:(nonnull NSNumber *)index
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(unregisterSigner:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(submitPreparedTransaction:(NSString *)rpcUrl
+                  signerHandle:(NSString *)signerHandle
+                  prepared:(NSDictionary *)prepared
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(planWithdrawalTransaction:(nonnull NSNumber *)chainId
                   poolAddress:(NSString *)poolAddress
                   withdrawal:(NSDictionary *)withdrawal
