@@ -9,4 +9,5 @@ Current package status:
 
 - `src/index.ts` is a native-module facade only
 - no protocol logic is implemented in JavaScript
-- iOS and Android native packaging still need to be generated and wired
+- classic iOS/Android bridge modules are scaffolded against the generated Swift/Kotlin bindings
+- the Rust FFI artifacts still need to be built for mobile targets before the package can run in an app

@@ -2,8 +2,9 @@
 
 Generated Swift bindings and packaged Apple framework artifacts live here.
 
-Planned contents:
+Current contents:
 
-- UniFFI-generated Swift bindings
-- XCFramework or Swift Package release artifacts
-- minimal smoke-test app/package wiring
+- `generated/`: UniFFI-generated Swift sources, header, and modulemap
+- `Sources/PrivacyPoolsSdk/`: thin Swift-friendly wrapper API
+- `PrivacyPoolsSdk.podspec`: CocoaPods packaging entrypoint
+- `scripts/build-xcframework.sh`: reproducible XCFramework build script

@@ -1,0 +1,10 @@
+[bindings.swift]
+module_name = "PrivacyPoolsSdk"
+ffi_module_name = "PrivacyPoolsSdkFFI"
+ffi_module_filename = "PrivacyPoolsSdkFFI"
+generate_module_map = true
+
+[bindings.kotlin]
+package_name = "io.oxbow.privacypoolssdk"
+android = true
+cdylib_name = "privacy_pools_sdk_ffi"

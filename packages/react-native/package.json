@@ -5,9 +5,14 @@
   "description": "React Native bindings for the Rust-first Privacy Pools SDK",
   "license": "Apache-2.0",
   "main": "./src/index.ts",
+  "react-native": "./src/index.ts",
   "types": "./src/index.ts",
   "files": [
     "src",
+    "android",
+    "ios",
+    "PrivacyPoolsSdk.podspec",
+    "react-native.config.js",
     "README.md"
   ],
   "peerDependencies": {

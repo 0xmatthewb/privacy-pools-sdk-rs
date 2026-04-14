@@ -8,3 +8,4 @@
 /.vscode
 /bindings/ios/build
 /bindings/android/build
+/bindings/android/src/main/jniLibs
