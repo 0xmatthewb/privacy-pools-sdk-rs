@@ -649,6 +649,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_stable_backend_name(
@@ -687,6 +689,8 @@ internal object UniffiLib {
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -838,6 +842,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses() != 39702.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818.toShort()) {
@@ -1070,6 +1077,69 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
     override fun write(value: ByteArray, buf: ByteBuffer) {
         buf.putInt(value.size)
         buf.put(value)
+    }
+}
+
+
+
+data class FfiArtifactStatus (
+    var `version`: kotlin.String
+    , 
+    var `circuit`: kotlin.String
+    , 
+    var `kind`: kotlin.String
+    , 
+    var `filename`: kotlin.String
+    , 
+    var `path`: kotlin.String
+    , 
+    var `exists`: kotlin.Boolean
+    , 
+    var `verified`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiArtifactStatus: FfiConverterRustBuffer<FfiArtifactStatus> {
+    override fun read(buf: ByteBuffer): FfiArtifactStatus {
+        return FfiArtifactStatus(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiArtifactStatus) = (
+            FfiConverterString.allocationSize(value.`version`) +
+            FfiConverterString.allocationSize(value.`circuit`) +
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`filename`) +
+            FfiConverterString.allocationSize(value.`path`) +
+            FfiConverterBoolean.allocationSize(value.`exists`) +
+            FfiConverterBoolean.allocationSize(value.`verified`)
+    )
+
+    override fun write(value: FfiArtifactStatus, buf: ByteBuffer) {
+            FfiConverterString.write(value.`version`, buf)
+            FfiConverterString.write(value.`circuit`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterString.write(value.`filename`, buf)
+            FfiConverterString.write(value.`path`, buf)
+            FfiConverterBoolean.write(value.`exists`, buf)
+            FfiConverterBoolean.write(value.`verified`, buf)
     }
 }
 
@@ -1739,6 +1809,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiArtifactStatus: FfiConverterRustBuffer<List<FfiArtifactStatus>> {
+    override fun read(buf: ByteBuffer): List<FfiArtifactStatus> {
+        val len = buf.getInt()
+        return List<FfiArtifactStatus>(len) {
+            FfiConverterTypeFfiArtifactStatus.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiArtifactStatus>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiArtifactStatus.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiArtifactStatus>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiArtifactStatus.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<FfiPoolEvent>> {
     override fun read(buf: ByteBuffer): List<FfiPoolEvent> {
         val len = buf.getInt()
@@ -1831,6 +1929,17 @@ public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
     
         FfiConverterSequenceString.lower(`leaves`),FfiConverterString.lower(`leaf`),_status)
+}
+    )
+    }
+    
+
+    @Throws(FfiException::class) fun `getArtifactStatuses`(`manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `circuit`: kotlin.String): List<FfiArtifactStatus> {
+            return FfiConverterSequenceTypeFfiArtifactStatus.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(
+    
+        FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`circuit`),_status)
 }
     )
     }

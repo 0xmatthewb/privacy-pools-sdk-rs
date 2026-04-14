@@ -214,6 +214,26 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(getArtifactStatuses:artifactsRoot:circuit:resolver:rejecter:)
+    func getArtifactStatuses(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let statuses = try PrivacyPoolsSdkClient.artifactStatuses(
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                circuit: circuit
+            )
+            resolve(statuses.map(artifactStatusMap))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(checkpointRecovery:policy:resolver:rejecter:)
     func checkpointRecovery(
         events: [[String: Any]],
@@ -289,6 +309,18 @@ final class PrivacyPoolsSdk: NSObject {
             "index": NSNumber(value: witness.index),
             "siblings": witness.siblings,
             "depth": NSNumber(value: witness.depth),
+        ]
+    }
+
+    private func artifactStatusMap(_ status: FfiArtifactStatus) -> [String: Any] {
+        [
+            "version": status.version,
+            "circuit": status.circuit,
+            "kind": status.kind,
+            "filename": status.filename,
+            "path": status.path,
+            "exists": status.exists,
+            "verified": status.verified,
         ]
     }
 

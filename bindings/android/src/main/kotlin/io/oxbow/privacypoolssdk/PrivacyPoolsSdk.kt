@@ -7,6 +7,7 @@ import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
 import io.oxbow.privacypoolssdk.deriveWithdrawalSecrets as ffiDeriveWithdrawalSecrets
 import io.oxbow.privacypoolssdk.fastBackendSupportedOnTarget as ffiFastBackendSupportedOnTarget
 import io.oxbow.privacypoolssdk.generateMerkleProof as ffiGenerateMerkleProof
+import io.oxbow.privacypoolssdk.getArtifactStatuses as ffiGetArtifactStatuses
 import io.oxbow.privacypoolssdk.getCommitment as ffiGetCommitment
 import io.oxbow.privacypoolssdk.getStableBackendName as ffiGetStableBackendName
 import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
@@ -75,6 +76,13 @@ object PrivacyPoolsSdk {
         bytes: ByteArray,
     ): FfiArtifactVerification =
         ffiVerifyArtifactBytes(manifestJson, circuit, kind, bytes)
+
+    @Throws(FfiException::class)
+    fun artifactStatuses(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+    ): List<FfiArtifactStatus> = ffiGetArtifactStatuses(manifestJson, artifactsRoot, circuit)
 
     @Throws(FfiException::class)
     fun recoveryCheckpoint(

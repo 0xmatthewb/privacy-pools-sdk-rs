@@ -103,6 +103,18 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func artifactStatuses(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+    ) throws -> [FfiArtifactStatus] {
+        try getArtifactStatuses(
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            circuit: circuit
+        )
+    }
+
     public static func recoveryCheckpoint(
         events: [FfiPoolEvent],
         policy: FfiRecoveryPolicy,

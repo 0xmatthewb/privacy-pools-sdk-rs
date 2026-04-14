@@ -516,6 +516,80 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 }
 
 
+public struct FfiArtifactStatus: Equatable, Hashable {
+    public var version: String
+    public var circuit: String
+    public var kind: String
+    public var filename: String
+    public var path: String
+    public var exists: Bool
+    public var verified: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(version: String, circuit: String, kind: String, filename: String, path: String, exists: Bool, verified: Bool) {
+        self.version = version
+        self.circuit = circuit
+        self.kind = kind
+        self.filename = filename
+        self.path = path
+        self.exists = exists
+        self.verified = verified
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiArtifactStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiArtifactStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiArtifactStatus {
+        return
+            try FfiArtifactStatus(
+                version: FfiConverterString.read(from: &buf), 
+                circuit: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                filename: FfiConverterString.read(from: &buf), 
+                path: FfiConverterString.read(from: &buf), 
+                exists: FfiConverterBool.read(from: &buf), 
+                verified: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiArtifactStatus, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.version, into: &buf)
+        FfiConverterString.write(value.circuit, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.filename, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterBool.write(value.exists, into: &buf)
+        FfiConverterBool.write(value.verified, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiArtifactStatus_lift(_ buf: RustBuffer) throws -> FfiArtifactStatus {
+    return try FfiConverterTypeFfiArtifactStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiArtifactStatus_lower(_ value: FfiArtifactStatus) -> RustBuffer {
+    return FfiConverterTypeFfiArtifactStatus.lower(value)
+}
+
+
 public struct FfiArtifactVerification: Equatable, Hashable {
     public var version: String
     public var circuit: String
@@ -1275,6 +1349,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiArtifactStatus: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiArtifactStatus]
+
+    public static func write(_ value: [FfiArtifactStatus], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiArtifactStatus.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiArtifactStatus] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiArtifactStatus]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiArtifactStatus.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer {
     typealias SwiftType = [FfiPoolEvent]
 
@@ -1350,6 +1449,15 @@ public func generateMerkleProof(leaves: [String], leaf: String)throws  -> FfiMer
     uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
         FfiConverterSequenceString.lower(leaves),
         FfiConverterString.lower(leaf),$0
+    )
+})
+}
+public func getArtifactStatuses(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> [FfiArtifactStatus]  {
+    return try  FfiConverterSequenceTypeFfiArtifactStatus.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(circuit),$0
     )
 })
 }
@@ -1435,6 +1543,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses() != 39702) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818) {

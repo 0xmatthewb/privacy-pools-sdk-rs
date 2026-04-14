@@ -33,6 +33,14 @@ pub struct ResolvedArtifact {
     pub path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactStatus {
+    pub descriptor: ArtifactDescriptor,
+    pub path: PathBuf,
+    pub exists: bool,
+    pub verified: bool,
+}
+
 #[derive(Debug, Error)]
 pub enum ArtifactError {
     #[error("missing artifact `{kind:?}` for circuit `{circuit}`")]
@@ -66,6 +74,13 @@ impl ArtifactManifest {
 
     pub fn resolve_path(&self, root: impl AsRef<Path>, descriptor: &ArtifactDescriptor) -> PathBuf {
         root.as_ref().join(&descriptor.filename)
+    }
+
+    pub fn descriptors_for_circuit(&self, circuit: &str) -> Vec<&ArtifactDescriptor> {
+        self.artifacts
+            .iter()
+            .filter(|artifact| artifact.circuit == circuit)
+            .collect()
     }
 
     pub fn resolve_required(
@@ -105,6 +120,38 @@ pub fn verify_artifact_file(resolved: &ResolvedArtifact) -> Result<(), ArtifactE
     verify_artifact_bytes(&resolved.descriptor, &bytes)
 }
 
+pub fn artifact_status(root: impl AsRef<Path>, descriptor: &ArtifactDescriptor) -> ArtifactStatus {
+    let path = root.as_ref().join(&descriptor.filename);
+    let exists = path.exists();
+    let verified = if exists {
+        fs::read(&path)
+            .ok()
+            .map(|bytes| verify_artifact_bytes(descriptor, &bytes).is_ok())
+            .unwrap_or(false)
+    } else {
+        false
+    };
+
+    ArtifactStatus {
+        descriptor: descriptor.clone(),
+        path,
+        exists,
+        verified,
+    }
+}
+
+pub fn artifact_statuses(
+    manifest: &ArtifactManifest,
+    root: impl AsRef<Path>,
+    circuit: &str,
+) -> Vec<ArtifactStatus> {
+    manifest
+        .descriptors_for_circuit(circuit)
+        .into_iter()
+        .map(|descriptor| artifact_status(root.as_ref(), descriptor))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +172,36 @@ mod tests {
         verify_artifact_bytes(&resolved.descriptor, bytes).unwrap();
         verify_artifact_file(&resolved).unwrap();
         assert!(resolved.path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn reports_artifact_status_for_existing_and_missing_files() {
+        let manifest = ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![
+                ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "sample-artifact.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+                ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Zkey,
+                    filename: "missing-artifact.zkey".to_owned(),
+                    sha256: "00".repeat(32),
+                },
+            ],
+        };
+
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let statuses = artifact_statuses(&manifest, root, "withdraw");
+
+        assert_eq!(statuses.len(), 2);
+        assert!(statuses[0].exists);
+        assert!(statuses[0].verified);
+        assert!(!statuses[1].exists);
+        assert!(!statuses[1].verified);
     }
 }

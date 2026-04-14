@@ -8,6 +8,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import io.oxbow.privacypoolssdk.FfiArtifactVerification
+import io.oxbow.privacypoolssdk.FfiArtifactStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
 import io.oxbow.privacypoolssdk.FfiCommitment
 import io.oxbow.privacypoolssdk.FfiException
@@ -191,6 +192,23 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun getArtifactStatuses(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+        promise: Promise,
+    ) {
+        try {
+            val result = Arguments.createArray()
+            NativeSdk.artifactStatuses(manifestJson, artifactsRoot, circuit)
+                .forEach { status -> result.pushMap(artifactStatusMap(status)) }
+            promise.resolve(result)
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun checkpointRecovery(events: ReadableArray, policy: ReadableMap, promise: Promise) {
         try {
             val eventRecords = List(events.size()) { index ->
@@ -273,6 +291,16 @@ class PrivacyPoolsSdkModule(
         putString("circuit", verification.circuit)
         putString("kind", verification.kind)
         putString("filename", verification.filename)
+    }
+
+    private fun artifactStatusMap(status: FfiArtifactStatus) = Arguments.createMap().apply {
+        putString("version", status.version)
+        putString("circuit", status.circuit)
+        putString("kind", status.kind)
+        putString("filename", status.filename)
+        putString("path", status.path)
+        putBoolean("exists", status.exists)
+        putBoolean("verified", status.verified)
     }
 
     private fun recoveryCheckpointMap(checkpoint: FfiRecoveryCheckpoint) =

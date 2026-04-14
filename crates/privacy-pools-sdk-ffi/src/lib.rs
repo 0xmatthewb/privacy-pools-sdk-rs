@@ -1,11 +1,11 @@
 use alloy_primitives::{Address, U256};
 use privacy_pools_sdk::{
     PrivacyPoolsSdk,
-    artifacts::{ArtifactKind, ArtifactManifest},
+    artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus},
     core::{CircuitMerkleWitness, MasterKeys, MerkleProof, RootReadKind},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -60,6 +60,17 @@ pub struct FfiArtifactVerification {
     pub circuit: String,
     pub kind: String,
     pub filename: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiArtifactStatus {
+    pub version: String,
+    pub circuit: String,
+    pub kind: String,
+    pub filename: String,
+    pub path: String,
+    pub exists: bool,
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -140,6 +151,14 @@ fn root_read_kind_label(kind: RootReadKind) -> String {
     match kind {
         RootReadKind::PoolState => "pool_state".to_owned(),
         RootReadKind::Asp => "asp".to_owned(),
+    }
+}
+
+fn artifact_kind_label(kind: ArtifactKind) -> String {
+    match kind {
+        ArtifactKind::Wasm => "wasm".to_owned(),
+        ArtifactKind::Zkey => "zkey".to_owned(),
+        ArtifactKind::Vkey => "vkey".to_owned(),
     }
 }
 
@@ -226,6 +245,18 @@ fn to_ffi_recovery_checkpoint(
         commitments_seen: u64::try_from(checkpoint.commitments_seen)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
     })
+}
+
+fn to_ffi_artifact_status(version: &str, status: ArtifactStatus) -> FfiArtifactStatus {
+    FfiArtifactStatus {
+        version: version.to_owned(),
+        circuit: status.descriptor.circuit.clone(),
+        kind: artifact_kind_label(status.descriptor.kind),
+        filename: status.descriptor.filename.clone(),
+        path: status.path.to_string_lossy().into_owned(),
+        exists: status.exists,
+        verified: status.verified,
+    }
 }
 
 fn from_ffi_recovery_policy(policy: FfiRecoveryPolicy) -> Result<RecoveryPolicy, FfiError> {
@@ -404,13 +435,26 @@ pub fn verify_artifact_bytes(
     Ok(FfiArtifactVerification {
         version,
         circuit,
-        kind: match kind {
-            ArtifactKind::Wasm => "wasm".to_owned(),
-            ArtifactKind::Zkey => "zkey".to_owned(),
-            ArtifactKind::Vkey => "vkey".to_owned(),
-        },
+        kind: artifact_kind_label(kind),
         filename: descriptor.filename.clone(),
     })
+}
+
+#[uniffi::export]
+pub fn get_artifact_statuses(
+    manifest_json: String,
+    artifacts_root: String,
+    circuit: String,
+) -> Result<Vec<FfiArtifactStatus>, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let version = manifest.version.clone();
+    let statuses = sdk().artifact_statuses(&manifest, PathBuf::from(artifacts_root), &circuit);
+
+    Ok(statuses
+        .into_iter()
+        .map(|status| to_ffi_artifact_status(&version, status))
+        .collect())
 }
 
 #[uniffi::export]
@@ -569,5 +613,44 @@ mod tests {
 
         assert_eq!(checkpoint.latest_block, 18);
         assert_eq!(checkpoint.commitments_seen, 2);
+    }
+
+    #[test]
+    fn ffi_exports_artifact_statuses() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest = serde_json::to_string(&ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![
+                privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "sample-artifact.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+                privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Zkey,
+                    filename: "missing-artifact.zkey".to_owned(),
+                    sha256: "00".repeat(32),
+                },
+            ],
+        })
+        .unwrap();
+
+        let statuses = get_artifact_statuses(
+            manifest,
+            root.to_string_lossy().into_owned(),
+            "withdraw".to_owned(),
+        )
+        .unwrap();
+
+        assert_eq!(statuses.len(), 2);
+        assert_eq!(statuses[0].kind, "wasm");
+        assert!(statuses[0].exists);
+        assert!(statuses[0].verified);
+        assert_eq!(statuses[1].kind, "zkey");
+        assert!(!statuses[1].exists);
+        assert!(!statuses[1].verified);
     }
 }

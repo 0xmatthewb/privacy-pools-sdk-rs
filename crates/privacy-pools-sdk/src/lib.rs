@@ -9,6 +9,7 @@ pub use privacy_pools_sdk_tree as tree;
 
 use alloy_primitives::{Address, U256};
 use privacy_pools_sdk_prover::{BackendPolicy, BackendProfile, NativeProofEngine, ProverError};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PrivacyPoolsSdk {
@@ -105,6 +106,15 @@ impl PrivacyPoolsSdk {
 
     pub fn plan_pool_state_root_read(&self, pool_address: Address) -> core::RootRead {
         chain::state_root_read(pool_address)
+    }
+
+    pub fn artifact_statuses(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        circuit: &str,
+    ) -> Vec<artifacts::ArtifactStatus> {
+        artifacts::artifact_statuses(manifest, root, circuit)
     }
 
     pub fn plan_asp_root_read(
