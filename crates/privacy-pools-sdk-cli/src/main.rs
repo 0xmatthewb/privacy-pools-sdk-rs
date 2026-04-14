@@ -6,12 +6,14 @@ use privacy_pools_sdk::{
     core,
     prover::{self, BackendPolicy, BackendProfile},
 };
+use serde::Serialize;
 use serde_json::Value;
 use std::{
     env, fs,
     panic::{self, AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     str::FromStr,
+    time::SystemTime,
     time::{Duration, Instant},
 };
 
@@ -22,6 +24,7 @@ struct BenchmarkArgs {
     backend: BackendProfile,
     iterations: usize,
     warmup: usize,
+    report_json: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +34,40 @@ struct BenchmarkIteration {
     proof_generation: Duration,
     verification: Duration,
     prove_and_verify: Duration,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkIterationReport {
+    iteration: usize,
+    input_preparation_ms: f64,
+    witness_generation_ms: f64,
+    proof_generation_ms: f64,
+    verification_ms: f64,
+    prove_and_verify_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkSummary {
+    average_ms: f64,
+    min_ms: f64,
+    max_ms: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct BenchmarkReport {
+    generated_at_unix_seconds: u64,
+    backend_profile: String,
+    artifact_version: String,
+    manifest_path: String,
+    artifacts_root: String,
+    iterations: usize,
+    warmup: usize,
+    input_preparation: BenchmarkSummary,
+    witness_generation: BenchmarkSummary,
+    proof_generation: BenchmarkSummary,
+    verification: BenchmarkSummary,
+    prove_and_verify: BenchmarkSummary,
+    samples: Vec<BenchmarkIterationReport>,
 }
 
 fn main() {
@@ -60,7 +97,7 @@ fn print_help() {
     println!("  benchmark-withdraw");
     println!("    benchmark the compiled Rust withdraw proving path");
     println!(
-        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n]"
+        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n] [--report-json path]"
     );
 }
 
@@ -71,6 +108,7 @@ impl BenchmarkArgs {
         let mut backend = BackendProfile::Stable;
         let mut iterations = 5usize;
         let mut warmup = 1usize;
+        let mut report_json = None;
 
         let mut iter = args.into_iter();
         while let Some(flag) = iter.next() {
@@ -103,6 +141,11 @@ impl BenchmarkArgs {
                         .parse()
                         .context("failed to parse --warmup")?;
                 }
+                "--report-json" => {
+                    report_json = Some(PathBuf::from(
+                        iter.next().context("--report-json requires a path value")?,
+                    ));
+                }
                 other => bail!("unknown flag: {other}"),
             }
         }
@@ -113,6 +156,7 @@ impl BenchmarkArgs {
             backend,
             iterations,
             warmup,
+            report_json,
         })
     }
 }
@@ -210,6 +254,11 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
         "prove + verify",
         metrics.iter().map(|value| value.prove_and_verify),
     );
+    if let Some(report_path) = &args.report_json {
+        write_report(report_path, &args, &bundle.version, &metrics)?;
+        println!();
+        println!("wrote benchmark report to {}", report_path.display());
+    }
     println!();
     println!("note: input preparation and compiled witness timings are diagnostic slices;");
     println!(
@@ -263,9 +312,21 @@ fn run_iteration(
 }
 
 fn print_duration_summary(label: &str, durations: impl Iterator<Item = Duration>) {
-    let durations = durations.collect::<Vec<_>>();
-    if durations.is_empty() {
+    let summary = summarize_durations(durations.collect::<Vec<_>>());
+    if summary.is_none() {
         return;
+    }
+    let summary = summary.expect("summary already checked");
+
+    println!(
+        "{label:>18}: avg {:>8.2} ms | min {:>8.2} ms | max {:>8.2} ms",
+        summary.average_ms, summary.min_ms, summary.max_ms
+    );
+}
+
+fn summarize_durations(durations: Vec<Duration>) -> Option<BenchmarkSummary> {
+    if durations.is_empty() {
+        return None;
     }
 
     let total = durations
@@ -276,12 +337,11 @@ fn print_duration_summary(label: &str, durations: impl Iterator<Item = Duration>
     let max = durations.iter().copied().max().unwrap_or(Duration::ZERO);
     let average = total / (durations.len() as u32);
 
-    println!(
-        "{label:>18}: avg {:>8.2} ms | min {:>8.2} ms | max {:>8.2} ms",
-        average.as_secs_f64() * 1_000.0,
-        min.as_secs_f64() * 1_000.0,
-        max.as_secs_f64() * 1_000.0
-    );
+    Some(BenchmarkSummary {
+        average_ms: duration_ms(average),
+        min_ms: duration_ms(min),
+        max_ms: duration_ms(max),
+    })
 }
 
 fn catch_panics_silently<T>(operation: impl FnOnce() -> T) -> std::thread::Result<T> {
@@ -360,4 +420,78 @@ fn parse_u256(value: &Value) -> Result<U256> {
             .context("expected decimal field element string in fixture")?,
     )
     .context("failed to parse decimal field element")
+}
+
+fn duration_ms(duration: Duration) -> f64 {
+    duration.as_secs_f64() * 1_000.0
+}
+
+fn write_report(
+    report_path: &Path,
+    args: &BenchmarkArgs,
+    artifact_version: &str,
+    metrics: &[BenchmarkIteration],
+) -> Result<()> {
+    let report = BenchmarkReport {
+        generated_at_unix_seconds: SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .context("system clock is before unix epoch")?
+            .as_secs(),
+        backend_profile: format!("{:?}", args.backend),
+        artifact_version: artifact_version.to_owned(),
+        manifest_path: args.manifest.display().to_string(),
+        artifacts_root: args.artifacts_root.display().to_string(),
+        iterations: args.iterations,
+        warmup: args.warmup,
+        input_preparation: summarize_durations(
+            metrics
+                .iter()
+                .map(|value| value.input_preparation)
+                .collect(),
+        )
+        .context("missing input preparation metrics")?,
+        witness_generation: summarize_durations(
+            metrics
+                .iter()
+                .map(|value| value.witness_generation)
+                .collect(),
+        )
+        .context("missing witness metrics")?,
+        proof_generation: summarize_durations(
+            metrics.iter().map(|value| value.proof_generation).collect(),
+        )
+        .context("missing proof metrics")?,
+        verification: summarize_durations(metrics.iter().map(|value| value.verification).collect())
+            .context("missing verification metrics")?,
+        prove_and_verify: summarize_durations(
+            metrics.iter().map(|value| value.prove_and_verify).collect(),
+        )
+        .context("missing prove_and_verify metrics")?,
+        samples: metrics
+            .iter()
+            .enumerate()
+            .map(|(index, value)| BenchmarkIterationReport {
+                iteration: index + 1,
+                input_preparation_ms: duration_ms(value.input_preparation),
+                witness_generation_ms: duration_ms(value.witness_generation),
+                proof_generation_ms: duration_ms(value.proof_generation),
+                verification_ms: duration_ms(value.verification),
+                prove_and_verify_ms: duration_ms(value.prove_and_verify),
+            })
+            .collect(),
+    };
+
+    if let Some(parent) = report_path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create benchmark report directory {}",
+                parent.display()
+            )
+        })?;
+    }
+    fs::write(
+        report_path,
+        serde_json::to_vec_pretty(&report).context("failed to serialize benchmark report")?,
+    )
+    .with_context(|| format!("failed to write benchmark report {}", report_path.display()))
 }

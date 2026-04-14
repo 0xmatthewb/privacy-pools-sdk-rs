@@ -83,14 +83,18 @@ Implemented now:
   smoke packaging, and platform-split native release packaging smoke for iOS
   and Android
 - CLI benchmark entrypoint for the Rust withdraw proving path, driven by the
-  checked-in compatibility fixtures and real verified artifact bundles
+  checked-in compatibility fixtures and real verified artifact bundles, with
+  structured JSON report output for device comparisons
+- manual release workflow with channel validation and packaged React Native
+  release artifacts for alpha/beta/rc/stable promotion
 
 Benchmarking:
 
 - see `docs/benchmarking.md` for the `privacy-pools-sdk-cli benchmark-withdraw`
   workflow
+- see `docs/release-process.md` for release-channel validation and packaging
 
 Next milestone:
 
-- mobile-device benchmark runs and release-channel hardening for alpha/beta/rc
+- mobile-device benchmark captures and canary rollout evidence for alpha/beta/rc
   promotion

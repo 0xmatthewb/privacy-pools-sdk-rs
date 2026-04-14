@@ -9,7 +9,8 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --artifacts-root /absolute/path/to/artifacts \
   --backend stable \
   --warmup 1 \
-  --iterations 5
+  --iterations 5 \
+  --report-json ./dist/withdraw-benchmark.json
 ```
 
 What it measures:
@@ -19,6 +20,7 @@ What it measures:
 - compiled witness generation through the Rust witness adapter
 - end-to-end withdraw proof generation through the Rust SDK
 - local proof verification through the Rust SDK
+- optional structured JSON benchmark report for device-to-device comparisons
 
 Notes:
 
@@ -30,3 +32,6 @@ Notes:
   benchmark runs.
 - `--backend fast` requires a build with the `rapidsnark` feature enabled and a
   supported target; the stable `arkworks` backend remains the default.
+- `--report-json` writes machine-readable timing summaries and per-iteration
+  samples, which is the preferred format for future mobile-device benchmark
+  collection.

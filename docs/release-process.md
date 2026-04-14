@@ -1,0 +1,38 @@
+# Release Process
+
+The repo now has a manual release workflow at `.github/workflows/release.yml`.
+
+It is designed to harden release channels before publish time:
+
+- validates that all Rust crates share one version
+- validates that the React Native package and both podspecs share one version
+- validates that the selected channel matches the mobile prerelease suffix
+- builds release iOS native artifacts on macOS
+- builds release Android native artifacts on Linux
+- assembles a publishable React Native tarball that includes both native asset sets
+
+## Channel rules
+
+- `alpha`: mobile version must use an `-alpha.N` prerelease suffix
+- `beta`: mobile version must use a `-beta.N` prerelease suffix
+- `rc`: mobile version must use an `-rc.N` prerelease suffix
+- `stable`: mobile version must not use a prerelease suffix
+
+The Rust crate version is validated against the same base version as the mobile
+package surface. For example, Rust `0.1.0` is compatible with mobile
+`0.1.0-alpha.1`, but not with mobile `0.2.0-alpha.1`.
+
+## Local validation
+
+```sh
+cargo run -p xtask -- release-check --channel alpha
+```
+
+## GitHub workflow
+
+Trigger the `release` workflow manually and choose the target channel. The
+workflow uploads:
+
+- iOS XCFramework archive
+- Android JNI archive
+- fully assembled React Native package tarball

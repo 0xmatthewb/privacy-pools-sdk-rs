@@ -1,5 +1,6 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use camino::Utf8PathBuf;
+use serde_json::Value;
 use std::{env, fs, process::Command};
 use uniffi::{
     GenerateOptions, SwiftBindingsOptions, TargetLanguage, generate, generate_swift_bindings,
@@ -18,6 +19,7 @@ fn run() -> Result<()> {
         Some("bindings") => generate_bindings(false),
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
+        Some("release-check") => release_check(args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
             Ok(())
@@ -37,6 +39,8 @@ fn print_help() {
     println!(
         "                   flags: --release --with-ios-native --with-android-native --with-native"
     );
+    println!("  release-check    validate release-channel versions across public surfaces");
+    println!("                   flags: --channel alpha|beta|rc|stable");
 }
 
 fn generate_bindings(release: bool) -> Result<()> {
@@ -326,6 +330,88 @@ fn workspace_root() -> Result<Utf8PathBuf> {
     .map_err(|path| anyhow::anyhow!("workspace root is not valid UTF-8: {:?}", path))
 }
 
+fn release_check(args: Vec<String>) -> Result<()> {
+    let options = ReleaseCheckOptions::parse(args)?;
+    let workspace_root = workspace_root()?;
+
+    let rust_manifests = [
+        "crates/privacy-pools-sdk/Cargo.toml",
+        "crates/privacy-pools-sdk-ffi/Cargo.toml",
+        "crates/privacy-pools-sdk-core/Cargo.toml",
+        "crates/privacy-pools-sdk-crypto/Cargo.toml",
+        "crates/privacy-pools-sdk-tree/Cargo.toml",
+        "crates/privacy-pools-sdk-artifacts/Cargo.toml",
+        "crates/privacy-pools-sdk-prover/Cargo.toml",
+        "crates/privacy-pools-sdk-chain/Cargo.toml",
+        "crates/privacy-pools-sdk-recovery/Cargo.toml",
+        "crates/privacy-pools-sdk-signer/Cargo.toml",
+        "crates/privacy-pools-sdk-cli/Cargo.toml",
+    ];
+
+    let rust_versions = rust_manifests
+        .iter()
+        .map(|path| {
+            let absolute = workspace_root.join(path);
+            read_keyed_string(&absolute, "version = ")
+                .map(|version| (path.to_string(), version))
+                .with_context(|| format!("failed to read Rust crate version from {}", absolute))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let rust_version = ensure_same_versions("Rust crate versions", &rust_versions)?;
+
+    let react_native_package_version =
+        read_package_json_version(&workspace_root.join("packages/react-native/package.json"))?;
+    let react_native_podspec_version = read_keyed_string(
+        &workspace_root.join("packages/react-native/PrivacyPoolsSdk.podspec"),
+        "s.version = ",
+    )?;
+    let ios_podspec_version = read_keyed_string(
+        &workspace_root.join("bindings/ios/PrivacyPoolsSdk.podspec"),
+        "s.version = ",
+    )?;
+
+    ensure!(
+        react_native_package_version == react_native_podspec_version,
+        "React Native package version {} does not match package podspec version {}",
+        react_native_package_version,
+        react_native_podspec_version
+    );
+    ensure!(
+        react_native_package_version == ios_podspec_version,
+        "React Native package version {} does not match iOS podspec version {}",
+        react_native_package_version,
+        ios_podspec_version
+    );
+
+    let rust_base = base_version(&rust_version);
+    let mobile_base = base_version(&react_native_package_version);
+    ensure!(
+        rust_base == mobile_base,
+        "Rust crate version base {} does not match mobile package version base {}",
+        rust_base,
+        mobile_base
+    );
+
+    options
+        .channel
+        .validate_mobile_version(&react_native_package_version)?;
+
+    println!("release-check ok");
+    println!("channel: {}", options.channel.as_str());
+    println!("rust crate version: {}", rust_version);
+    println!(
+        "react-native package version: {}",
+        react_native_package_version
+    );
+    println!(
+        "react-native podspec version: {}",
+        react_native_podspec_version
+    );
+    println!("ios podspec version: {}", ios_podspec_version);
+
+    Ok(())
+}
+
 fn cdylib_filename() -> &'static str {
     if cfg!(target_os = "macos") {
         "libprivacy_pools_sdk_ffi.dylib"
@@ -362,4 +448,129 @@ impl ReactNativePackageOptions {
 
         Ok(options)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ReleaseChannel {
+    Alpha,
+    Beta,
+    Rc,
+    Stable,
+}
+
+impl ReleaseChannel {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "alpha" => Ok(Self::Alpha),
+            "beta" => Ok(Self::Beta),
+            "rc" => Ok(Self::Rc),
+            "stable" => Ok(Self::Stable),
+            other => bail!("unsupported release channel: {other}"),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Alpha => "alpha",
+            Self::Beta => "beta",
+            Self::Rc => "rc",
+            Self::Stable => "stable",
+        }
+    }
+
+    fn validate_mobile_version(self, version: &str) -> Result<()> {
+        match self {
+            Self::Stable => ensure!(
+                !version.contains('-'),
+                "stable releases must not use a prerelease suffix: {version}"
+            ),
+            Self::Alpha | Self::Beta | Self::Rc => {
+                let (_, prerelease) = version.split_once('-').with_context(|| {
+                    format!(
+                        "{} releases must use a prerelease suffix: {version}",
+                        self.as_str()
+                    )
+                })?;
+                ensure!(
+                    prerelease.starts_with(&format!("{}.", self.as_str())),
+                    "version {version} does not match {} release channel",
+                    self.as_str()
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReleaseCheckOptions {
+    channel: ReleaseChannel,
+}
+
+impl ReleaseCheckOptions {
+    fn parse(args: Vec<String>) -> Result<Self> {
+        let mut channel = None;
+        let mut iter = args.into_iter();
+
+        while let Some(flag) = iter.next() {
+            match flag.as_str() {
+                "--channel" => {
+                    channel = Some(ReleaseChannel::parse(
+                        &iter.next().context("--channel requires a value")?,
+                    )?);
+                }
+                other => bail!("unknown release-check flag: {other}"),
+            }
+        }
+
+        Ok(Self {
+            channel: channel.context("--channel is required")?,
+        })
+    }
+}
+
+fn read_package_json_version(path: &Utf8PathBuf) -> Result<String> {
+    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+    let json: Value =
+        serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path))?;
+
+    json.get("version")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("package.json is missing a string version field: {}", path))
+}
+
+fn read_keyed_string(path: &Utf8PathBuf, prefix: &str) -> Result<String> {
+    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+
+    contents
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix(prefix)
+                .map(|value| value.trim().trim_matches('"').to_owned())
+        })
+        .with_context(|| format!("failed to find `{prefix}` in {}", path))
+}
+
+fn ensure_same_versions(label: &str, versions: &[(String, String)]) -> Result<String> {
+    let first = versions
+        .first()
+        .context("no versions were collected for release validation")?;
+    let expected = first.1.clone();
+
+    for (path, version) in versions.iter().skip(1) {
+        ensure!(
+            *version == expected,
+            "{label} mismatch: expected {expected} but found {version} in {path}"
+        );
+    }
+
+    Ok(expected)
+}
+
+fn base_version(version: &str) -> &str {
+    version.split_once('-').map_or(version, |(base, _)| base)
 }
