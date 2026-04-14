@@ -3,8 +3,9 @@ use privacy_pools_sdk::{
     PrivacyPoolsSdk,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
-        CircuitMerkleWitness, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
-        RootReadKind, SnarkJsProof, Withdrawal,
+        CircuitMerkleWitness, Commitment, FormattedGroth16Proof, MasterKeys, MerkleProof,
+        ProofBundle, RootReadKind, SnarkJsProof, Withdrawal, WithdrawalCircuitInput,
+        WithdrawalWitnessRequest,
     },
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
@@ -140,6 +141,38 @@ pub struct FfiCircuitMerkleWitness {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiWithdrawalWitnessRequest {
+    pub commitment: FfiCommitment,
+    pub withdrawal: FfiWithdrawal,
+    pub scope: String,
+    pub withdrawal_amount: String,
+    pub state_witness: FfiCircuitMerkleWitness,
+    pub asp_witness: FfiCircuitMerkleWitness,
+    pub new_nullifier: String,
+    pub new_secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiWithdrawalCircuitInput {
+    pub withdrawn_value: String,
+    pub state_root: String,
+    pub state_tree_depth: u64,
+    pub asp_root: String,
+    pub asp_tree_depth: u64,
+    pub context: String,
+    pub label: String,
+    pub existing_value: String,
+    pub existing_nullifier: String,
+    pub existing_secret: String,
+    pub new_nullifier: String,
+    pub new_secret: String,
+    pub state_siblings: Vec<String>,
+    pub state_index: u64,
+    pub asp_siblings: Vec<String>,
+    pub asp_index: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct FfiPoolEvent {
     pub block_number: u64,
     pub transaction_index: u64,
@@ -271,6 +304,22 @@ fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiComm
     }
 }
 
+fn from_ffi_commitment(commitment: FfiCommitment) -> Result<Commitment, FfiError> {
+    Ok(Commitment {
+        hash: parse_field(&commitment.hash)?,
+        nullifier_hash: parse_field(&commitment.nullifier_hash)?,
+        preimage: privacy_pools_sdk::core::CommitmentPreimage {
+            value: parse_field(&commitment.value)?,
+            label: parse_field(&commitment.label)?,
+            precommitment: privacy_pools_sdk::core::Precommitment {
+                hash: parse_field(&commitment.precommitment_hash)?,
+                nullifier: parse_field(&commitment.nullifier)?,
+                secret: parse_field(&commitment.secret)?,
+            },
+        },
+    })
+}
+
 fn to_ffi_formatted_groth16_proof(proof: FormattedGroth16Proof) -> FfiFormattedGroth16Proof {
     FfiFormattedGroth16Proof {
         p_a: proof.p_a.into_iter().collect(),
@@ -342,12 +391,57 @@ fn to_ffi_circuit_merkle_witness(
     })
 }
 
+fn from_ffi_circuit_merkle_witness(
+    witness: FfiCircuitMerkleWitness,
+) -> Result<CircuitMerkleWitness, FfiError> {
+    Ok(CircuitMerkleWitness {
+        root: parse_field(&witness.root)?,
+        leaf: parse_field(&witness.leaf)?,
+        index: usize::try_from(witness.index)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        siblings: witness
+            .siblings
+            .iter()
+            .map(|value| parse_field(value))
+            .collect::<Result<Vec<_>, _>>()?,
+        depth: usize::try_from(witness.depth)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+    })
+}
+
 fn to_ffi_recovery_checkpoint(
     checkpoint: privacy_pools_sdk::recovery::RecoveryCheckpoint,
 ) -> Result<FfiRecoveryCheckpoint, FfiError> {
     Ok(FfiRecoveryCheckpoint {
         latest_block: checkpoint.latest_block,
         commitments_seen: u64::try_from(checkpoint.commitments_seen)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+    })
+}
+
+fn to_ffi_withdrawal_circuit_input(
+    input: WithdrawalCircuitInput,
+) -> Result<FfiWithdrawalCircuitInput, FfiError> {
+    Ok(FfiWithdrawalCircuitInput {
+        withdrawn_value: field_label(input.withdrawn_value),
+        state_root: field_label(input.state_root),
+        state_tree_depth: u64::try_from(input.state_tree_depth)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        asp_root: field_label(input.asp_root),
+        asp_tree_depth: u64::try_from(input.asp_tree_depth)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        context: field_label(input.context),
+        label: field_label(input.label),
+        existing_value: field_label(input.existing_value),
+        existing_nullifier: field_label(input.existing_nullifier),
+        existing_secret: field_label(input.existing_secret),
+        new_nullifier: field_label(input.new_nullifier),
+        new_secret: field_label(input.new_secret),
+        state_siblings: input.state_siblings.into_iter().map(field_label).collect(),
+        state_index: u64::try_from(input.state_index)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        asp_siblings: input.asp_siblings.into_iter().map(field_label).collect(),
+        asp_index: u64::try_from(input.asp_index)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
     })
 }
@@ -385,6 +479,21 @@ fn from_ffi_recovery_policy(policy: FfiRecoveryPolicy) -> Result<RecoveryPolicy,
     Ok(RecoveryPolicy {
         compatibility_mode: parse_compatibility_mode(&policy.compatibility_mode)?,
         fail_closed: policy.fail_closed,
+    })
+}
+
+fn from_ffi_withdrawal_witness_request(
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<WithdrawalWitnessRequest, FfiError> {
+    Ok(WithdrawalWitnessRequest {
+        commitment: from_ffi_commitment(request.commitment)?,
+        withdrawal: from_ffi_withdrawal(request.withdrawal)?,
+        scope: parse_field(&request.scope)?,
+        withdrawal_amount: parse_field(&request.withdrawal_amount)?,
+        state_witness: from_ffi_circuit_merkle_witness(request.state_witness)?,
+        asp_witness: from_ffi_circuit_merkle_witness(request.asp_witness)?,
+        new_nullifier: parse_field(&request.new_nullifier)?,
+        new_secret: parse_field(&request.new_secret)?,
     })
 }
 
@@ -523,6 +632,17 @@ pub fn build_circuit_merkle_witness(
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     to_ffi_circuit_merkle_witness(witness)
+}
+
+#[uniffi::export]
+pub fn build_withdrawal_circuit_input(
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<FfiWithdrawalCircuitInput, FfiError> {
+    let input = sdk()
+        .build_withdrawal_circuit_input(&from_ffi_withdrawal_witness_request(request)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    to_ffi_withdrawal_circuit_input(input)
 }
 
 #[uniffi::export]
@@ -745,6 +865,109 @@ mod tests {
         )
         .unwrap();
         assert_eq!(context, fixture["context"].as_str().unwrap());
+    }
+
+    #[test]
+    fn ffi_builds_typed_withdrawal_circuit_inputs() {
+        let crypto_fixture = vector();
+        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+        let keys =
+            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
+        let deposit = derive_deposit_secrets(
+            keys.master_nullifier.clone(),
+            keys.master_secret.clone(),
+            crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            "0".to_owned(),
+        )
+        .unwrap();
+        let commitment = get_commitment(
+            withdrawal_fixture["existingValue"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
+            deposit.nullifier,
+            deposit.secret,
+        )
+        .unwrap();
+
+        let input = build_withdrawal_circuit_input(FfiWithdrawalWitnessRequest {
+            commitment,
+            withdrawal: FfiWithdrawal {
+                processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+                data: vec![0x12, 0x34],
+            },
+            scope: crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            withdrawal_amount: withdrawal_fixture["withdrawalAmount"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            state_witness: FfiCircuitMerkleWitness {
+                root: withdrawal_fixture["stateWitness"]["root"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                leaf: withdrawal_fixture["stateWitness"]["leaf"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                index: withdrawal_fixture["stateWitness"]["index"]
+                    .as_u64()
+                    .unwrap(),
+                siblings: withdrawal_fixture["stateWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+                depth: withdrawal_fixture["stateWitness"]["depth"]
+                    .as_u64()
+                    .unwrap(),
+            },
+            asp_witness: FfiCircuitMerkleWitness {
+                root: withdrawal_fixture["aspWitness"]["root"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                leaf: withdrawal_fixture["aspWitness"]["leaf"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                index: withdrawal_fixture["aspWitness"]["index"].as_u64().unwrap(),
+                siblings: withdrawal_fixture["aspWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+                depth: withdrawal_fixture["aspWitness"]["depth"].as_u64().unwrap(),
+            },
+            new_nullifier: withdrawal_fixture["newNullifier"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            new_secret: withdrawal_fixture["newSecret"].as_str().unwrap().to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(
+            input.context,
+            withdrawal_fixture["expected"]["context"].as_str().unwrap()
+        );
+        assert_eq!(
+            input.state_siblings,
+            withdrawal_fixture["expected"]["normalizedInputs"]["stateSiblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(input.state_tree_depth, 32);
+        assert_eq!(input.asp_tree_depth, 32);
     }
 
     #[test]

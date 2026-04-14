@@ -637,6 +637,8 @@ internal object IntegrityCheckingUniffiLib {
     }
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery(
@@ -685,6 +687,8 @@ internal object UniffiLib {
 
     }
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(`proof`: RustBuffer.ByValue,`depth`: Long,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(`withdrawal`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
@@ -840,6 +844,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input() != 47570.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995.toShort()) {
@@ -1906,6 +1913,182 @@ public object FfiConverterTypeFfiWithdrawal: FfiConverterRustBuffer<FfiWithdrawa
 
 
 
+data class FfiWithdrawalCircuitInput (
+    var `withdrawnValue`: kotlin.String
+    ,
+    var `stateRoot`: kotlin.String
+    ,
+    var `stateTreeDepth`: kotlin.ULong
+    ,
+    var `aspRoot`: kotlin.String
+    ,
+    var `aspTreeDepth`: kotlin.ULong
+    ,
+    var `context`: kotlin.String
+    ,
+    var `label`: kotlin.String
+    ,
+    var `existingValue`: kotlin.String
+    ,
+    var `existingNullifier`: kotlin.String
+    ,
+    var `existingSecret`: kotlin.String
+    ,
+    var `newNullifier`: kotlin.String
+    ,
+    var `newSecret`: kotlin.String
+    ,
+    var `stateSiblings`: List<kotlin.String>
+    ,
+    var `stateIndex`: kotlin.ULong
+    ,
+    var `aspSiblings`: List<kotlin.String>
+    ,
+    var `aspIndex`: kotlin.ULong
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWithdrawalCircuitInput: FfiConverterRustBuffer<FfiWithdrawalCircuitInput> {
+    override fun read(buf: ByteBuffer): FfiWithdrawalCircuitInput {
+        return FfiWithdrawalCircuitInput(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWithdrawalCircuitInput) = (
+            FfiConverterString.allocationSize(value.`withdrawnValue`) +
+            FfiConverterString.allocationSize(value.`stateRoot`) +
+            FfiConverterULong.allocationSize(value.`stateTreeDepth`) +
+            FfiConverterString.allocationSize(value.`aspRoot`) +
+            FfiConverterULong.allocationSize(value.`aspTreeDepth`) +
+            FfiConverterString.allocationSize(value.`context`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterString.allocationSize(value.`existingValue`) +
+            FfiConverterString.allocationSize(value.`existingNullifier`) +
+            FfiConverterString.allocationSize(value.`existingSecret`) +
+            FfiConverterString.allocationSize(value.`newNullifier`) +
+            FfiConverterString.allocationSize(value.`newSecret`) +
+            FfiConverterSequenceString.allocationSize(value.`stateSiblings`) +
+            FfiConverterULong.allocationSize(value.`stateIndex`) +
+            FfiConverterSequenceString.allocationSize(value.`aspSiblings`) +
+            FfiConverterULong.allocationSize(value.`aspIndex`)
+    )
+
+    override fun write(value: FfiWithdrawalCircuitInput, buf: ByteBuffer) {
+            FfiConverterString.write(value.`withdrawnValue`, buf)
+            FfiConverterString.write(value.`stateRoot`, buf)
+            FfiConverterULong.write(value.`stateTreeDepth`, buf)
+            FfiConverterString.write(value.`aspRoot`, buf)
+            FfiConverterULong.write(value.`aspTreeDepth`, buf)
+            FfiConverterString.write(value.`context`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterString.write(value.`existingValue`, buf)
+            FfiConverterString.write(value.`existingNullifier`, buf)
+            FfiConverterString.write(value.`existingSecret`, buf)
+            FfiConverterString.write(value.`newNullifier`, buf)
+            FfiConverterString.write(value.`newSecret`, buf)
+            FfiConverterSequenceString.write(value.`stateSiblings`, buf)
+            FfiConverterULong.write(value.`stateIndex`, buf)
+            FfiConverterSequenceString.write(value.`aspSiblings`, buf)
+            FfiConverterULong.write(value.`aspIndex`, buf)
+    }
+}
+
+
+
+data class FfiWithdrawalWitnessRequest (
+    var `commitment`: FfiCommitment
+    ,
+    var `withdrawal`: FfiWithdrawal
+    ,
+    var `scope`: kotlin.String
+    ,
+    var `withdrawalAmount`: kotlin.String
+    ,
+    var `stateWitness`: FfiCircuitMerkleWitness
+    ,
+    var `aspWitness`: FfiCircuitMerkleWitness
+    ,
+    var `newNullifier`: kotlin.String
+    ,
+    var `newSecret`: kotlin.String
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiWithdrawalWitnessRequest: FfiConverterRustBuffer<FfiWithdrawalWitnessRequest> {
+    override fun read(buf: ByteBuffer): FfiWithdrawalWitnessRequest {
+        return FfiWithdrawalWitnessRequest(
+            FfiConverterTypeFfiCommitment.read(buf),
+            FfiConverterTypeFfiWithdrawal.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeFfiCircuitMerkleWitness.read(buf),
+            FfiConverterTypeFfiCircuitMerkleWitness.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiWithdrawalWitnessRequest) = (
+            FfiConverterTypeFfiCommitment.allocationSize(value.`commitment`) +
+            FfiConverterTypeFfiWithdrawal.allocationSize(value.`withdrawal`) +
+            FfiConverterString.allocationSize(value.`scope`) +
+            FfiConverterString.allocationSize(value.`withdrawalAmount`) +
+            FfiConverterTypeFfiCircuitMerkleWitness.allocationSize(value.`stateWitness`) +
+            FfiConverterTypeFfiCircuitMerkleWitness.allocationSize(value.`aspWitness`) +
+            FfiConverterString.allocationSize(value.`newNullifier`) +
+            FfiConverterString.allocationSize(value.`newSecret`)
+    )
+
+    override fun write(value: FfiWithdrawalWitnessRequest, buf: ByteBuffer) {
+            FfiConverterTypeFfiCommitment.write(value.`commitment`, buf)
+            FfiConverterTypeFfiWithdrawal.write(value.`withdrawal`, buf)
+            FfiConverterString.write(value.`scope`, buf)
+            FfiConverterString.write(value.`withdrawalAmount`, buf)
+            FfiConverterTypeFfiCircuitMerkleWitness.write(value.`stateWitness`, buf)
+            FfiConverterTypeFfiCircuitMerkleWitness.write(value.`aspWitness`, buf)
+            FfiConverterString.write(value.`newNullifier`, buf)
+            FfiConverterString.write(value.`newSecret`, buf)
+    }
+}
+
+
+
 
 
 sealed class FfiException: kotlin.Exception() {
@@ -2237,6 +2420,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(
 
         FfiConverterTypeFfiMerkleProof.lower(`proof`),FfiConverterULong.lower(`depth`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `buildWithdrawalCircuitInput`(`request`: FfiWithdrawalWitnessRequest): FfiWithdrawalCircuitInput {
+            return FfiConverterTypeFfiWithdrawalCircuitInput.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(
+
+        FfiConverterTypeFfiWithdrawalWitnessRequest.lower(`request`),_status)
 }
     )
     }

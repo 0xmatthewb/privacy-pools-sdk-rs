@@ -74,6 +74,52 @@ pub struct CircuitMerkleWitness {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WithdrawalWitnessRequest {
+    pub commitment: Commitment,
+    pub withdrawal: Withdrawal,
+    pub scope: Scope,
+    pub withdrawal_amount: FieldElement,
+    pub state_witness: CircuitMerkleWitness,
+    pub asp_witness: CircuitMerkleWitness,
+    pub new_nullifier: Secret,
+    pub new_secret: Secret,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WithdrawalCircuitInput {
+    #[serde(rename = "withdrawnValue")]
+    pub withdrawn_value: FieldElement,
+    #[serde(rename = "stateRoot")]
+    pub state_root: FieldElement,
+    #[serde(rename = "stateTreeDepth")]
+    pub state_tree_depth: usize,
+    #[serde(rename = "ASPRoot")]
+    pub asp_root: FieldElement,
+    #[serde(rename = "ASPTreeDepth")]
+    pub asp_tree_depth: usize,
+    pub context: FieldElement,
+    pub label: FieldElement,
+    #[serde(rename = "existingValue")]
+    pub existing_value: FieldElement,
+    #[serde(rename = "existingNullifier")]
+    pub existing_nullifier: Secret,
+    #[serde(rename = "existingSecret")]
+    pub existing_secret: Secret,
+    #[serde(rename = "newNullifier")]
+    pub new_nullifier: Secret,
+    #[serde(rename = "newSecret")]
+    pub new_secret: Secret,
+    #[serde(rename = "stateSiblings")]
+    pub state_siblings: Vec<FieldElement>,
+    #[serde(rename = "stateIndex")]
+    pub state_index: usize,
+    #[serde(rename = "ASPSiblings")]
+    pub asp_siblings: Vec<FieldElement>,
+    #[serde(rename = "ASPIndex")]
+    pub asp_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormattedGroth16Proof {
     pub p_a: [String; 2],
     pub p_b: [[String; 2]; 2],
@@ -116,6 +162,14 @@ pub enum CoreError {
     InvalidDecimalField(String),
     #[error("field element cannot be zero: {0}")]
     ZeroValue(&'static str),
+    #[error(
+        "invalid merkle witness shape for `{name}`: expected {expected} siblings, got {actual}"
+    )]
+    InvalidWitnessShape {
+        name: &'static str,
+        expected: usize,
+        actual: usize,
+    },
 }
 
 pub fn parse_decimal_field(value: &str) -> Result<FieldElement, CoreError> {

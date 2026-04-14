@@ -24,7 +24,9 @@ import io.oxbow.privacypoolssdk.FfiResolvedArtifactBundle
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
 import io.oxbow.privacypoolssdk.FfiSnarkJsProof
+import io.oxbow.privacypoolssdk.FfiWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.FfiWithdrawal
+import io.oxbow.privacypoolssdk.FfiWithdrawalWitnessRequest
 import io.oxbow.privacypoolssdk.PrivacyPoolsSdk as NativeSdk
 
 class PrivacyPoolsSdkModule(
@@ -154,6 +156,21 @@ class PrivacyPoolsSdkModule(
                         merkleProofRecord(proof),
                         depth.toLong(),
                     )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun buildWithdrawalCircuitInput(request: ReadableMap, promise: Promise) {
+        try {
+            promise.resolve(
+                withdrawalCircuitInputMap(
+                    NativeSdk.withdrawalCircuitInput(withdrawalWitnessRequestRecord(request))
                 )
             )
         } catch (error: FfiException) {
@@ -308,6 +325,22 @@ class PrivacyPoolsSdkModule(
         putString("secret", commitment.secret)
     }
 
+    private fun commitmentRecord(commitment: ReadableMap): FfiCommitment =
+        FfiCommitment(
+            hash = commitment.getString("hash") ?: error("missing hash in commitment"),
+            nullifierHash =
+                commitment.getString("nullifier_hash")
+                    ?: error("missing nullifier_hash in commitment"),
+            precommitmentHash =
+                commitment.getString("precommitment_hash")
+                    ?: error("missing precommitment_hash in commitment"),
+            value = commitment.getString("value") ?: error("missing value in commitment"),
+            label = commitment.getString("label") ?: error("missing label in commitment"),
+            nullifier =
+                commitment.getString("nullifier") ?: error("missing nullifier in commitment"),
+            secret = commitment.getString("secret") ?: error("missing secret in commitment"),
+        )
+
     private fun withdrawalRecord(withdrawal: ReadableMap): FfiWithdrawal {
         val processooor =
             withdrawal.getString("processooor") ?: error("missing processooor in withdrawal")
@@ -347,6 +380,70 @@ class PrivacyPoolsSdkModule(
             putDouble("index", witness.index.toDouble())
             putArray("siblings", Arguments.fromList(witness.siblings))
             putDouble("depth", witness.depth.toDouble())
+        }
+
+    private fun circuitMerkleWitnessRecord(witness: ReadableMap): FfiCircuitMerkleWitness {
+        val root = witness.getString("root") ?: error("missing root in merkle witness")
+        val leaf = witness.getString("leaf") ?: error("missing leaf in merkle witness")
+        val index = witness.getDouble("index").toLong()
+        val siblingsArray =
+            witness.getArray("siblings") ?: error("missing siblings in merkle witness")
+        val depth = witness.getDouble("depth").toLong()
+
+        return FfiCircuitMerkleWitness(
+            root = root,
+            leaf = leaf,
+            index = index.toULong(),
+            siblings = readableStringList(siblingsArray),
+            depth = depth.toULong(),
+        )
+    }
+
+    private fun withdrawalWitnessRequestRecord(request: ReadableMap): FfiWithdrawalWitnessRequest {
+        val commitment =
+            request.getMap("commitment") ?: error("missing commitment in withdrawal request")
+        val withdrawal =
+            request.getMap("withdrawal") ?: error("missing withdrawal in withdrawal request")
+        val stateWitness =
+            request.getMap("state_witness") ?: error("missing state_witness in withdrawal request")
+        val aspWitness =
+            request.getMap("asp_witness") ?: error("missing asp_witness in withdrawal request")
+
+        return FfiWithdrawalWitnessRequest(
+            commitment = commitmentRecord(commitment),
+            withdrawal = withdrawalRecord(withdrawal),
+            scope = request.getString("scope") ?: error("missing scope in withdrawal request"),
+            withdrawalAmount =
+                request.getString("withdrawal_amount")
+                    ?: error("missing withdrawal_amount in withdrawal request"),
+            stateWitness = circuitMerkleWitnessRecord(stateWitness),
+            aspWitness = circuitMerkleWitnessRecord(aspWitness),
+            newNullifier =
+                request.getString("new_nullifier")
+                    ?: error("missing new_nullifier in withdrawal request"),
+            newSecret =
+                request.getString("new_secret") ?: error("missing new_secret in withdrawal request"),
+        )
+    }
+
+    private fun withdrawalCircuitInputMap(input: FfiWithdrawalCircuitInput) =
+        Arguments.createMap().apply {
+            putString("withdrawn_value", input.withdrawnValue)
+            putString("state_root", input.stateRoot)
+            putDouble("state_tree_depth", input.stateTreeDepth.toDouble())
+            putString("asp_root", input.aspRoot)
+            putDouble("asp_tree_depth", input.aspTreeDepth.toDouble())
+            putString("context", input.context)
+            putString("label", input.label)
+            putString("existing_value", input.existingValue)
+            putString("existing_nullifier", input.existingNullifier)
+            putString("existing_secret", input.existingSecret)
+            putString("new_nullifier", input.newNullifier)
+            putString("new_secret", input.newSecret)
+            putArray("state_siblings", Arguments.fromList(input.stateSiblings))
+            putDouble("state_index", input.stateIndex.toDouble())
+            putArray("asp_siblings", Arguments.fromList(input.aspSiblings))
+            putDouble("asp_index", input.aspIndex.toDouble())
         }
 
     private fun formattedGroth16ProofMap(proof: FfiFormattedGroth16Proof) =

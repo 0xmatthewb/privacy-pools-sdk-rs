@@ -107,6 +107,13 @@ pub fn get_commitment(
 }
 
 pub fn calculate_context(withdrawal: &Withdrawal, scope: Scope) -> Result<String, CryptoError> {
+    Ok(field_to_hex_32(calculate_context_field(withdrawal, scope)?))
+}
+
+pub fn calculate_context_field(
+    withdrawal: &Withdrawal,
+    scope: Scope,
+) -> Result<FieldElement, CryptoError> {
     let encoded = (
         WithdrawalAbi {
             processooor: withdrawal.processooor,
@@ -117,8 +124,7 @@ pub fn calculate_context(withdrawal: &Withdrawal, scope: Scope) -> Result<String
         .abi_encode_params();
 
     let keccak = U256::from_be_slice(keccak256(encoded).as_slice());
-    let reduced = keccak % snark_scalar_field();
-    Ok(field_to_hex_32(reduced))
+    Ok(keccak % snark_scalar_field())
 }
 
 fn derive_account_private_key(mnemonic: &str, account_index: u32) -> Result<U256, CryptoError> {

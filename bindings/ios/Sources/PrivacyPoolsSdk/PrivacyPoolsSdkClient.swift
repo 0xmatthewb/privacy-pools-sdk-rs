@@ -80,6 +80,12 @@ public enum PrivacyPoolsSdkClient {
         try buildCircuitMerkleWitness(proof: proof, depth: depth)
     }
 
+    public static func withdrawalCircuitInput(
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> FfiWithdrawalCircuitInput {
+        try buildWithdrawalCircuitInput(request: request)
+    }
+
     public static func poolStateRootRead(
         poolAddress: String,
     ) throws -> FfiRootRead {

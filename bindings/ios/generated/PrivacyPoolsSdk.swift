@@ -1554,6 +1554,194 @@ public func FfiConverterTypeFfiWithdrawal_lower(_ value: FfiWithdrawal) -> RustB
 }
 
 
+public struct FfiWithdrawalCircuitInput: Equatable, Hashable {
+    public var withdrawnValue: String
+    public var stateRoot: String
+    public var stateTreeDepth: UInt64
+    public var aspRoot: String
+    public var aspTreeDepth: UInt64
+    public var context: String
+    public var label: String
+    public var existingValue: String
+    public var existingNullifier: String
+    public var existingSecret: String
+    public var newNullifier: String
+    public var newSecret: String
+    public var stateSiblings: [String]
+    public var stateIndex: UInt64
+    public var aspSiblings: [String]
+    public var aspIndex: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(withdrawnValue: String, stateRoot: String, stateTreeDepth: UInt64, aspRoot: String, aspTreeDepth: UInt64, context: String, label: String, existingValue: String, existingNullifier: String, existingSecret: String, newNullifier: String, newSecret: String, stateSiblings: [String], stateIndex: UInt64, aspSiblings: [String], aspIndex: UInt64) {
+        self.withdrawnValue = withdrawnValue
+        self.stateRoot = stateRoot
+        self.stateTreeDepth = stateTreeDepth
+        self.aspRoot = aspRoot
+        self.aspTreeDepth = aspTreeDepth
+        self.context = context
+        self.label = label
+        self.existingValue = existingValue
+        self.existingNullifier = existingNullifier
+        self.existingSecret = existingSecret
+        self.newNullifier = newNullifier
+        self.newSecret = newSecret
+        self.stateSiblings = stateSiblings
+        self.stateIndex = stateIndex
+        self.aspSiblings = aspSiblings
+        self.aspIndex = aspIndex
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiWithdrawalCircuitInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWithdrawalCircuitInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWithdrawalCircuitInput {
+        return
+            try FfiWithdrawalCircuitInput(
+                withdrawnValue: FfiConverterString.read(from: &buf),
+                stateRoot: FfiConverterString.read(from: &buf),
+                stateTreeDepth: FfiConverterUInt64.read(from: &buf),
+                aspRoot: FfiConverterString.read(from: &buf),
+                aspTreeDepth: FfiConverterUInt64.read(from: &buf),
+                context: FfiConverterString.read(from: &buf),
+                label: FfiConverterString.read(from: &buf),
+                existingValue: FfiConverterString.read(from: &buf),
+                existingNullifier: FfiConverterString.read(from: &buf),
+                existingSecret: FfiConverterString.read(from: &buf),
+                newNullifier: FfiConverterString.read(from: &buf),
+                newSecret: FfiConverterString.read(from: &buf),
+                stateSiblings: FfiConverterSequenceString.read(from: &buf),
+                stateIndex: FfiConverterUInt64.read(from: &buf),
+                aspSiblings: FfiConverterSequenceString.read(from: &buf),
+                aspIndex: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiWithdrawalCircuitInput, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.withdrawnValue, into: &buf)
+        FfiConverterString.write(value.stateRoot, into: &buf)
+        FfiConverterUInt64.write(value.stateTreeDepth, into: &buf)
+        FfiConverterString.write(value.aspRoot, into: &buf)
+        FfiConverterUInt64.write(value.aspTreeDepth, into: &buf)
+        FfiConverterString.write(value.context, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.existingValue, into: &buf)
+        FfiConverterString.write(value.existingNullifier, into: &buf)
+        FfiConverterString.write(value.existingSecret, into: &buf)
+        FfiConverterString.write(value.newNullifier, into: &buf)
+        FfiConverterString.write(value.newSecret, into: &buf)
+        FfiConverterSequenceString.write(value.stateSiblings, into: &buf)
+        FfiConverterUInt64.write(value.stateIndex, into: &buf)
+        FfiConverterSequenceString.write(value.aspSiblings, into: &buf)
+        FfiConverterUInt64.write(value.aspIndex, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWithdrawalCircuitInput_lift(_ buf: RustBuffer) throws -> FfiWithdrawalCircuitInput {
+    return try FfiConverterTypeFfiWithdrawalCircuitInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWithdrawalCircuitInput_lower(_ value: FfiWithdrawalCircuitInput) -> RustBuffer {
+    return FfiConverterTypeFfiWithdrawalCircuitInput.lower(value)
+}
+
+
+public struct FfiWithdrawalWitnessRequest: Equatable, Hashable {
+    public var commitment: FfiCommitment
+    public var withdrawal: FfiWithdrawal
+    public var scope: String
+    public var withdrawalAmount: String
+    public var stateWitness: FfiCircuitMerkleWitness
+    public var aspWitness: FfiCircuitMerkleWitness
+    public var newNullifier: String
+    public var newSecret: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(commitment: FfiCommitment, withdrawal: FfiWithdrawal, scope: String, withdrawalAmount: String, stateWitness: FfiCircuitMerkleWitness, aspWitness: FfiCircuitMerkleWitness, newNullifier: String, newSecret: String) {
+        self.commitment = commitment
+        self.withdrawal = withdrawal
+        self.scope = scope
+        self.withdrawalAmount = withdrawalAmount
+        self.stateWitness = stateWitness
+        self.aspWitness = aspWitness
+        self.newNullifier = newNullifier
+        self.newSecret = newSecret
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiWithdrawalWitnessRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiWithdrawalWitnessRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiWithdrawalWitnessRequest {
+        return
+            try FfiWithdrawalWitnessRequest(
+                commitment: FfiConverterTypeFfiCommitment.read(from: &buf),
+                withdrawal: FfiConverterTypeFfiWithdrawal.read(from: &buf),
+                scope: FfiConverterString.read(from: &buf),
+                withdrawalAmount: FfiConverterString.read(from: &buf),
+                stateWitness: FfiConverterTypeFfiCircuitMerkleWitness.read(from: &buf),
+                aspWitness: FfiConverterTypeFfiCircuitMerkleWitness.read(from: &buf),
+                newNullifier: FfiConverterString.read(from: &buf),
+                newSecret: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiWithdrawalWitnessRequest, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiCommitment.write(value.commitment, into: &buf)
+        FfiConverterTypeFfiWithdrawal.write(value.withdrawal, into: &buf)
+        FfiConverterString.write(value.scope, into: &buf)
+        FfiConverterString.write(value.withdrawalAmount, into: &buf)
+        FfiConverterTypeFfiCircuitMerkleWitness.write(value.stateWitness, into: &buf)
+        FfiConverterTypeFfiCircuitMerkleWitness.write(value.aspWitness, into: &buf)
+        FfiConverterString.write(value.newNullifier, into: &buf)
+        FfiConverterString.write(value.newSecret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWithdrawalWitnessRequest_lift(_ buf: RustBuffer) throws -> FfiWithdrawalWitnessRequest {
+    return try FfiConverterTypeFfiWithdrawalWitnessRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiWithdrawalWitnessRequest_lower(_ value: FfiWithdrawalWitnessRequest) -> RustBuffer {
+    return FfiConverterTypeFfiWithdrawalWitnessRequest.lower(value)
+}
+
+
 public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
 
@@ -1819,6 +2007,13 @@ public func buildCircuitMerkleWitness(proof: FfiMerkleProof, depth: UInt64)throw
     )
 })
 }
+public func buildWithdrawalCircuitInput(request: FfiWithdrawalWitnessRequest)throws  -> FfiWithdrawalCircuitInput  {
+    return try  FfiConverterTypeFfiWithdrawalCircuitInput_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),$0
+    )
+})
+}
 public func calculateWithdrawalContext(withdrawal: FfiWithdrawal, scope: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(
@@ -1973,6 +2168,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input() != 47570) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995) {

@@ -44,16 +44,20 @@ Implemented now:
 - explicit distinction between pool state-root reads and ASP-root reads
 - artifact manifest resolution and SHA-256 verification helpers
 - explicit local artifact status and verified bundle resolution helpers
+- typed withdraw witness requests and normalized circuit-input serialization for
+  the default Rust proving backend
+- verified-zkey proving request preparation for the `withdraw` circuit
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
-  root-read planning, proof formatting, and artifact verification/resolution
+  typed withdraw circuit inputs, root-read planning, proof formatting, and
+  artifact verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
-  implementation
+  implementation, including typed withdraw-circuit input helpers
 - CI expanded to include clippy, tests, cargo-deny, cargo-audit, and RN package
   smoke packaging
 
 Next milestone:
 
-- real `circom-prover` execution wired to a circuit-specific witness adapter
+- real `circom-prover` execution wired to a compiled withdraw witness adapter
 - generated iOS and Android bindings plus packaging automation
 - provider-backed transaction simulation, signing, and broadcast flows
 - mobile smoke builds once native entry points exist

@@ -97,6 +97,36 @@ type CircuitMerkleWitness = {
   depth: number;
 };
 
+type WithdrawalWitnessRequest = {
+  commitment: Commitment;
+  withdrawal: Withdrawal;
+  scope: string;
+  withdrawal_amount: string;
+  state_witness: CircuitMerkleWitness;
+  asp_witness: CircuitMerkleWitness;
+  new_nullifier: string;
+  new_secret: string;
+};
+
+type WithdrawalCircuitInput = {
+  withdrawn_value: string;
+  state_root: string;
+  state_tree_depth: number;
+  asp_root: string;
+  asp_tree_depth: number;
+  context: string;
+  label: string;
+  existing_value: string;
+  existing_nullifier: string;
+  existing_secret: string;
+  new_nullifier: string;
+  new_secret: string;
+  state_siblings: string[];
+  state_index: number;
+  asp_siblings: string[];
+  asp_index: number;
+};
+
 type RecoveryPolicy = {
   compatibility_mode: "strict" | "legacy";
   fail_closed: boolean;
@@ -147,6 +177,9 @@ export type NativePrivacyPoolsSdkModule = {
     proof: MerkleProof,
     depth: number,
   ): Promise<CircuitMerkleWitness>;
+  buildWithdrawalCircuitInput(
+    request: WithdrawalWitnessRequest,
+  ): Promise<WithdrawalCircuitInput>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
   isCurrentStateRoot(expectedRoot: string, currentRoot: string): Promise<boolean>;
@@ -255,6 +288,11 @@ export const buildCircuitMerkleWitness = (
   depth: number,
 ): Promise<CircuitMerkleWitness> =>
   requireNativeModule().buildCircuitMerkleWitness(proof, depth);
+
+export const buildWithdrawalCircuitInput = (
+  request: WithdrawalWitnessRequest,
+): Promise<WithdrawalCircuitInput> =>
+  requireNativeModule().buildWithdrawalCircuitInput(request);
 
 export const planPoolStateRootRead = (poolAddress: string): Promise<RootRead> =>
   requireNativeModule().planPoolStateRootRead(poolAddress);

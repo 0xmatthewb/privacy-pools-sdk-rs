@@ -4,13 +4,15 @@ use circom_prover::{
         CircomProof, ProofLib, PublicInputs,
         circom::{G1, G2, Proof},
     },
-    witness::WitnessFn,
 };
 use num_bigint::BigUint;
-use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof};
+use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use std::{path::PathBuf, str::FromStr};
 use thiserror::Error;
+
+pub use circom_prover::witness::WitnessFn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackendProfile {
@@ -57,6 +59,8 @@ pub enum ProverError {
     MissingZkey(PathBuf),
     #[error("failed to parse decimal field: {0}")]
     InvalidField(String),
+    #[error("failed to serialize circuit input: {0}")]
+    InputSerialization(String),
     #[error("circom prover failed: {0}")]
     Circom(String),
 }
@@ -143,6 +147,70 @@ impl NativeProofEngine {
             }
         }
     }
+}
+
+pub fn serialize_withdrawal_circuit_input(
+    input: &WithdrawalCircuitInput,
+) -> Result<String, ProverError> {
+    let mut json = Map::new();
+
+    insert_field(
+        &mut json,
+        "withdrawnValue",
+        input.withdrawn_value.to_string(),
+    );
+    insert_field(&mut json, "stateRoot", input.state_root.to_string());
+    insert_field(
+        &mut json,
+        "stateTreeDepth",
+        input.state_tree_depth.to_string(),
+    );
+    insert_field(&mut json, "ASPRoot", input.asp_root.to_string());
+    insert_field(&mut json, "ASPTreeDepth", input.asp_tree_depth.to_string());
+    insert_field(&mut json, "context", input.context.to_string());
+    insert_field(&mut json, "label", input.label.to_string());
+    insert_field(&mut json, "existingValue", input.existing_value.to_string());
+    insert_field(
+        &mut json,
+        "existingNullifier",
+        input.existing_nullifier.to_string(),
+    );
+    insert_field(
+        &mut json,
+        "existingSecret",
+        input.existing_secret.to_string(),
+    );
+    insert_field(&mut json, "newNullifier", input.new_nullifier.to_string());
+    insert_field(&mut json, "newSecret", input.new_secret.to_string());
+    insert_fields(
+        &mut json,
+        "stateSiblings",
+        input.state_siblings.iter().map(ToString::to_string),
+    );
+    insert_field(&mut json, "stateIndex", input.state_index.to_string());
+    insert_fields(
+        &mut json,
+        "ASPSiblings",
+        input.asp_siblings.iter().map(ToString::to_string),
+    );
+    insert_field(&mut json, "ASPIndex", input.asp_index.to_string());
+
+    serde_json::to_string(&Value::Object(json))
+        .map_err(|error| ProverError::InputSerialization(error.to_string()))
+}
+
+fn insert_field(json: &mut Map<String, Value>, key: &str, value: String) {
+    json.insert(key.to_owned(), Value::Array(vec![Value::String(value)]));
+}
+
+fn insert_fields<I>(json: &mut Map<String, Value>, key: &str, values: I)
+where
+    I: IntoIterator<Item = String>,
+{
+    json.insert(
+        key.to_owned(),
+        Value::Array(values.into_iter().map(Value::String).collect()),
+    );
 }
 
 impl ProofEngine for NativeProofEngine {
@@ -239,6 +307,8 @@ pub fn rapidsnark_supported_target() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use privacy_pools_sdk_core::parse_decimal_field;
+    use serde_json::Value;
 
     #[test]
     fn stable_backend_is_arkworks() {
@@ -264,5 +334,51 @@ mod tests {
             engine.prove(&request),
             Err(ProverError::WitnessFunctionRequired)
         ));
+    }
+
+    #[test]
+    fn serializes_withdrawal_input_for_default_witness_backends() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+
+        let input = WithdrawalCircuitInput {
+            withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
+                .unwrap(),
+            state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
+                .unwrap(),
+            state_tree_depth: fixture["stateWitness"]["depth"].as_u64().unwrap() as usize,
+            asp_root: parse_decimal_field(fixture["aspWitness"]["root"].as_str().unwrap()).unwrap(),
+            asp_tree_depth: fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
+            context: parse_decimal_field(fixture["expected"]["context"].as_str().unwrap()).unwrap(),
+            label: parse_decimal_field(fixture["label"].as_str().unwrap()).unwrap(),
+            existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
+                .unwrap(),
+            existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
+                .unwrap(),
+            existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
+                .unwrap(),
+            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap()).unwrap(),
+            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap()).unwrap(),
+            state_siblings: fixture["stateWitness"]["siblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
+                .collect(),
+            state_index: fixture["stateWitness"]["index"].as_u64().unwrap() as usize,
+            asp_siblings: fixture["aspWitness"]["siblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
+                .collect(),
+            asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
+        };
+
+        let normalized: Value =
+            serde_json::from_str(&serialize_withdrawal_circuit_input(&input).unwrap()).unwrap();
+        assert_eq!(normalized, fixture["expected"]["normalizedInputs"]);
     }
 }

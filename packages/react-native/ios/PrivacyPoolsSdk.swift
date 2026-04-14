@@ -168,6 +168,22 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(buildWithdrawalCircuitInput:resolver:rejecter:)
+    func buildWithdrawalCircuitInput(
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let input = try PrivacyPoolsSdkClient.withdrawalCircuitInput(
+                request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(withdrawalCircuitInputMap(input))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planPoolStateRootRead:resolver:rejecter:)
     func planPoolStateRootRead(
         poolAddress: String,
@@ -344,6 +360,34 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func commitmentRecord(from value: [String: Any]) throws -> FfiCommitment {
+        guard
+            let hash = value["hash"] as? String,
+            let nullifierHash = value["nullifier_hash"] as? String,
+            let precommitmentHash = value["precommitment_hash"] as? String,
+            let amount = value["value"] as? String,
+            let label = value["label"] as? String,
+            let nullifier = value["nullifier"] as? String,
+            let secret = value["secret"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid commitment payload"]
+            )
+        }
+
+        return FfiCommitment(
+            hash: hash,
+            nullifierHash: nullifierHash,
+            precommitmentHash: precommitmentHash,
+            value: amount,
+            label: label,
+            nullifier: nullifier,
+            secret: secret
+        )
+    }
+
     private func withdrawalRecord(from value: [String: Any]) throws -> FfiWithdrawal {
         guard let processooor = value["processooor"] as? String else {
             throw NSError(
@@ -392,6 +436,83 @@ final class PrivacyPoolsSdk: NSObject {
             "index": NSNumber(value: witness.index),
             "siblings": witness.siblings,
             "depth": NSNumber(value: witness.depth),
+        ]
+    }
+
+    private func circuitMerkleWitnessRecord(from value: [String: Any]) throws -> FfiCircuitMerkleWitness {
+        guard
+            let root = value["root"] as? String,
+            let leaf = value["leaf"] as? String,
+            let index = value["index"] as? NSNumber,
+            let siblings = value["siblings"] as? [String],
+            let depth = value["depth"] as? NSNumber
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid merkle witness payload"]
+            )
+        }
+
+        return FfiCircuitMerkleWitness(
+            root: root,
+            leaf: leaf,
+            index: index.uint64Value,
+            siblings: siblings,
+            depth: depth.uint64Value
+        )
+    }
+
+    private func withdrawalWitnessRequestRecord(
+        from value: [String: Any]
+    ) throws -> FfiWithdrawalWitnessRequest {
+        guard
+            let commitment = value["commitment"] as? [String: Any],
+            let withdrawal = value["withdrawal"] as? [String: Any],
+            let scope = value["scope"] as? String,
+            let withdrawalAmount = value["withdrawal_amount"] as? String,
+            let stateWitness = value["state_witness"] as? [String: Any],
+            let aspWitness = value["asp_witness"] as? [String: Any],
+            let newNullifier = value["new_nullifier"] as? String,
+            let newSecret = value["new_secret"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid withdrawal witness payload"]
+            )
+        }
+
+        return FfiWithdrawalWitnessRequest(
+            commitment: try commitmentRecord(from: commitment),
+            withdrawal: try withdrawalRecord(from: withdrawal),
+            scope: scope,
+            withdrawalAmount: withdrawalAmount,
+            stateWitness: try circuitMerkleWitnessRecord(from: stateWitness),
+            aspWitness: try circuitMerkleWitnessRecord(from: aspWitness),
+            newNullifier: newNullifier,
+            newSecret: newSecret
+        )
+    }
+
+    private func withdrawalCircuitInputMap(_ input: FfiWithdrawalCircuitInput) -> [String: Any] {
+        [
+            "withdrawn_value": input.withdrawnValue,
+            "state_root": input.stateRoot,
+            "state_tree_depth": NSNumber(value: input.stateTreeDepth),
+            "asp_root": input.aspRoot,
+            "asp_tree_depth": NSNumber(value: input.aspTreeDepth),
+            "context": input.context,
+            "label": input.label,
+            "existing_value": input.existingValue,
+            "existing_nullifier": input.existingNullifier,
+            "existing_secret": input.existingSecret,
+            "new_nullifier": input.newNullifier,
+            "new_secret": input.newSecret,
+            "state_siblings": input.stateSiblings,
+            "state_index": NSNumber(value: input.stateIndex),
+            "asp_siblings": input.aspSiblings,
+            "asp_index": NSNumber(value: input.aspIndex),
         ]
     }
 

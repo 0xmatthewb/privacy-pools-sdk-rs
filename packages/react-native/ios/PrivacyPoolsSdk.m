@@ -51,6 +51,10 @@ RCT_EXTERN_METHOD(buildCircuitMerkleWitness:(NSDictionary *)proof
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(buildWithdrawalCircuitInput:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(planPoolStateRootRead:(NSString *)poolAddress
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

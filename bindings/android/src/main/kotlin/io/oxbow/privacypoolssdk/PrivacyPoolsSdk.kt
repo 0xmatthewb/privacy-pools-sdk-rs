@@ -1,6 +1,7 @@
 package io.oxbow.privacypoolssdk
 
 import io.oxbow.privacypoolssdk.buildCircuitMerkleWitness as ffiBuildCircuitMerkleWitness
+import io.oxbow.privacypoolssdk.buildWithdrawalCircuitInput as ffiBuildWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.calculateWithdrawalContext as ffiCalculateWithdrawalContext
 import io.oxbow.privacypoolssdk.checkpointRecovery as ffiCheckpointRecovery
 import io.oxbow.privacypoolssdk.deriveMasterKeys as ffiDeriveMasterKeys
@@ -69,6 +70,11 @@ object PrivacyPoolsSdk {
         proof: FfiMerkleProof,
         depth: Long,
     ): FfiCircuitMerkleWitness = ffiBuildCircuitMerkleWitness(proof, depth.toULong())
+
+    @Throws(FfiException::class)
+    fun withdrawalCircuitInput(
+        request: FfiWithdrawalWitnessRequest,
+    ): FfiWithdrawalCircuitInput = ffiBuildWithdrawalCircuitInput(request)
 
     @Throws(FfiException::class)
     fun poolStateRootRead(poolAddress: String): FfiRootRead =

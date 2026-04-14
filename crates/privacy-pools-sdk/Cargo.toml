@@ -16,3 +16,5 @@ privacy-pools-sdk-prover = { path = "../privacy-pools-sdk-prover" }
 privacy-pools-sdk-recovery = { path = "../privacy-pools-sdk-recovery" }
 privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
 privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
+serde_json.workspace = true
+thiserror.workspace = true

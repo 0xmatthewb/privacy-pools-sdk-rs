@@ -40,6 +40,18 @@ pub struct ResolvedArtifactBundle {
     pub artifacts: Vec<ResolvedArtifact>,
 }
 
+impl ResolvedArtifactBundle {
+    pub fn artifact(&self, kind: ArtifactKind) -> Result<&ResolvedArtifact, ArtifactError> {
+        self.artifacts
+            .iter()
+            .find(|artifact| artifact.descriptor.kind == kind)
+            .ok_or_else(|| ArtifactError::MissingArtifact {
+                circuit: self.circuit.clone(),
+                kind,
+            })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactStatus {
     pub descriptor: ArtifactDescriptor,
