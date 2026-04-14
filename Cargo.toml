@@ -25,6 +25,8 @@ authors = ["matthewb"]
 
 [workspace.dependencies]
 anyhow = "1.0.102"
+alloy-consensus = { version = "2.0.0", features = ["k256"] }
+alloy-eips = "2.0.0"
 async-trait = "0.1.89"
 alloy-network = "2.0.0"
 alloy-provider = "2.0.0"

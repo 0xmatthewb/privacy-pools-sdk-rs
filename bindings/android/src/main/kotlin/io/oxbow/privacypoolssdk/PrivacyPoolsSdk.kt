@@ -8,6 +8,7 @@ import io.oxbow.privacypoolssdk.deriveMasterKeys as ffiDeriveMasterKeys
 import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
 import io.oxbow.privacypoolssdk.deriveWithdrawalSecrets as ffiDeriveWithdrawalSecrets
 import io.oxbow.privacypoolssdk.fastBackendSupportedOnTarget as ffiFastBackendSupportedOnTarget
+import io.oxbow.privacypoolssdk.finalizePreparedTransaction as ffiFinalizePreparedTransaction
 import io.oxbow.privacypoolssdk.formatGroth16ProofBundle as ffiFormatGroth16ProofBundle
 import io.oxbow.privacypoolssdk.generateMerkleProof as ffiGenerateMerkleProof
 import io.oxbow.privacypoolssdk.getArtifactStatuses as ffiGetArtifactStatuses
@@ -25,6 +26,7 @@ import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
 import io.oxbow.privacypoolssdk.registerLocalMnemonicSigner as ffiRegisterLocalMnemonicSigner
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.submitPreparedTransaction as ffiSubmitPreparedTransaction
+import io.oxbow.privacypoolssdk.submitSignedTransaction as ffiSubmitSignedTransaction
 import io.oxbow.privacypoolssdk.unregisterSigner as ffiUnregisterSigner
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
 import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
@@ -160,12 +162,27 @@ object PrivacyPoolsSdk {
     fun unregisterSigner(handle: String): Boolean = ffiUnregisterSigner(handle)
 
     @Throws(FfiException::class)
+    fun finalizePreparedTransaction(
+        rpcUrl: String,
+        prepared: FfiPreparedTransactionExecution,
+    ): FfiFinalizedTransactionExecution =
+        ffiFinalizePreparedTransaction(rpcUrl, prepared)
+
+    @Throws(FfiException::class)
     fun submitPreparedTransaction(
         rpcUrl: String,
         signerHandle: String,
         prepared: FfiPreparedTransactionExecution,
     ): FfiSubmittedTransactionExecution =
         ffiSubmitPreparedTransaction(rpcUrl, signerHandle, prepared)
+
+    @Throws(FfiException::class)
+    fun submitSignedTransaction(
+        rpcUrl: String,
+        finalized: FfiFinalizedTransactionExecution,
+        signedTransaction: String,
+    ): FfiSubmittedTransactionExecution =
+        ffiSubmitSignedTransaction(rpcUrl, finalized, signedTransaction)
 
     @Throws(FfiException::class)
     fun withdrawalTransactionPlan(

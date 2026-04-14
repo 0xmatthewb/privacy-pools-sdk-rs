@@ -1,3 +1,7 @@
+use alloy_consensus::{
+    Transaction as ConsensusTransaction, TxEnvelope, transaction::SignerRecoverable,
+};
+use alloy_eips::Decodable2718;
 use alloy_network::{Ethereum, ReceiptResponse};
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
@@ -5,9 +9,9 @@ use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
 use alloy_sol_types::{SolCall, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_core::{
-    CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FormattedGroth16Proof, ProofBundle,
-    RootCheck, RootRead, RootReadKind, TransactionKind, TransactionPlan, TransactionReceiptSummary,
-    Withdrawal, field_to_hex_32, parse_decimal_field,
+    CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FinalizedTransactionRequest,
+    FormattedGroth16Proof, ProofBundle, RootCheck, RootRead, RootReadKind, TransactionKind,
+    TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32, parse_decimal_field,
 };
 use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
 use thiserror::Error;
@@ -77,8 +81,25 @@ pub enum ChainError {
         transaction_hash: B256,
         message: String,
     },
+    #[error("failed to decode signed transaction: {0}")]
+    InvalidSignedTransaction(String),
+    #[error("signed transaction signer mismatch: expected {expected}, got {actual}")]
+    SignedTransactionSignerMismatch { expected: Address, actual: Address },
+    #[error("signed transaction field mismatch for {field}: expected {expected}, got {actual}")]
+    SignedTransactionFieldMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
     #[error("rpc request failed: {0}")]
     Transport(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FeeParameters {
+    pub gas_price: Option<u128>,
+    pub max_fee_per_gas: Option<u128>,
+    pub max_priority_fee_per_gas: Option<u128>,
 }
 
 #[async_trait]
@@ -99,6 +120,16 @@ pub trait SubmissionClient: ExecutionClient {
     async fn submit_transaction(
         &self,
         plan: &TransactionPlan,
+    ) -> Result<TransactionReceiptSummary, ChainError>;
+}
+
+#[async_trait]
+pub trait FinalizationClient: ExecutionClient {
+    async fn next_nonce(&self, caller: Address) -> Result<u64, ChainError>;
+    async fn fee_parameters(&self) -> Result<FeeParameters, ChainError>;
+    async fn submit_raw_transaction(
+        &self,
+        encoded_tx: &[u8],
     ) -> Result<TransactionReceiptSummary, ChainError>;
 }
 
@@ -180,6 +211,58 @@ impl ExecutionClient for HttpExecutionClient {
 }
 
 #[async_trait]
+impl FinalizationClient for HttpExecutionClient {
+    async fn next_nonce(&self, caller: Address) -> Result<u64, ChainError> {
+        self.provider
+            .get_transaction_count(caller)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+
+    async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
+        match self.provider.estimate_eip1559_fees().await {
+            Ok(fees) => Ok(FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(fees.max_fee_per_gas),
+                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
+            }),
+            Err(_) => self
+                .provider
+                .get_gas_price()
+                .await
+                .map(|gas_price| FeeParameters {
+                    gas_price: Some(gas_price),
+                    max_fee_per_gas: None,
+                    max_priority_fee_per_gas: None,
+                })
+                .map_err(|error| ChainError::Transport(error.to_string())),
+        }
+    }
+
+    async fn submit_raw_transaction(
+        &self,
+        encoded_tx: &[u8],
+    ) -> Result<TransactionReceiptSummary, ChainError> {
+        let pending = self
+            .provider
+            .send_raw_transaction(encoded_tx)
+            .await
+            .map_err(|error| ChainError::Submission(error.to_string()))?;
+        let transaction_hash = *pending.tx_hash();
+        let receipt =
+            pending
+                .get_receipt()
+                .await
+                .map_err(|error| ChainError::PendingTransaction {
+                    transaction_hash,
+                    message: error.to_string(),
+                })?;
+
+        Ok(receipt_summary(receipt))
+    }
+}
+
+#[async_trait]
 impl ExecutionClient for LocalSignerExecutionClient {
     async fn chain_id(&self) -> Result<u64, ChainError> {
         self.provider
@@ -220,6 +303,58 @@ impl ExecutionClient for LocalSignerExecutionClient {
             .estimate_gas(request)
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+}
+
+#[async_trait]
+impl FinalizationClient for LocalSignerExecutionClient {
+    async fn next_nonce(&self, caller: Address) -> Result<u64, ChainError> {
+        self.provider
+            .get_transaction_count(caller)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+
+    async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
+        match self.provider.estimate_eip1559_fees().await {
+            Ok(fees) => Ok(FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(fees.max_fee_per_gas),
+                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
+            }),
+            Err(_) => self
+                .provider
+                .get_gas_price()
+                .await
+                .map(|gas_price| FeeParameters {
+                    gas_price: Some(gas_price),
+                    max_fee_per_gas: None,
+                    max_priority_fee_per_gas: None,
+                })
+                .map_err(|error| ChainError::Transport(error.to_string())),
+        }
+    }
+
+    async fn submit_raw_transaction(
+        &self,
+        encoded_tx: &[u8],
+    ) -> Result<TransactionReceiptSummary, ChainError> {
+        let pending = self
+            .provider
+            .send_raw_transaction(encoded_tx)
+            .await
+            .map_err(|error| ChainError::Submission(error.to_string()))?;
+        let transaction_hash = *pending.tx_hash();
+        let receipt =
+            pending
+                .get_receipt()
+                .await
+                .map_err(|error| ChainError::PendingTransaction {
+                    transaction_hash,
+                    message: error.to_string(),
+                })?;
+
+        Ok(receipt_summary(receipt))
     }
 }
 
@@ -508,6 +643,42 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
     })
 }
 
+pub async fn finalize_transaction<C: FinalizationClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    report: &ExecutionPreflightReport,
+) -> Result<(ExecutionPreflightReport, FinalizedTransactionRequest), ChainError> {
+    let refreshed_preflight = reconfirm_preflight(client, plan, report).await?;
+    let fees = client.fee_parameters().await?;
+    let nonce = client.next_nonce(refreshed_preflight.caller).await?;
+
+    Ok((
+        refreshed_preflight.clone(),
+        FinalizedTransactionRequest {
+            kind: plan.kind,
+            chain_id: plan.chain_id,
+            from: refreshed_preflight.caller,
+            to: plan.target,
+            nonce,
+            gas_limit: refreshed_preflight.estimated_gas,
+            value: plan.value,
+            data: plan.calldata.clone(),
+            gas_price: fees.gas_price,
+            max_fee_per_gas: fees.max_fee_per_gas,
+            max_priority_fee_per_gas: fees.max_priority_fee_per_gas,
+        },
+    ))
+}
+
+pub async fn submit_signed_transaction<C: FinalizationClient>(
+    client: &C,
+    request: &FinalizedTransactionRequest,
+    encoded_tx: &[u8],
+) -> Result<TransactionReceiptSummary, ChainError> {
+    validate_signed_transaction(encoded_tx, request)?;
+    client.submit_raw_transaction(encoded_tx).await
+}
+
 async fn preflight_transaction<C: ExecutionClient>(
     client: &C,
     plan: &TransactionPlan,
@@ -646,6 +817,117 @@ fn transaction_request(plan: &TransactionPlan, caller: Address) -> TransactionRe
         .input(TransactionInput::both(plan.calldata.clone()));
     request.chain_id = Some(plan.chain_id);
     request
+}
+
+fn validate_signed_transaction(
+    encoded_tx: &[u8],
+    request: &FinalizedTransactionRequest,
+) -> Result<(), ChainError> {
+    let mut slice = encoded_tx;
+    let transaction = TxEnvelope::decode_2718(&mut slice)
+        .map_err(|error| ChainError::InvalidSignedTransaction(error.to_string()))?;
+    if !slice.is_empty() {
+        return Err(ChainError::InvalidSignedTransaction(
+            "signed transaction contains trailing bytes".to_owned(),
+        ));
+    }
+
+    let signer = transaction
+        .recover_signer()
+        .map_err(|error| ChainError::InvalidSignedTransaction(error.to_string()))?;
+    if signer != request.from {
+        return Err(ChainError::SignedTransactionSignerMismatch {
+            expected: request.from,
+            actual: signer,
+        });
+    }
+
+    match transaction.chain_id() {
+        Some(actual) if actual == request.chain_id => {}
+        Some(actual) => {
+            return Err(ChainError::SignedTransactionFieldMismatch {
+                field: "chain_id",
+                expected: request.chain_id.to_string(),
+                actual: actual.to_string(),
+            });
+        }
+        None => {
+            return Err(ChainError::SignedTransactionFieldMismatch {
+                field: "chain_id",
+                expected: request.chain_id.to_string(),
+                actual: "none".to_owned(),
+            });
+        }
+    }
+
+    let actual_to = transaction
+        .to()
+        .ok_or_else(|| ChainError::SignedTransactionFieldMismatch {
+            field: "to",
+            expected: request.to.to_string(),
+            actual: "create".to_owned(),
+        })?;
+    compare_signed_field("to", request.to, actual_to)?;
+    compare_signed_field("nonce", request.nonce, transaction.nonce())?;
+    compare_signed_field("gas_limit", request.gas_limit, transaction.gas_limit())?;
+    compare_signed_field("value", request.value, transaction.value())?;
+
+    if transaction.input() != &request.data {
+        return Err(ChainError::SignedTransactionFieldMismatch {
+            field: "data",
+            expected: format!("0x{}", hex::encode(&request.data)),
+            actual: format!("0x{}", hex::encode(transaction.input())),
+        });
+    }
+
+    match request.gas_price {
+        Some(gas_price) => {
+            if transaction.is_dynamic_fee() {
+                return Err(ChainError::SignedTransactionFieldMismatch {
+                    field: "fee_model",
+                    expected: "legacy".to_owned(),
+                    actual: "dynamic".to_owned(),
+                });
+            }
+            compare_signed_field("gas_price", gas_price, transaction.max_fee_per_gas())?;
+        }
+        None => {
+            if !transaction.is_dynamic_fee() {
+                return Err(ChainError::SignedTransactionFieldMismatch {
+                    field: "fee_model",
+                    expected: "dynamic".to_owned(),
+                    actual: "legacy".to_owned(),
+                });
+            }
+            compare_signed_field(
+                "max_fee_per_gas",
+                request.max_fee_per_gas.unwrap_or_default(),
+                transaction.max_fee_per_gas(),
+            )?;
+            compare_signed_field(
+                "max_priority_fee_per_gas",
+                request.max_priority_fee_per_gas.unwrap_or_default(),
+                transaction.max_priority_fee_per_gas().unwrap_or_default(),
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn compare_signed_field<T>(field: &'static str, expected: T, actual: T) -> Result<(), ChainError>
+where
+    T: PartialEq + ToString,
+{
+    if expected != actual {
+        return Err(ChainError::SignedTransactionFieldMismatch {
+            field,
+            expected: expected.to_string(),
+            actual: actual.to_string(),
+        });
+    }
+
+    Ok(())
 }
 
 fn decode_root_response(output: &Bytes) -> Result<U256, ChainError> {

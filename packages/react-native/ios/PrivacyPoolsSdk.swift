@@ -322,6 +322,24 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(finalizePreparedTransaction:prepared:resolver:rejecter:)
+    func finalizePreparedTransaction(
+        rpcUrl: String,
+        prepared: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let finalized = try PrivacyPoolsSdkClient.finalizePreparedTransaction(
+                rpcUrl: rpcUrl,
+                prepared: try preparedExecutionRecord(from: prepared)
+            )
+            resolve(finalizedExecutionMap(finalized))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(submitPreparedTransaction:signerHandle:prepared:resolver:rejecter:)
     func submitPreparedTransaction(
         rpcUrl: String,
@@ -335,6 +353,26 @@ final class PrivacyPoolsSdk: NSObject {
                 rpcUrl: rpcUrl,
                 signerHandle: signerHandle,
                 prepared: try preparedExecutionRecord(from: prepared)
+            )
+            resolve(submittedExecutionMap(submitted))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(submitSignedTransaction:finalized:signedTransaction:resolver:rejecter:)
+    func submitSignedTransaction(
+        rpcUrl: String,
+        finalized: [String: Any],
+        signedTransaction: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let submitted = try PrivacyPoolsSdkClient.submitSignedTransaction(
+                rpcUrl: rpcUrl,
+                finalized: try finalizedExecutionRecord(from: finalized),
+                signedTransaction: signedTransaction
             )
             resolve(submittedExecutionMap(submitted))
         } catch {
@@ -735,6 +773,36 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func finalizedExecutionMap(_ finalized: FfiFinalizedTransactionExecution) -> [String: Any] {
+        [
+            "prepared": preparedExecutionMap(finalized.prepared),
+            "request": finalizedRequestMap(finalized.request),
+        ]
+    }
+
+    private func finalizedRequestMap(_ request: FfiFinalizedTransactionRequest) -> [String: Any] {
+        var map: [String: Any] = [
+            "kind": request.kind,
+            "chain_id": NSNumber(value: request.chainId),
+            "from": request.from,
+            "to": request.to,
+            "nonce": NSNumber(value: request.nonce),
+            "gas_limit": NSNumber(value: request.gasLimit),
+            "value": request.value,
+            "data": request.data,
+        ]
+        if let gasPrice = request.gasPrice {
+            map["gas_price"] = gasPrice
+        }
+        if let maxFeePerGas = request.maxFeePerGas {
+            map["max_fee_per_gas"] = maxFeePerGas
+        }
+        if let maxPriorityFeePerGas = request.maxPriorityFeePerGas {
+            map["max_priority_fee_per_gas"] = maxPriorityFeePerGas
+        }
+        return map
+    }
+
     private func submittedExecutionMap(_ submitted: FfiSubmittedTransactionExecution) -> [String: Any] {
         [
             "prepared": preparedExecutionMap(submitted.prepared),
@@ -911,6 +979,61 @@ final class PrivacyPoolsSdk: NSObject {
             proving: try provingResultRecord(from: proving),
             transaction: try transactionPlanRecord(from: transaction),
             preflight: try executionPreflightRecord(from: preflight)
+        )
+    }
+
+    private func finalizedExecutionRecord(
+        from value: [String: Any]
+    ) throws -> FfiFinalizedTransactionExecution {
+        guard
+            let prepared = value["prepared"] as? [String: Any],
+            let request = value["request"] as? [String: Any]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid finalized execution payload"]
+            )
+        }
+
+        return FfiFinalizedTransactionExecution(
+            prepared: try preparedExecutionRecord(from: prepared),
+            request: try finalizedRequestRecord(from: request)
+        )
+    }
+
+    private func finalizedRequestRecord(
+        from value: [String: Any]
+    ) throws -> FfiFinalizedTransactionRequest {
+        guard
+            let kind = value["kind"] as? String,
+            let chainId = value["chain_id"] as? NSNumber,
+            let from = value["from"] as? String,
+            let to = value["to"] as? String,
+            let nonce = value["nonce"] as? NSNumber,
+            let gasLimit = value["gas_limit"] as? NSNumber,
+            let valueString = value["value"] as? String,
+            let data = value["data"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid finalized request payload"]
+            )
+        }
+
+        return FfiFinalizedTransactionRequest(
+            kind: kind,
+            chainId: chainId.uint64Value,
+            from: from,
+            to: to,
+            nonce: nonce.uint64Value,
+            gasLimit: gasLimit.uint64Value,
+            value: valueString,
+            data: data,
+            gasPrice: value["gas_price"] as? String,
+            maxFeePerGas: value["max_fee_per_gas"] as? String,
+            maxPriorityFeePerGas: value["max_priority_fee_per_gas"] as? String
         )
     }
 

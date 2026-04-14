@@ -13,5 +13,7 @@ Current package status:
 - withdraw proof generation and local proof verification are delegated to native Rust-backed bindings
 - prepared withdraw/relay execution preflight is delegated to native Rust-backed bindings
 - local-dev signer registration and prepared transaction submission are delegated to native Rust-backed bindings
+- finalized transaction preparation for host/native signers is delegated to native Rust-backed bindings
+- validated signed-transaction submission is delegated to native Rust-backed bindings
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging

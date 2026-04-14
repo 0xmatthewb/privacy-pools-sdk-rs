@@ -108,6 +108,25 @@ type PreparedTransactionExecution = {
   preflight: ExecutionPreflightReport;
 };
 
+type FinalizedTransactionRequest = {
+  kind: "withdraw" | "relay";
+  chain_id: number;
+  from: string;
+  to: string;
+  nonce: number;
+  gas_limit: number;
+  value: string;
+  data: string;
+  gas_price?: string | null;
+  max_fee_per_gas?: string | null;
+  max_priority_fee_per_gas?: string | null;
+};
+
+type FinalizedTransactionExecution = {
+  prepared: PreparedTransactionExecution;
+  request: FinalizedTransactionRequest;
+};
+
 type SignerHandle = {
   handle: string;
   address: string;
@@ -298,10 +317,19 @@ export type NativePrivacyPoolsSdkModule = {
     index: number,
   ): Promise<SignerHandle>;
   unregisterSigner(handle: string): Promise<boolean>;
+  finalizePreparedTransaction(
+    rpcUrl: string,
+    prepared: PreparedTransactionExecution,
+  ): Promise<FinalizedTransactionExecution>;
   submitPreparedTransaction(
     rpcUrl: string,
     signerHandle: string,
     prepared: PreparedTransactionExecution,
+  ): Promise<SubmittedTransactionExecution>;
+  submitSignedTransaction(
+    rpcUrl: string,
+    finalized: FinalizedTransactionExecution,
+    signedTransaction: string,
   ): Promise<SubmittedTransactionExecution>;
   planWithdrawalTransaction(
     chainId: number,
@@ -510,6 +538,12 @@ export const registerLocalMnemonicSigner = (
 export const unregisterSigner = (handle: string): Promise<boolean> =>
   requireNativeModule().unregisterSigner(handle);
 
+export const finalizePreparedTransaction = (
+  rpcUrl: string,
+  prepared: PreparedTransactionExecution,
+): Promise<FinalizedTransactionExecution> =>
+  requireNativeModule().finalizePreparedTransaction(rpcUrl, prepared);
+
 export const submitPreparedTransaction = (
   rpcUrl: string,
   signerHandle: string,
@@ -519,6 +553,17 @@ export const submitPreparedTransaction = (
     rpcUrl,
     signerHandle,
     prepared,
+  );
+
+export const submitSignedTransaction = (
+  rpcUrl: string,
+  finalized: FinalizedTransactionExecution,
+  signedTransaction: string,
+): Promise<SubmittedTransactionExecution> =>
+  requireNativeModule().submitSignedTransaction(
+    rpcUrl,
+    finalized,
+    signedTransaction,
   );
 
 export const planWithdrawalTransaction = (

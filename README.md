@@ -59,15 +59,20 @@ Implemented now:
 - signer-backed prepared transaction submission that re-confirms the saved
   preflight checks immediately before broadcast and returns typed receipt
   summaries
+- finalized transaction requests for host-provided or mobile secure-storage
+  signers, including nonce and fee resolution on top of refreshed preflight
+- validated raw signed-transaction submission that checks signer identity and
+  transaction fields against the finalized Rust-owned request before broadcast
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
   typed withdraw circuit inputs, withdraw proof generation/verification,
-  prepared execution flows, signer-handle registration, prepared submission,
-  transaction planning, root-read planning, proof formatting, and artifact
-  verification/resolution
+  prepared execution flows, finalized signing requests, signer-handle
+  registration, prepared submission, signed submission, transaction planning,
+  root-read planning, proof formatting, and artifact verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
   implementation, including typed withdraw-circuit input, withdraw proof
-  generation/verification, prepared execution helpers, signer-handle based
-  submission, and transaction planning
+  generation/verification, prepared execution helpers, finalized signing
+  helpers, signer-handle based submission, signed submission, and transaction
+  planning
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
@@ -78,5 +83,5 @@ Next milestone:
 
 - publishable React Native release builds with staged native binaries and
   mobile smoke builds
-- host-provided and mobile secure-storage signer adapters layered onto the same
-  prepared submission boundary
+- concrete host-provided and mobile secure-storage signer adapters layered onto
+  the finalized signing/submission boundary

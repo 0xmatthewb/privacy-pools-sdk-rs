@@ -178,6 +178,16 @@ public enum PrivacyPoolsSdkClient {
         try PrivacyPoolsSdk.unregisterSigner(handle: handle)
     }
 
+    public static func finalizePreparedTransaction(
+        rpcUrl: String,
+        prepared: FfiPreparedTransactionExecution
+    ) throws -> FfiFinalizedTransactionExecution {
+        try PrivacyPoolsSdk.finalizePreparedTransaction(
+            rpcUrl: rpcUrl,
+            prepared: prepared
+        )
+    }
+
     public static func submitPreparedTransaction(
         rpcUrl: String,
         signerHandle: String,
@@ -187,6 +197,18 @@ public enum PrivacyPoolsSdkClient {
             rpcUrl: rpcUrl,
             signerHandle: signerHandle,
             prepared: prepared
+        )
+    }
+
+    public static func submitSignedTransaction(
+        rpcUrl: String,
+        finalized: FfiFinalizedTransactionExecution,
+        signedTransaction: String
+    ) throws -> FfiSubmittedTransactionExecution {
+        try PrivacyPoolsSdk.submitSignedTransaction(
+            rpcUrl: rpcUrl,
+            finalized: finalized,
+            signedTransaction: signedTransaction
         )
     }
 

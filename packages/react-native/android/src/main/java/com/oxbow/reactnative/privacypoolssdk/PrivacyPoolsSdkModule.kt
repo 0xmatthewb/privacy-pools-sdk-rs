@@ -15,6 +15,8 @@ import io.oxbow.privacypoolssdk.FfiCommitment
 import io.oxbow.privacypoolssdk.FfiExecutionPolicy
 import io.oxbow.privacypoolssdk.FfiExecutionPreflightReport
 import io.oxbow.privacypoolssdk.FfiException
+import io.oxbow.privacypoolssdk.FfiFinalizedTransactionExecution
+import io.oxbow.privacypoolssdk.FfiFinalizedTransactionRequest
 import io.oxbow.privacypoolssdk.FfiFormattedGroth16Proof
 import io.oxbow.privacypoolssdk.FfiMasterKeys
 import io.oxbow.privacypoolssdk.FfiMerkleProof
@@ -346,6 +348,28 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun finalizePreparedTransaction(
+        rpcUrl: String,
+        prepared: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                finalizedExecutionMap(
+                    NativeSdk.finalizePreparedTransaction(
+                        rpcUrl,
+                        preparedExecutionRecord(prepared),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun submitPreparedTransaction(
         rpcUrl: String,
         signerHandle: String,
@@ -359,6 +383,30 @@ class PrivacyPoolsSdkModule(
                         rpcUrl,
                         signerHandle,
                         preparedExecutionRecord(prepared),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun submitSignedTransaction(
+        rpcUrl: String,
+        finalized: ReadableMap,
+        signedTransaction: String,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                submittedExecutionMap(
+                    NativeSdk.submitSignedTransaction(
+                        rpcUrl,
+                        finalizedExecutionRecord(finalized),
+                        signedTransaction,
                     )
                 )
             )
@@ -701,6 +749,27 @@ class PrivacyPoolsSdkModule(
             putMap("preflight", executionPreflightMap(prepared.preflight))
         }
 
+    private fun finalizedExecutionMap(finalized: FfiFinalizedTransactionExecution) =
+        Arguments.createMap().apply {
+            putMap("prepared", preparedExecutionMap(finalized.prepared))
+            putMap("request", finalizedRequestMap(finalized.request))
+        }
+
+    private fun finalizedRequestMap(request: FfiFinalizedTransactionRequest) =
+        Arguments.createMap().apply {
+            putString("kind", request.kind)
+            putDouble("chain_id", request.chainId.toDouble())
+            putString("from", request.from)
+            putString("to", request.to)
+            putDouble("nonce", request.nonce.toDouble())
+            putDouble("gas_limit", request.gasLimit.toDouble())
+            putString("value", request.value)
+            putString("data", request.data)
+            request.gasPrice?.let { putString("gas_price", it) }
+            request.maxFeePerGas?.let { putString("max_fee_per_gas", it) }
+            request.maxPriorityFeePerGas?.let { putString("max_priority_fee_per_gas", it) }
+        }
+
     private fun submittedExecutionMap(submitted: FfiSubmittedTransactionExecution) =
         Arguments.createMap().apply {
             putMap("prepared", preparedExecutionMap(submitted.prepared))
@@ -858,6 +927,33 @@ class PrivacyPoolsSdkModule(
             preflight = executionPreflightRecord(preflight),
         )
     }
+
+    private fun finalizedExecutionRecord(finalized: ReadableMap): FfiFinalizedTransactionExecution {
+        val prepared =
+            finalized.getMap("prepared") ?: error("missing prepared in finalized execution")
+        val request =
+            finalized.getMap("request") ?: error("missing request in finalized execution")
+
+        return FfiFinalizedTransactionExecution(
+            prepared = preparedExecutionRecord(prepared),
+            request = finalizedRequestRecord(request),
+        )
+    }
+
+    private fun finalizedRequestRecord(request: ReadableMap): FfiFinalizedTransactionRequest =
+        FfiFinalizedTransactionRequest(
+            kind = request.getString("kind") ?: error("missing kind in finalized request"),
+            chainId = request.getDouble("chain_id").toLong().toULong(),
+            from = request.getString("from") ?: error("missing from in finalized request"),
+            to = request.getString("to") ?: error("missing to in finalized request"),
+            nonce = request.getDouble("nonce").toLong().toULong(),
+            gasLimit = request.getDouble("gas_limit").toLong().toULong(),
+            value = request.getString("value") ?: error("missing value in finalized request"),
+            data = request.getString("data") ?: error("missing data in finalized request"),
+            gasPrice = request.getString("gas_price"),
+            maxFeePerGas = request.getString("max_fee_per_gas"),
+            maxPriorityFeePerGas = request.getString("max_priority_fee_per_gas"),
+        )
 
     private fun provingResultRecord(result: ReadableMap): FfiProvingResult {
         val proof = result.getMap("proof") ?: error("missing proof in proving result")

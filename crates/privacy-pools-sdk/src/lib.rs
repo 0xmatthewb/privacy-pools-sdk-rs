@@ -20,6 +20,12 @@ pub struct PreparedTransactionExecution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinalizedTransactionExecution {
+    pub prepared: PreparedTransactionExecution,
+    pub request: core::FinalizedTransactionRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmittedTransactionExecution {
     pub prepared: PreparedTransactionExecution,
     pub receipt: core::TransactionReceiptSummary,
@@ -395,6 +401,69 @@ impl PrivacyPoolsSdk {
         })
     }
 
+    pub async fn finalize_prepared_transaction_with_client<C: chain::FinalizationClient>(
+        &self,
+        prepared: PreparedTransactionExecution,
+        client: &C,
+    ) -> Result<FinalizedTransactionExecution, SdkError> {
+        let (preflight, request) =
+            chain::finalize_transaction(client, &prepared.transaction, &prepared.preflight).await?;
+
+        Ok(FinalizedTransactionExecution {
+            prepared: PreparedTransactionExecution {
+                preflight,
+                ..prepared
+            },
+            request,
+        })
+    }
+
+    pub async fn finalize_prepared_transaction(
+        &self,
+        rpc_url: &str,
+        prepared: PreparedTransactionExecution,
+    ) -> Result<FinalizedTransactionExecution, SdkError> {
+        let client = chain::HttpExecutionClient::new(rpc_url)?;
+        self.finalize_prepared_transaction_with_client(prepared, &client)
+            .await
+    }
+
+    pub async fn submit_finalized_transaction_with_client<C: chain::FinalizationClient>(
+        &self,
+        finalized: FinalizedTransactionExecution,
+        signed_transaction: &[u8],
+        client: &C,
+    ) -> Result<SubmittedTransactionExecution, SdkError> {
+        let refreshed_preflight = chain::reconfirm_preflight(
+            client,
+            &finalized.prepared.transaction,
+            &finalized.prepared.preflight,
+        )
+        .await?;
+        let receipt =
+            chain::submit_signed_transaction(client, &finalized.request, signed_transaction)
+                .await?;
+
+        Ok(SubmittedTransactionExecution {
+            prepared: PreparedTransactionExecution {
+                preflight: refreshed_preflight,
+                ..finalized.prepared
+            },
+            receipt,
+        })
+    }
+
+    pub async fn submit_finalized_transaction(
+        &self,
+        rpc_url: &str,
+        finalized: FinalizedTransactionExecution,
+        signed_transaction: &[u8],
+    ) -> Result<SubmittedTransactionExecution, SdkError> {
+        let client = chain::HttpExecutionClient::new(rpc_url)?;
+        self.submit_finalized_transaction_with_client(finalized, signed_transaction, &client)
+            .await
+    }
+
     pub async fn submit_prepared_transaction_with_local_mnemonic(
         &self,
         rpc_url: &str,
@@ -403,9 +472,13 @@ impl PrivacyPoolsSdk {
         prepared: PreparedTransactionExecution,
     ) -> Result<SubmittedTransactionExecution, SdkError> {
         let signer = signer::LocalMnemonicSigner::from_phrase_nth(mnemonic, index)?;
-        let client = chain::LocalSignerExecutionClient::new(rpc_url, &signer)?;
+        let client = chain::HttpExecutionClient::new(rpc_url)?;
+        let finalized = self
+            .finalize_prepared_transaction_with_client(prepared, &client)
+            .await?;
+        let signed_transaction = signer.sign_transaction_request(&finalized.request)?;
 
-        self.submit_prepared_transaction_with_client(prepared, &client)
+        self.submit_finalized_transaction_with_client(finalized, &signed_transaction, &client)
             .await
     }
 
@@ -438,6 +511,7 @@ mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
     use async_trait::async_trait;
+    use privacy_pools_sdk_signer::SignerAdapter;
     use serde_json::Value;
     use std::collections::HashMap;
     use std::str::FromStr;
@@ -449,6 +523,8 @@ mod tests {
         code_hashes: HashMap<Address, alloy_primitives::B256>,
         roots: HashMap<(core::RootReadKind, Address), U256>,
         estimated_gas: u64,
+        nonce: u64,
+        fees: chain::FeeParameters,
         receipt: core::TransactionReceiptSummary,
     }
 
@@ -497,6 +573,29 @@ mod tests {
         async fn submit_transaction(
             &self,
             _plan: &core::TransactionPlan,
+        ) -> Result<core::TransactionReceiptSummary, chain::ChainError> {
+            Ok(self.receipt.clone())
+        }
+    }
+
+    #[async_trait]
+    impl chain::FinalizationClient for MockSubmissionClient {
+        async fn next_nonce(&self, caller: Address) -> Result<u64, chain::ChainError> {
+            if caller != self.caller {
+                return Err(chain::ChainError::Transport(format!(
+                    "unexpected caller {caller}"
+                )));
+            }
+            Ok(self.nonce)
+        }
+
+        async fn fee_parameters(&self) -> Result<chain::FeeParameters, chain::ChainError> {
+            Ok(self.fees)
+        }
+
+        async fn submit_raw_transaction(
+            &self,
+            _encoded_tx: &[u8],
         ) -> Result<core::TransactionReceiptSummary, chain::ChainError> {
             Ok(self.receipt.clone())
         }
@@ -830,6 +929,12 @@ mod tests {
             code_hashes: HashMap::from([(target, code_hash)]),
             roots: HashMap::from([((core::RootReadKind::PoolState, target), root)]),
             estimated_gas: 84_000,
+            nonce: 0,
+            fees: chain::FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(20_000_000_000),
+                max_priority_fee_per_gas: Some(2_000_000_000),
+            },
             receipt: core::TransactionReceiptSummary {
                 transaction_hash: b256!(
                     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -849,6 +954,120 @@ mod tests {
 
         let submitted = sdk
             .submit_prepared_transaction_with_client(prepared, &client)
+            .await
+            .unwrap();
+
+        assert_eq!(submitted.prepared.preflight.estimated_gas, 84_000);
+        assert!(submitted.receipt.success);
+        assert_eq!(submitted.receipt.from, caller);
+    }
+
+    #[tokio::test]
+    async fn finalizes_and_submits_signed_transactions() {
+        let sdk = PrivacyPoolsSdk::default();
+        let signer = signer::LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let caller = signer.address();
+        let target = address!("2222222222222222222222222222222222222222");
+        let root = U256::from(42_u64);
+        let code_hash = b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let prepared = PreparedTransactionExecution {
+            proving: prover::ProvingResult {
+                backend: prover::ProverBackend::Arkworks,
+                proof: core::ProofBundle {
+                    proof: core::SnarkJsProof {
+                        pi_a: ["1".to_owned(), "2".to_owned()],
+                        pi_b: [
+                            ["3".to_owned(), "4".to_owned()],
+                            ["5".to_owned(), "6".to_owned()],
+                        ],
+                        pi_c: ["7".to_owned(), "8".to_owned()],
+                        protocol: "groth16".to_owned(),
+                        curve: "bn128".to_owned(),
+                    },
+                    public_signals: vec!["9".to_owned(); 8],
+                },
+            },
+            transaction: core::TransactionPlan {
+                kind: core::TransactionKind::Withdraw,
+                chain_id: 11155111,
+                target,
+                calldata: bytes!("1234"),
+                value: U256::ZERO,
+                proof: core::FormattedGroth16Proof {
+                    p_a: ["0x01".to_owned(), "0x02".to_owned()],
+                    p_b: [
+                        ["0x03".to_owned(), "0x04".to_owned()],
+                        ["0x05".to_owned(), "0x06".to_owned()],
+                    ],
+                    p_c: ["0x07".to_owned(), "0x08".to_owned()],
+                    pub_signals: vec!["0x09".to_owned(); 8],
+                },
+            },
+            preflight: core::ExecutionPreflightReport {
+                kind: core::TransactionKind::Withdraw,
+                caller,
+                target,
+                expected_chain_id: 11155111,
+                actual_chain_id: 11155111,
+                chain_id_matches: true,
+                simulated: true,
+                estimated_gas: 21_000,
+                code_hash_checks: vec![core::CodeHashCheck {
+                    address: target,
+                    expected_code_hash: Some(code_hash),
+                    actual_code_hash: code_hash,
+                    matches_expected: Some(true),
+                }],
+                root_checks: vec![core::RootCheck {
+                    kind: core::RootReadKind::PoolState,
+                    contract_address: target,
+                    pool_address: target,
+                    expected_root: root,
+                    actual_root: root,
+                    matches: true,
+                }],
+            },
+        };
+        let client = MockSubmissionClient {
+            caller,
+            chain_id: 11155111,
+            code_hashes: HashMap::from([(target, code_hash)]),
+            roots: HashMap::from([((core::RootReadKind::PoolState, target), root)]),
+            estimated_gas: 84_000,
+            nonce: 7,
+            fees: chain::FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(20_000_000_000),
+                max_priority_fee_per_gas: Some(2_000_000_000),
+            },
+            receipt: core::TransactionReceiptSummary {
+                transaction_hash: b256!(
+                    "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                ),
+                block_hash: Some(b256!(
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+                )),
+                block_number: Some(456),
+                transaction_index: Some(1),
+                success: true,
+                gas_used: 63_000,
+                effective_gas_price: "222222222".to_owned(),
+                from: caller,
+                to: Some(target),
+            },
+        };
+
+        let finalized = sdk
+            .finalize_prepared_transaction_with_client(prepared, &client)
+            .await
+            .unwrap();
+        let signed_transaction = signer.sign_transaction_request(&finalized.request).unwrap();
+        let submitted = sdk
+            .submit_finalized_transaction_with_client(finalized, &signed_transaction, &client)
             .await
             .unwrap();
 

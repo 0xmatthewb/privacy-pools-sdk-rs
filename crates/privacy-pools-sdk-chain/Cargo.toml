@@ -8,12 +8,15 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
 async-trait.workspace = true
 alloy-network.workspace = true
 alloy-provider.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rpc-types-eth.workspace = true
 alloy-sol-types.workspace = true
+hex.workspace = true
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
 serde_json.workspace = true

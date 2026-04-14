@@ -651,6 +651,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
@@ -684,6 +686,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_signed_transaction(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer(
     ): Short
@@ -720,6 +724,8 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`mas
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus,
 ): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -753,6 +759,8 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_signed_transaction(`rpcUrl`: RustBuffer.ByValue,`finalized`: RustBuffer.ByValue,`signedTransaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_unregister_signer(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
@@ -903,6 +911,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -952,6 +963,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_signed_transaction() != 30388.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer() != 15372.toShort()) {
@@ -1599,6 +1613,127 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterULong.write(value.`estimatedGas`, buf)
             FfiConverterSequenceTypeFfiCodeHashCheck.write(value.`codeHashChecks`, buf)
             FfiConverterSequenceTypeFfiRootCheck.write(value.`rootChecks`, buf)
+    }
+}
+
+
+
+data class FfiFinalizedTransactionExecution (
+    var `prepared`: FfiPreparedTransactionExecution
+    ,
+    var `request`: FfiFinalizedTransactionRequest
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiFinalizedTransactionExecution: FfiConverterRustBuffer<FfiFinalizedTransactionExecution> {
+    override fun read(buf: ByteBuffer): FfiFinalizedTransactionExecution {
+        return FfiFinalizedTransactionExecution(
+            FfiConverterTypeFfiPreparedTransactionExecution.read(buf),
+            FfiConverterTypeFfiFinalizedTransactionRequest.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiFinalizedTransactionExecution) = (
+            FfiConverterTypeFfiPreparedTransactionExecution.allocationSize(value.`prepared`) +
+            FfiConverterTypeFfiFinalizedTransactionRequest.allocationSize(value.`request`)
+    )
+
+    override fun write(value: FfiFinalizedTransactionExecution, buf: ByteBuffer) {
+            FfiConverterTypeFfiPreparedTransactionExecution.write(value.`prepared`, buf)
+            FfiConverterTypeFfiFinalizedTransactionRequest.write(value.`request`, buf)
+    }
+}
+
+
+
+data class FfiFinalizedTransactionRequest (
+    var `kind`: kotlin.String
+    ,
+    var `chainId`: kotlin.ULong
+    ,
+    var `from`: kotlin.String
+    ,
+    var `to`: kotlin.String
+    ,
+    var `nonce`: kotlin.ULong
+    ,
+    var `gasLimit`: kotlin.ULong
+    ,
+    var `value`: kotlin.String
+    ,
+    var `data`: kotlin.String
+    ,
+    var `gasPrice`: kotlin.String?
+    ,
+    var `maxFeePerGas`: kotlin.String?
+    ,
+    var `maxPriorityFeePerGas`: kotlin.String?
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiFinalizedTransactionRequest: FfiConverterRustBuffer<FfiFinalizedTransactionRequest> {
+    override fun read(buf: ByteBuffer): FfiFinalizedTransactionRequest {
+        return FfiFinalizedTransactionRequest(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiFinalizedTransactionRequest) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterULong.allocationSize(value.`chainId`) +
+            FfiConverterString.allocationSize(value.`from`) +
+            FfiConverterString.allocationSize(value.`to`) +
+            FfiConverterULong.allocationSize(value.`nonce`) +
+            FfiConverterULong.allocationSize(value.`gasLimit`) +
+            FfiConverterString.allocationSize(value.`value`) +
+            FfiConverterString.allocationSize(value.`data`) +
+            FfiConverterOptionalString.allocationSize(value.`gasPrice`) +
+            FfiConverterOptionalString.allocationSize(value.`maxFeePerGas`) +
+            FfiConverterOptionalString.allocationSize(value.`maxPriorityFeePerGas`)
+    )
+
+    override fun write(value: FfiFinalizedTransactionRequest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterULong.write(value.`chainId`, buf)
+            FfiConverterString.write(value.`from`, buf)
+            FfiConverterString.write(value.`to`, buf)
+            FfiConverterULong.write(value.`nonce`, buf)
+            FfiConverterULong.write(value.`gasLimit`, buf)
+            FfiConverterString.write(value.`value`, buf)
+            FfiConverterString.write(value.`data`, buf)
+            FfiConverterOptionalString.write(value.`gasPrice`, buf)
+            FfiConverterOptionalString.write(value.`maxFeePerGas`, buf)
+            FfiConverterOptionalString.write(value.`maxPriorityFeePerGas`, buf)
     }
 }
 
@@ -3306,6 +3441,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `finalizePreparedTransaction`(`rpcUrl`: kotlin.String, `prepared`: FfiPreparedTransactionExecution): FfiFinalizedTransactionExecution {
+            return FfiConverterTypeFfiFinalizedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiPreparedTransactionExecution.lower(`prepared`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `formatGroth16ProofBundle`(`proof`: FfiProofBundle): FfiFormattedGroth16Proof {
             return FfiConverterTypeFfiFormattedGroth16Proof.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -3487,6 +3633,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(
 
         FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`signerHandle`),FfiConverterTypeFfiPreparedTransactionExecution.lower(`prepared`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `submitSignedTransaction`(`rpcUrl`: kotlin.String, `finalized`: FfiFinalizedTransactionExecution, `signedTransaction`: kotlin.String): FfiSubmittedTransactionExecution {
+            return FfiConverterTypeFfiSubmittedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_submit_signed_transaction(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiFinalizedTransactionExecution.lower(`finalized`),FfiConverterString.lower(`signedTransaction`),_status)
 }
     )
     }

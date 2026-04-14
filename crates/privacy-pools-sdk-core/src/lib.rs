@@ -145,6 +145,21 @@ pub struct TransactionPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FinalizedTransactionRequest {
+    pub kind: TransactionKind,
+    pub chain_id: u64,
+    pub from: Address,
+    pub to: Address,
+    pub nonce: u64,
+    pub gas_limit: u64,
+    pub value: U256,
+    pub data: Bytes,
+    pub gas_price: Option<u128>,
+    pub max_fee_per_gas: Option<u128>,
+    pub max_priority_fee_per_gas: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactVersion {
     pub version: String,
 }

@@ -8,6 +8,10 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+alloy-consensus.workspace = true
+alloy-eips.workspace = true
+alloy-network.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-signer-local.workspace = true
+privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 thiserror.workspace = true

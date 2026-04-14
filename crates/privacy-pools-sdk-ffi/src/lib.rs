@@ -1,12 +1,13 @@
 use alloy_primitives::{Address, B256, U256};
 use privacy_pools_sdk::{
-    PreparedTransactionExecution, PrivacyPoolsSdk, SubmittedTransactionExecution,
+    FinalizedTransactionExecution, PreparedTransactionExecution, PrivacyPoolsSdk,
+    SubmittedTransactionExecution,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, CodeHashCheck, Commitment, ExecutionPolicy, ExecutionPreflightReport,
-        FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle, RootCheck, RootReadKind,
-        SnarkJsProof, TransactionPlan, TransactionReceiptSummary, Withdrawal,
-        WithdrawalCircuitInput, WithdrawalWitnessRequest,
+        FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
+        RootCheck, RootReadKind, SnarkJsProof, TransactionPlan, TransactionReceiptSummary,
+        Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
@@ -155,6 +156,27 @@ pub struct FfiPreparedTransactionExecution {
     pub proving: FfiProvingResult,
     pub transaction: FfiTransactionPlan,
     pub preflight: FfiExecutionPreflightReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiFinalizedTransactionRequest {
+    pub kind: String,
+    pub chain_id: u64,
+    pub from: String,
+    pub to: String,
+    pub nonce: u64,
+    pub gas_limit: u64,
+    pub value: String,
+    pub data: String,
+    pub gas_price: Option<String>,
+    pub max_fee_per_gas: Option<String>,
+    pub max_priority_fee_per_gas: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiFinalizedTransactionExecution {
+    pub prepared: FfiPreparedTransactionExecution,
+    pub request: FfiFinalizedTransactionRequest,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -649,6 +671,35 @@ fn to_ffi_prepared_execution(
     }
 }
 
+fn to_ffi_finalized_request(
+    request: FinalizedTransactionRequest,
+) -> FfiFinalizedTransactionRequest {
+    FfiFinalizedTransactionRequest {
+        kind: transaction_kind_label(request.kind),
+        chain_id: request.chain_id,
+        from: request.from.to_string(),
+        to: request.to.to_string(),
+        nonce: request.nonce,
+        gas_limit: request.gas_limit,
+        value: field_label(request.value),
+        data: format!("0x{}", hex::encode(request.data)),
+        gas_price: request.gas_price.map(|value| value.to_string()),
+        max_fee_per_gas: request.max_fee_per_gas.map(|value| value.to_string()),
+        max_priority_fee_per_gas: request
+            .max_priority_fee_per_gas
+            .map(|value| value.to_string()),
+    }
+}
+
+fn to_ffi_finalized_execution(
+    finalized: FinalizedTransactionExecution,
+) -> FfiFinalizedTransactionExecution {
+    FfiFinalizedTransactionExecution {
+        prepared: to_ffi_prepared_execution(finalized.prepared),
+        request: to_ffi_finalized_request(finalized.request),
+    }
+}
+
 fn to_ffi_signer_handle(handle: String, signer: &RegisteredSigner) -> FfiSignerHandle {
     FfiSignerHandle {
         handle,
@@ -835,6 +886,61 @@ fn from_ffi_prepared_execution(
         proving: from_ffi_proving_result(prepared.proving)?,
         transaction: from_ffi_transaction_plan(prepared.transaction)?,
         preflight: from_ffi_execution_preflight(prepared.preflight)?,
+    })
+}
+
+fn from_ffi_finalized_request(
+    request: FfiFinalizedTransactionRequest,
+) -> Result<FinalizedTransactionRequest, FfiError> {
+    let kind = match request.kind.as_str() {
+        "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
+        "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        _ => {
+            return Err(FfiError::OperationFailed(format!(
+                "invalid transaction kind: {}",
+                request.kind
+            )));
+        }
+    };
+    let data = hex::decode(request.data.trim_start_matches("0x"))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(FinalizedTransactionRequest {
+        kind,
+        chain_id: request.chain_id,
+        from: parse_address(&request.from)?,
+        to: parse_address(&request.to)?,
+        nonce: request.nonce,
+        gas_limit: request.gas_limit,
+        value: parse_field(&request.value)?,
+        data: data.into(),
+        gas_price: request
+            .gas_price
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        max_fee_per_gas: request
+            .max_fee_per_gas
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        max_priority_fee_per_gas: request
+            .max_priority_fee_per_gas
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+    })
+}
+
+fn from_ffi_finalized_execution(
+    finalized: FfiFinalizedTransactionExecution,
+) -> Result<FinalizedTransactionExecution, FfiError> {
+    Ok(FinalizedTransactionExecution {
+        prepared: from_ffi_prepared_execution(finalized.prepared)?,
+        request: from_ffi_finalized_request(finalized.request)?,
     })
 }
 
@@ -1256,22 +1362,52 @@ pub fn unregister_signer(handle: String) -> Result<bool, FfiError> {
 }
 
 #[uniffi::export]
+pub fn finalize_prepared_transaction(
+    rpc_url: String,
+    prepared: FfiPreparedTransactionExecution,
+) -> Result<FfiFinalizedTransactionExecution, FfiError> {
+    Ok(to_ffi_finalized_execution(block_on_sdk(
+        sdk().finalize_prepared_transaction(&rpc_url, from_ffi_prepared_execution(prepared)?),
+    )?))
+}
+
+#[uniffi::export]
 pub fn submit_prepared_transaction(
     rpc_url: String,
     signer_handle: String,
     prepared: FfiPreparedTransactionExecution,
 ) -> Result<FfiSubmittedTransactionExecution, FfiError> {
     let signer = registered_signer(&signer_handle)?;
-    let client = privacy_pools_sdk::chain::LocalSignerExecutionClient::new(
-        &rpc_url,
-        signer.local_mnemonic(),
-    )
-    .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let finalized = block_on_sdk(sdk().finalize_prepared_transaction_with_client(
+        from_ffi_prepared_execution(prepared)?,
+        &client,
+    ))?;
+    let signed_transaction = signer
+        .local_mnemonic()
+        .sign_transaction_request(&finalized.request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     Ok(to_ffi_submitted_execution(block_on_sdk(
-        sdk().submit_prepared_transaction_with_client(
-            from_ffi_prepared_execution(prepared)?,
-            &client,
+        sdk().submit_finalized_transaction_with_client(finalized, &signed_transaction, &client),
+    )?))
+}
+
+#[uniffi::export]
+pub fn submit_signed_transaction(
+    rpc_url: String,
+    finalized: FfiFinalizedTransactionExecution,
+    signed_transaction: String,
+) -> Result<FfiSubmittedTransactionExecution, FfiError> {
+    let encoded_tx = hex::decode(signed_transaction.trim_start_matches("0x"))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_submitted_execution(block_on_sdk(
+        sdk().submit_finalized_transaction(
+            &rpc_url,
+            from_ffi_finalized_execution(finalized)?,
+            &encoded_tx,
         ),
     )?))
 }

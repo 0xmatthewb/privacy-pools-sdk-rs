@@ -1018,6 +1018,150 @@ public func FfiConverterTypeFfiExecutionPreflightReport_lower(_ value: FfiExecut
 }
 
 
+public struct FfiFinalizedTransactionExecution: Equatable, Hashable {
+    public var prepared: FfiPreparedTransactionExecution
+    public var request: FfiFinalizedTransactionRequest
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(prepared: FfiPreparedTransactionExecution, request: FfiFinalizedTransactionRequest) {
+        self.prepared = prepared
+        self.request = request
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiFinalizedTransactionExecution: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiFinalizedTransactionExecution: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiFinalizedTransactionExecution {
+        return
+            try FfiFinalizedTransactionExecution(
+                prepared: FfiConverterTypeFfiPreparedTransactionExecution.read(from: &buf),
+                request: FfiConverterTypeFfiFinalizedTransactionRequest.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiFinalizedTransactionExecution, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiPreparedTransactionExecution.write(value.prepared, into: &buf)
+        FfiConverterTypeFfiFinalizedTransactionRequest.write(value.request, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedTransactionExecution_lift(_ buf: RustBuffer) throws -> FfiFinalizedTransactionExecution {
+    return try FfiConverterTypeFfiFinalizedTransactionExecution.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedTransactionExecution_lower(_ value: FfiFinalizedTransactionExecution) -> RustBuffer {
+    return FfiConverterTypeFfiFinalizedTransactionExecution.lower(value)
+}
+
+
+public struct FfiFinalizedTransactionRequest: Equatable, Hashable {
+    public var kind: String
+    public var chainId: UInt64
+    public var from: String
+    public var to: String
+    public var nonce: UInt64
+    public var gasLimit: UInt64
+    public var value: String
+    public var data: String
+    public var gasPrice: String?
+    public var maxFeePerGas: String?
+    public var maxPriorityFeePerGas: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: String, chainId: UInt64, from: String, to: String, nonce: UInt64, gasLimit: UInt64, value: String, data: String, gasPrice: String?, maxFeePerGas: String?, maxPriorityFeePerGas: String?) {
+        self.kind = kind
+        self.chainId = chainId
+        self.from = from
+        self.to = to
+        self.nonce = nonce
+        self.gasLimit = gasLimit
+        self.value = value
+        self.data = data
+        self.gasPrice = gasPrice
+        self.maxFeePerGas = maxFeePerGas
+        self.maxPriorityFeePerGas = maxPriorityFeePerGas
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiFinalizedTransactionRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiFinalizedTransactionRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiFinalizedTransactionRequest {
+        return
+            try FfiFinalizedTransactionRequest(
+                kind: FfiConverterString.read(from: &buf),
+                chainId: FfiConverterUInt64.read(from: &buf),
+                from: FfiConverterString.read(from: &buf),
+                to: FfiConverterString.read(from: &buf),
+                nonce: FfiConverterUInt64.read(from: &buf),
+                gasLimit: FfiConverterUInt64.read(from: &buf),
+                value: FfiConverterString.read(from: &buf),
+                data: FfiConverterString.read(from: &buf),
+                gasPrice: FfiConverterOptionString.read(from: &buf),
+                maxFeePerGas: FfiConverterOptionString.read(from: &buf),
+                maxPriorityFeePerGas: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiFinalizedTransactionRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.chainId, into: &buf)
+        FfiConverterString.write(value.from, into: &buf)
+        FfiConverterString.write(value.to, into: &buf)
+        FfiConverterUInt64.write(value.nonce, into: &buf)
+        FfiConverterUInt64.write(value.gasLimit, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+        FfiConverterString.write(value.data, into: &buf)
+        FfiConverterOptionString.write(value.gasPrice, into: &buf)
+        FfiConverterOptionString.write(value.maxFeePerGas, into: &buf)
+        FfiConverterOptionString.write(value.maxPriorityFeePerGas, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedTransactionRequest_lift(_ buf: RustBuffer) throws -> FfiFinalizedTransactionRequest {
+    return try FfiConverterTypeFfiFinalizedTransactionRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedTransactionRequest_lower(_ value: FfiFinalizedTransactionRequest) -> RustBuffer {
+    return FfiConverterTypeFfiFinalizedTransactionRequest.lower(value)
+}
+
+
 public struct FfiFormattedGroth16Proof: Equatable, Hashable {
     public var pA: [String]
     public var pB: [[String]]
@@ -2877,6 +3021,14 @@ public func fastBackendSupportedOnTarget() -> Bool  {
     )
 })
 }
+public func finalizePreparedTransaction(rpcUrl: String, prepared: FfiPreparedTransactionExecution)throws  -> FfiFinalizedTransactionExecution  {
+    return try  FfiConverterTypeFfiFinalizedTransactionExecution_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiPreparedTransactionExecution_lower(prepared),$0
+    )
+})
+}
 public func formatGroth16ProofBundle(proof: FfiProofBundle)throws  -> FfiFormattedGroth16Proof  {
     return try  FfiConverterTypeFfiFormattedGroth16Proof_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(
@@ -3033,6 +3185,15 @@ public func submitPreparedTransaction(rpcUrl: String, signerHandle: String, prep
     )
 })
 }
+public func submitSignedTransaction(rpcUrl: String, finalized: FfiFinalizedTransactionExecution, signedTransaction: String)throws  -> FfiSubmittedTransactionExecution  {
+    return try  FfiConverterTypeFfiSubmittedTransactionExecution_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_submit_signed_transaction(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiFinalizedTransactionExecution_lower(finalized),
+        FfiConverterString.lower(signedTransaction),$0
+    )
+})
+}
 public func unregisterSigner(handle: String)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_unregister_signer(
@@ -3100,6 +3261,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3149,6 +3313,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_signed_transaction() != 30388) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_unregister_signer() != 15372) {
