@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, U256};
 use privacy_pools_sdk::{
     PrivacyPoolsSdk,
-    artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus},
+    artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
         RootReadKind, SnarkJsProof, Withdrawal,
@@ -105,6 +105,21 @@ pub struct FfiArtifactStatus {
     pub path: String,
     pub exists: bool,
     pub verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiResolvedArtifact {
+    pub circuit: String,
+    pub kind: String,
+    pub filename: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiResolvedArtifactBundle {
+    pub version: String,
+    pub circuit: String,
+    pub artifacts: Vec<FfiResolvedArtifact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -349,6 +364,23 @@ fn to_ffi_artifact_status(version: &str, status: ArtifactStatus) -> FfiArtifactS
     }
 }
 
+fn to_ffi_resolved_artifact_bundle(bundle: ResolvedArtifactBundle) -> FfiResolvedArtifactBundle {
+    FfiResolvedArtifactBundle {
+        version: bundle.version,
+        circuit: bundle.circuit,
+        artifacts: bundle
+            .artifacts
+            .into_iter()
+            .map(|artifact| FfiResolvedArtifact {
+                circuit: artifact.descriptor.circuit,
+                kind: artifact_kind_label(artifact.descriptor.kind),
+                filename: artifact.descriptor.filename,
+                path: artifact.path.to_string_lossy().into_owned(),
+            })
+            .collect(),
+    }
+}
+
 fn from_ffi_recovery_policy(policy: FfiRecoveryPolicy) -> Result<RecoveryPolicy, FfiError> {
     Ok(RecoveryPolicy {
         compatibility_mode: parse_compatibility_mode(&policy.compatibility_mode)?,
@@ -577,6 +609,21 @@ pub fn get_artifact_statuses(
 }
 
 #[uniffi::export]
+pub fn resolve_verified_artifact_bundle(
+    manifest_json: String,
+    artifacts_root: String,
+    circuit: String,
+) -> Result<FfiResolvedArtifactBundle, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let bundle = sdk()
+        .resolve_verified_artifact_bundle(&manifest, PathBuf::from(artifacts_root), &circuit)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_resolved_artifact_bundle(bundle))
+}
+
+#[uniffi::export]
 pub fn checkpoint_recovery(
     events: Vec<FfiPoolEvent>,
     policy: FfiRecoveryPolicy,
@@ -783,6 +830,35 @@ mod tests {
         assert_eq!(statuses[1].kind, "zkey");
         assert!(!statuses[1].exists);
         assert!(!statuses[1].verified);
+    }
+
+    #[test]
+    fn ffi_resolves_verified_artifact_bundles() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest = serde_json::to_string(&ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                circuit: "withdraw".to_owned(),
+                kind: ArtifactKind::Wasm,
+                filename: "sample-artifact.bin".to_owned(),
+                sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                    .to_owned(),
+            }],
+        })
+        .unwrap();
+
+        let bundle = resolve_verified_artifact_bundle(
+            manifest,
+            root.to_string_lossy().into_owned(),
+            "withdraw".to_owned(),
+        )
+        .unwrap();
+
+        assert_eq!(bundle.version, "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit, "withdraw");
+        assert_eq!(bundle.artifacts.len(), 1);
+        assert_eq!(bundle.artifacts[0].kind, "wasm");
+        assert!(bundle.artifacts[0].path.ends_with("sample-artifact.bin"));
     }
 
     #[test]

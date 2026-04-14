@@ -19,6 +19,8 @@ import io.oxbow.privacypoolssdk.FfiPoolEvent
 import io.oxbow.privacypoolssdk.FfiProofBundle
 import io.oxbow.privacypoolssdk.FfiRecoveryCheckpoint
 import io.oxbow.privacypoolssdk.FfiRecoveryPolicy
+import io.oxbow.privacypoolssdk.FfiResolvedArtifact
+import io.oxbow.privacypoolssdk.FfiResolvedArtifactBundle
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
 import io.oxbow.privacypoolssdk.FfiSnarkJsProof
@@ -250,6 +252,24 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun resolveVerifiedArtifactBundle(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                resolvedArtifactBundleMap(
+                    NativeSdk.resolvedArtifactBundle(manifestJson, artifactsRoot, circuit)
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun checkpointRecovery(events: ReadableArray, policy: ReadableMap, promise: Promise) {
         try {
             val eventRecords = List(events.size()) { index ->
@@ -388,6 +408,22 @@ class PrivacyPoolsSdkModule(
         putString("path", status.path)
         putBoolean("exists", status.exists)
         putBoolean("verified", status.verified)
+    }
+
+    private fun resolvedArtifactBundleMap(bundle: FfiResolvedArtifactBundle) =
+        Arguments.createMap().apply {
+            putString("version", bundle.version)
+            putString("circuit", bundle.circuit)
+            val artifacts = Arguments.createArray()
+            bundle.artifacts.forEach { artifact -> artifacts.pushMap(resolvedArtifactMap(artifact)) }
+            putArray("artifacts", artifacts)
+        }
+
+    private fun resolvedArtifactMap(artifact: FfiResolvedArtifact) = Arguments.createMap().apply {
+        putString("circuit", artifact.circuit)
+        putString("kind", artifact.kind)
+        putString("filename", artifact.filename)
+        putString("path", artifact.path)
     }
 
     private fun recoveryCheckpointMap(checkpoint: FfiRecoveryCheckpoint) =

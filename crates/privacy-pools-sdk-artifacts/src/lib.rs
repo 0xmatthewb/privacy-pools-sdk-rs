@@ -34,6 +34,13 @@ pub struct ResolvedArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedArtifactBundle {
+    pub version: String,
+    pub circuit: String,
+    pub artifacts: Vec<ResolvedArtifact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactStatus {
     pub descriptor: ArtifactDescriptor,
     pub path: PathBuf,
@@ -43,6 +50,8 @@ pub struct ArtifactStatus {
 
 #[derive(Debug, Error)]
 pub enum ArtifactError {
+    #[error("no artifacts declared for circuit `{0}`")]
+    MissingCircuit(String),
     #[error("missing artifact `{kind:?}` for circuit `{circuit}`")]
     MissingArtifact { circuit: String, kind: ArtifactKind },
     #[error("artifact file does not exist: {0}")]
@@ -97,6 +106,32 @@ impl ArtifactManifest {
         }
 
         Ok(ResolvedArtifact { descriptor, path })
+    }
+
+    pub fn resolve_verified_bundle(
+        &self,
+        root: impl AsRef<Path>,
+        circuit: &str,
+    ) -> Result<ResolvedArtifactBundle, ArtifactError> {
+        let descriptors = self.descriptors_for_circuit(circuit);
+        if descriptors.is_empty() {
+            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
+        }
+
+        let artifacts = descriptors
+            .into_iter()
+            .map(|descriptor| {
+                let resolved = self.resolve_required(root.as_ref(), circuit, descriptor.kind)?;
+                verify_artifact_file(&resolved)?;
+                Ok(resolved)
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+        Ok(ResolvedArtifactBundle {
+            version: self.version.clone(),
+            circuit: circuit.to_owned(),
+            artifacts,
+        })
     }
 }
 
@@ -203,5 +238,40 @@ mod tests {
         assert!(statuses[0].verified);
         assert!(!statuses[1].exists);
         assert!(!statuses[1].verified);
+    }
+
+    #[test]
+    fn resolves_verified_bundle_for_declared_circuit() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-manifest.json"
+        ))
+        .unwrap();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let bundle = manifest.resolve_verified_bundle(root, "withdraw").unwrap();
+
+        assert_eq!(bundle.version, "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit, "withdraw");
+        assert_eq!(bundle.artifacts.len(), 1);
+        assert_eq!(bundle.artifacts[0].descriptor.kind, ArtifactKind::Wasm);
+        assert!(bundle.artifacts[0].path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn verified_bundle_fails_closed_on_hash_mismatch() {
+        let manifest = ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![ArtifactDescriptor {
+                circuit: "withdraw".to_owned(),
+                kind: ArtifactKind::Wasm,
+                filename: "sample-artifact.bin".to_owned(),
+                sha256: "00".repeat(32),
+            }],
+        };
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let error = manifest
+            .resolve_verified_bundle(root, "withdraw")
+            .unwrap_err();
+
+        assert!(matches!(error, ArtifactError::HashMismatch { .. }));
     }
 }

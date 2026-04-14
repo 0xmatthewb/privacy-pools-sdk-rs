@@ -138,6 +138,18 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func resolvedArtifactBundle(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+    ) throws -> FfiResolvedArtifactBundle {
+        try resolveVerifiedArtifactBundle(
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            circuit: circuit
+        )
+    }
+
     public static func recoveryCheckpoint(
         events: [FfiPoolEvent],
         policy: FfiRecoveryPolicy,

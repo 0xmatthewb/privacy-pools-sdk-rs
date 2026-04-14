@@ -69,6 +69,19 @@ type ArtifactStatus = {
   verified: boolean;
 };
 
+type ResolvedArtifact = {
+  circuit: string;
+  kind: string;
+  filename: string;
+  path: string;
+};
+
+type ResolvedArtifactBundle = {
+  version: string;
+  circuit: string;
+  artifacts: ResolvedArtifact[];
+};
+
 type MerkleProof = {
   root: string;
   leaf: string;
@@ -151,6 +164,11 @@ export type NativePrivacyPoolsSdkModule = {
     artifactsRoot: string,
     circuit: string,
   ): Promise<ArtifactStatus[]>;
+  resolveVerifiedArtifactBundle(
+    manifestJson: string,
+    artifactsRoot: string,
+    circuit: string,
+  ): Promise<ResolvedArtifactBundle>;
   checkpointRecovery(
     events: PoolEvent[],
     policy: RecoveryPolicy,
@@ -272,6 +290,17 @@ export const getArtifactStatuses = (
   circuit: string,
 ): Promise<ArtifactStatus[]> =>
   requireNativeModule().getArtifactStatuses(manifestJson, artifactsRoot, circuit);
+
+export const resolveVerifiedArtifactBundle = (
+  manifestJson: string,
+  artifactsRoot: string,
+  circuit: string,
+): Promise<ResolvedArtifactBundle> =>
+  requireNativeModule().resolveVerifiedArtifactBundle(
+    manifestJson,
+    artifactsRoot,
+    circuit,
+  );
 
 export const checkpointRecovery = (
   events: PoolEvent[],

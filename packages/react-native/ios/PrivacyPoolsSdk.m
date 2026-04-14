@@ -82,6 +82,12 @@ RCT_EXTERN_METHOD(getArtifactStatuses:(NSString *)manifestJson
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(resolveVerifiedArtifactBundle:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  circuit:(NSString *)circuit
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(checkpointRecovery:(NSArray<NSDictionary *> *)events
                   policy:(NSDictionary *)policy
                   resolver:(RCTPromiseResolveBlock)resolve

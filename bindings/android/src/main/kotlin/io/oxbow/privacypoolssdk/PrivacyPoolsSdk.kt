@@ -16,6 +16,7 @@ import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
 import io.oxbow.privacypoolssdk.isCurrentStateRoot as ffiIsCurrentStateRoot
 import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
+import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
 
 object PrivacyPoolsSdk {
@@ -101,6 +102,14 @@ object PrivacyPoolsSdk {
         artifactsRoot: String,
         circuit: String,
     ): List<FfiArtifactStatus> = ffiGetArtifactStatuses(manifestJson, artifactsRoot, circuit)
+
+    @Throws(FfiException::class)
+    fun resolvedArtifactBundle(
+        manifestJson: String,
+        artifactsRoot: String,
+        circuit: String,
+    ): FfiResolvedArtifactBundle =
+        ffiResolveVerifiedArtifactBundle(manifestJson, artifactsRoot, circuit)
 
     @Throws(FfiException::class)
     fun recoveryCheckpoint(

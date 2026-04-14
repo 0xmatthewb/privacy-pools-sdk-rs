@@ -1198,6 +1198,126 @@ public func FfiConverterTypeFfiRecoveryPolicy_lower(_ value: FfiRecoveryPolicy) 
 }
 
 
+public struct FfiResolvedArtifact: Equatable, Hashable {
+    public var circuit: String
+    public var kind: String
+    public var filename: String
+    public var path: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(circuit: String, kind: String, filename: String, path: String) {
+        self.circuit = circuit
+        self.kind = kind
+        self.filename = filename
+        self.path = path
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiResolvedArtifact: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiResolvedArtifact: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiResolvedArtifact {
+        return
+            try FfiResolvedArtifact(
+                circuit: FfiConverterString.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf),
+                filename: FfiConverterString.read(from: &buf),
+                path: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiResolvedArtifact, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.circuit, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.filename, into: &buf)
+        FfiConverterString.write(value.path, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiResolvedArtifact_lift(_ buf: RustBuffer) throws -> FfiResolvedArtifact {
+    return try FfiConverterTypeFfiResolvedArtifact.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiResolvedArtifact_lower(_ value: FfiResolvedArtifact) -> RustBuffer {
+    return FfiConverterTypeFfiResolvedArtifact.lower(value)
+}
+
+
+public struct FfiResolvedArtifactBundle: Equatable, Hashable {
+    public var version: String
+    public var circuit: String
+    public var artifacts: [FfiResolvedArtifact]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(version: String, circuit: String, artifacts: [FfiResolvedArtifact]) {
+        self.version = version
+        self.circuit = circuit
+        self.artifacts = artifacts
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiResolvedArtifactBundle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiResolvedArtifactBundle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiResolvedArtifactBundle {
+        return
+            try FfiResolvedArtifactBundle(
+                version: FfiConverterString.read(from: &buf),
+                circuit: FfiConverterString.read(from: &buf),
+                artifacts: FfiConverterSequenceTypeFfiResolvedArtifact.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiResolvedArtifactBundle, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.version, into: &buf)
+        FfiConverterString.write(value.circuit, into: &buf)
+        FfiConverterSequenceTypeFfiResolvedArtifact.write(value.artifacts, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiResolvedArtifactBundle_lift(_ buf: RustBuffer) throws -> FfiResolvedArtifactBundle {
+    return try FfiConverterTypeFfiResolvedArtifactBundle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiResolvedArtifactBundle_lower(_ value: FfiResolvedArtifactBundle) -> RustBuffer {
+    return FfiConverterTypeFfiResolvedArtifactBundle.lower(value)
+}
+
+
 public struct FfiRootRead: Equatable, Hashable {
     public var kind: String
     public var contractAddress: String
@@ -1645,6 +1765,31 @@ fileprivate struct FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiResolvedArtifact: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiResolvedArtifact]
+
+    public static func write(_ value: [FfiResolvedArtifact], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiResolvedArtifact.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiResolvedArtifact] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiResolvedArtifact]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiResolvedArtifact.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [[String]]
 
@@ -1792,6 +1937,15 @@ public func planPoolStateRootRead(poolAddress: String)throws  -> FfiRootRead  {
     )
 })
 }
+public func resolveVerifiedArtifactBundle(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> FfiResolvedArtifactBundle  {
+    return try  FfiConverterTypeFfiResolvedArtifactBundle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(circuit),$0
+    )
+})
+}
 public func verifyArtifactBytes(manifestJson: String, circuit: String, kind: String, bytes: Data)throws  -> FfiArtifactVerification  {
     return try  FfiConverterTypeFfiArtifactVerification_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(
@@ -1864,6 +2018,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read() != 23733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157) {

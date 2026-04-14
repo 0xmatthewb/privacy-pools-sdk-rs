@@ -43,8 +43,9 @@ Implemented now:
   read planning
 - explicit distinction between pool state-root reads and ASP-root reads
 - artifact manifest resolution and SHA-256 verification helpers
+- explicit local artifact status and verified bundle resolution helpers
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
-  root-read planning, and artifact verification
+  root-read planning, proof formatting, and artifact verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
   implementation
 - CI expanded to include clippy, tests, cargo-deny, cargo-audit, and RN package

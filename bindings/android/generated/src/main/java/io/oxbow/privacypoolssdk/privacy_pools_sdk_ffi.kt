@@ -667,6 +667,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes(
     ): Short
     external fun ffi_privacy_pools_sdk_ffi_uniffi_contract_version(
@@ -713,6 +715,8 @@ internal object UniffiLib {
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
@@ -881,6 +885,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read() != 23733.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157.toShort()) {
@@ -1631,6 +1638,97 @@ public object FfiConverterTypeFfiRecoveryPolicy: FfiConverterRustBuffer<FfiRecov
 
 
 
+data class FfiResolvedArtifact (
+    var `circuit`: kotlin.String
+    ,
+    var `kind`: kotlin.String
+    ,
+    var `filename`: kotlin.String
+    ,
+    var `path`: kotlin.String
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiResolvedArtifact: FfiConverterRustBuffer<FfiResolvedArtifact> {
+    override fun read(buf: ByteBuffer): FfiResolvedArtifact {
+        return FfiResolvedArtifact(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiResolvedArtifact) = (
+            FfiConverterString.allocationSize(value.`circuit`) +
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`filename`) +
+            FfiConverterString.allocationSize(value.`path`)
+    )
+
+    override fun write(value: FfiResolvedArtifact, buf: ByteBuffer) {
+            FfiConverterString.write(value.`circuit`, buf)
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterString.write(value.`filename`, buf)
+            FfiConverterString.write(value.`path`, buf)
+    }
+}
+
+
+
+data class FfiResolvedArtifactBundle (
+    var `version`: kotlin.String
+    ,
+    var `circuit`: kotlin.String
+    ,
+    var `artifacts`: List<FfiResolvedArtifact>
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiResolvedArtifactBundle: FfiConverterRustBuffer<FfiResolvedArtifactBundle> {
+    override fun read(buf: ByteBuffer): FfiResolvedArtifactBundle {
+        return FfiResolvedArtifactBundle(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeFfiResolvedArtifact.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiResolvedArtifactBundle) = (
+            FfiConverterString.allocationSize(value.`version`) +
+            FfiConverterString.allocationSize(value.`circuit`) +
+            FfiConverterSequenceTypeFfiResolvedArtifact.allocationSize(value.`artifacts`)
+    )
+
+    override fun write(value: FfiResolvedArtifactBundle, buf: ByteBuffer) {
+            FfiConverterString.write(value.`version`, buf)
+            FfiConverterString.write(value.`circuit`, buf)
+            FfiConverterSequenceTypeFfiResolvedArtifact.write(value.`artifacts`, buf)
+    }
+}
+
+
+
 data class FfiRootRead (
     var `kind`: kotlin.String
     ,
@@ -2084,6 +2182,34 @@ public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiResolvedArtifact: FfiConverterRustBuffer<List<FfiResolvedArtifact>> {
+    override fun read(buf: ByteBuffer): List<FfiResolvedArtifact> {
+        val len = buf.getInt()
+        return List<FfiResolvedArtifact>(len) {
+            FfiConverterTypeFfiResolvedArtifact.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiResolvedArtifact>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiResolvedArtifact.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiResolvedArtifact>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiResolvedArtifact.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<List<kotlin.String>>> {
     override fun read(buf: ByteBuffer): List<List<kotlin.String>> {
         val len = buf.getInt()
@@ -2274,6 +2400,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(
 
         FfiConverterString.lower(`poolAddress`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `resolveVerifiedArtifactBundle`(`manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `circuit`: kotlin.String): FfiResolvedArtifactBundle {
+            return FfiConverterTypeFfiResolvedArtifactBundle.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
+
+        FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`circuit`),_status)
 }
     )
     }

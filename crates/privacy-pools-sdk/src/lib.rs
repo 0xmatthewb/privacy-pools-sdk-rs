@@ -117,6 +117,15 @@ impl PrivacyPoolsSdk {
         artifacts::artifact_statuses(manifest, root, circuit)
     }
 
+    pub fn resolve_verified_artifact_bundle(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        circuit: &str,
+    ) -> Result<artifacts::ResolvedArtifactBundle, artifacts::ArtifactError> {
+        manifest.resolve_verified_bundle(root, circuit)
+    }
+
     pub fn plan_asp_root_read(
         &self,
         entrypoint_address: Address,
