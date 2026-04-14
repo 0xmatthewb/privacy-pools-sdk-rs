@@ -32,6 +32,26 @@ state-root semantics proposed in
 - `fixtures/`: golden vectors and artifact manifests
 - `xtask`: release and maintenance automation
 
+## Local prerequisites
+
+- Rust stable toolchain
+- Node.js 22+ for the React Native package and smoke app
+- Full Xcode for any iOS target build or XCFramework packaging
+- Android SDK, NDK, Java 17, and `cargo-ndk` for Android native packaging
+
+Important iOS note:
+
+- `xcrun --sdk iphoneos --show-sdk-path` must succeed before local iOS builds
+  will work
+- Command Line Tools alone do not ship the `iphoneos` or `iphonesimulator` SDKs
+- after installing Xcode, switch the active developer directory to the app
+  bundle:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+xcrun --sdk iphoneos --show-sdk-path
+```
+
 ## Current Status
 
 Implemented now:

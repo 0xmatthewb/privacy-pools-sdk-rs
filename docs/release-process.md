@@ -28,6 +28,19 @@ package surface. For example, Rust `0.1.0` is compatible with mobile
 cargo run -p xtask -- release-check --channel alpha
 ```
 
+Local native packaging prerequisites:
+
+- iOS packaging requires a full Xcode install with an active developer
+  directory that exposes `iphoneos` and `iphonesimulator` through `xcrun`
+- Android packaging requires Java 17, Android SDK/NDK, and `cargo-ndk`
+
+Quick iOS sanity check:
+
+```sh
+xcrun --sdk iphoneos --show-sdk-path
+xcrun --sdk iphonesimulator --show-sdk-path
+```
+
 Once benchmark captures and canary notes exist for a candidate release, validate the
 evidence bundle too:
 
