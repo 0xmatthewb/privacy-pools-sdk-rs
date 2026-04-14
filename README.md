@@ -49,6 +49,7 @@ Important iOS note:
 
 ```sh
 sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
 xcrun --sdk iphoneos --show-sdk-path
 ```
 

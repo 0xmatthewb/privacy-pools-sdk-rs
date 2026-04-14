@@ -7,6 +7,8 @@ IOS_DIR="$ROOT_DIR/bindings/ios"
 BUILD_DIR="$IOS_DIR/build"
 HEADERS_DIR="$BUILD_DIR/headers"
 GEN_DIR="$IOS_DIR/generated"
+ANDROID_BINDINGS_FILE="$ROOT_DIR/bindings/android/generated/src/main/java/io/oxbow/privacypoolssdk/privacy_pools_sdk_ffi.kt"
+IOS_HEADERS_FILE="$GEN_DIR/PrivacyPoolsSdkFFI.h"
 
 DEVICE_TARGET="aarch64-apple-ios"
 SIMULATOR_TARGET="aarch64-apple-ios-sim"
@@ -18,13 +20,15 @@ mkdir -p "$HEADERS_DIR"
 
 pushd "$ROOT_DIR" >/dev/null
 
-cargo run -p xtask -- bindings-release
+if [[ ! -f "$ANDROID_BINDINGS_FILE" || ! -f "$IOS_HEADERS_FILE" ]]; then
+  cargo run -p xtask -- bindings-release
+fi
 cargo build -p privacy-pools-sdk-ffi --release --target "$DEVICE_TARGET" --lib
 cargo build -p privacy-pools-sdk-ffi --release --target "$SIMULATOR_TARGET" --lib
 
 popd >/dev/null
 
-cp "$GEN_DIR/PrivacyPoolsSdkFFI.h" "$HEADERS_DIR/PrivacyPoolsSdkFFI.h"
+cp "$IOS_HEADERS_FILE" "$HEADERS_DIR/PrivacyPoolsSdkFFI.h"
 cp "$GEN_DIR/PrivacyPoolsSdkFFI.modulemap" "$HEADERS_DIR/module.modulemap"
 
 xcodebuild -create-xcframework \

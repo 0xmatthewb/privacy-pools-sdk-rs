@@ -37,6 +37,7 @@ Local native packaging prerequisites:
 Quick iOS sanity check:
 
 ```sh
+sudo xcodebuild -license accept
 xcrun --sdk iphoneos --show-sdk-path
 xcrun --sdk iphonesimulator --show-sdk-path
 ```

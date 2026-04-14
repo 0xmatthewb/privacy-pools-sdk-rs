@@ -5,10 +5,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 ANDROID_DIR="$ROOT_DIR/bindings/android"
 JNI_DIR="$ANDROID_DIR/src/main/jniLibs"
+ANDROID_BINDINGS_FILE="$ROOT_DIR/bindings/android/generated/src/main/java/io/oxbow/privacypoolssdk/privacy_pools_sdk_ffi.kt"
+IOS_HEADERS_FILE="$ROOT_DIR/bindings/ios/generated/PrivacyPoolsSdkFFI.h"
 
-pushd "$ROOT_DIR" >/dev/null
-cargo run -p xtask -- bindings-release
-popd >/dev/null
+if [[ ! -f "$ANDROID_BINDINGS_FILE" || ! -f "$IOS_HEADERS_FILE" ]]; then
+  pushd "$ROOT_DIR" >/dev/null
+  cargo run -p xtask -- bindings-release
+  popd >/dev/null
+fi
 
 if ! command -v cargo-ndk >/dev/null 2>&1; then
   echo "cargo-ndk is required to build Android native libraries"

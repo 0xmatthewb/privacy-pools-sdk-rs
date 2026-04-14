@@ -53,13 +53,34 @@ fn fail_missing_apple_sdk(target: &str, sdk: &str, detail: Option<String>) -> ! 
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
         .unwrap_or_else(|| "<unknown>".to_owned());
 
-    let mut message = format!(
-        "building privacy-pools-sdk-prover for {target} requires the Apple {sdk} SDK, \
+    let license_blocked = detail
+        .as_deref()
+        .is_some_and(|value| value.contains("license agreements"));
+    let developer_dir_uses_clt = developer_dir.contains("CommandLineTools");
+
+    let mut message = if license_blocked {
+        format!(
+            "building privacy-pools-sdk-prover for {target} requires the Apple {sdk} SDK, \
+and Xcode is installed, but the Apple SDK license has not been accepted yet. Run \
+`sudo xcodebuild -license accept` (or open Xcode and complete first launch), then retry.\n\
+\nCurrent xcode-select path: {developer_dir}"
+        )
+    } else if developer_dir_uses_clt {
+        format!(
+            "building privacy-pools-sdk-prover for {target} requires the Apple {sdk} SDK, \
 which is only available from a full Xcode installation. Command Line Tools alone are \
 not enough. Install Xcode, then point xcode-select at \
 /Applications/Xcode.app/Contents/Developer before retrying.\n\
 \nCurrent xcode-select path: {developer_dir}"
-    );
+        )
+    } else {
+        format!(
+            "building privacy-pools-sdk-prover for {target} requires the Apple {sdk} SDK. \
+Make sure full Xcode is installed, its license has been accepted, and `xcode-select` points \
+at /Applications/Xcode.app/Contents/Developer before retrying.\n\
+\nCurrent xcode-select path: {developer_dir}"
+        )
+    };
 
     if let Some(detail) = detail.filter(|value| !value.is_empty()) {
         message.push_str(&format!("\nUnderlying xcrun error: {detail}"));
