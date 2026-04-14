@@ -19,6 +19,12 @@ pub trait SignerAdapter {
 }
 
 #[derive(Debug, Clone)]
+pub struct ExternalSigner {
+    address: Address,
+    kind: SignerKind,
+}
+
+#[derive(Debug, Clone)]
 pub struct LocalMnemonicSigner {
     signer: PrivateKeySigner,
 }
@@ -104,5 +110,31 @@ impl SignerAdapter for LocalMnemonicSigner {
 
     fn kind(&self) -> SignerKind {
         SignerKind::LocalDev
+    }
+}
+
+impl ExternalSigner {
+    pub fn host_provided(address: Address) -> Self {
+        Self {
+            address,
+            kind: SignerKind::HostProvided,
+        }
+    }
+
+    pub fn mobile_secure_storage(address: Address) -> Self {
+        Self {
+            address,
+            kind: SignerKind::MobileSecureStorage,
+        }
+    }
+}
+
+impl SignerAdapter for ExternalSigner {
+    fn address(&self) -> Address {
+        self.address
+    }
+
+    fn kind(&self) -> SignerKind {
+        self.kind
     }
 }

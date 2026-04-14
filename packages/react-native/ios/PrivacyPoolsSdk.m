@@ -98,11 +98,27 @@ RCT_EXTERN_METHOD(registerLocalMnemonicSigner:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(registerHostProvidedSigner:(NSString *)handle
+                  address:(NSString *)address
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(registerMobileSecureStorageSigner:(NSString *)handle
+                  address:(NSString *)address
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(unregisterSigner:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(finalizePreparedTransaction:(NSString *)rpcUrl
+                  prepared:(NSDictionary *)prepared
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(finalizePreparedTransactionForSigner:(NSString *)rpcUrl
+                  signerHandle:(NSString *)signerHandle
                   prepared:(NSDictionary *)prepared
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

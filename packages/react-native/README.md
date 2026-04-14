@@ -12,8 +12,8 @@ Current package status:
 - classic iOS/Android bridge modules are scaffolded against the generated Swift/Kotlin bindings
 - withdraw proof generation and local proof verification are delegated to native Rust-backed bindings
 - prepared withdraw/relay execution preflight is delegated to native Rust-backed bindings
-- local-dev signer registration and prepared transaction submission are delegated to native Rust-backed bindings
-- finalized transaction preparation for host/native signers is delegated to native Rust-backed bindings
+- signer registration for `local_dev`, `host_provided`, and `mobile_secure_storage` flows is delegated to native Rust-backed bindings
+- signer-aware finalized transaction preparation for host/native signers is delegated to native Rust-backed bindings
 - validated signed-transaction submission is delegated to native Rust-backed bindings
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging

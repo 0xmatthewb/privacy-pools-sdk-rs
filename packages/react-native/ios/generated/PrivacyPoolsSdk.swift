@@ -2576,6 +2576,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case SignerNotFound(String
     )
+    case SignerRequiresExternalSigning(String
+    )
     case InvalidManifest(String
     )
     case OperationFailed(String
@@ -2630,10 +2632,13 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 7: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .InvalidManifest(
+        case 8: return .SignerRequiresExternalSigning(
             try FfiConverterString.read(from: &buf)
             )
-        case 9: return .OperationFailed(
+        case 9: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 10: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -2683,13 +2688,18 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerRequiresExternalSigning(v1):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .InvalidManifest(v1):
             writeInt(&buf, Int32(9))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
 
         }
@@ -3029,6 +3039,15 @@ public func finalizePreparedTransaction(rpcUrl: String, prepared: FfiPreparedTra
     )
 })
 }
+public func finalizePreparedTransactionForSigner(rpcUrl: String, signerHandle: String, prepared: FfiPreparedTransactionExecution)throws  -> FfiFinalizedTransactionExecution  {
+    return try  FfiConverterTypeFfiFinalizedTransactionExecution_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction_for_signer(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterString.lower(signerHandle),
+        FfiConverterTypeFfiPreparedTransactionExecution_lower(prepared),$0
+    )
+})
+}
 public func formatGroth16ProofBundle(proof: FfiProofBundle)throws  -> FfiFormattedGroth16Proof  {
     return try  FfiConverterTypeFfiFormattedGroth16Proof_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(
@@ -3158,12 +3177,28 @@ public func proveWithdrawal(backendProfile: String, manifestJson: String, artifa
     )
 })
 }
+public func registerHostProvidedSigner(handle: String, address: String)throws  -> FfiSignerHandle  {
+    return try  FfiConverterTypeFfiSignerHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(
+        FfiConverterString.lower(handle),
+        FfiConverterString.lower(address),$0
+    )
+})
+}
 public func registerLocalMnemonicSigner(handle: String, mnemonic: String, index: UInt32)throws  -> FfiSignerHandle  {
     return try  FfiConverterTypeFfiSignerHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
         FfiConverterString.lower(handle),
         FfiConverterString.lower(mnemonic),
         FfiConverterUInt32.lower(index),$0
+    )
+})
+}
+public func registerMobileSecureStorageSigner(handle: String, address: String)throws  -> FfiSignerHandle  {
+    return try  FfiConverterTypeFfiSignerHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_register_mobile_secure_storage_signer(
+        FfiConverterString.lower(handle),
+        FfiConverterString.lower(address),$0
     )
 })
 }
@@ -3264,6 +3299,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction_for_signer() != 13110) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3306,7 +3344,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer() != 61118) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {

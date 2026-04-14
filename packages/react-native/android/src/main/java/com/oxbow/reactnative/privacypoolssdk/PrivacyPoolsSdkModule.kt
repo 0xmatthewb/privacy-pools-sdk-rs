@@ -337,6 +337,38 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun registerHostProvidedSigner(handle: String, address: String, promise: Promise) {
+        try {
+            promise.resolve(
+                signerHandleMap(
+                    NativeSdk.registerHostProvidedSigner(
+                        handle,
+                        address,
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun registerMobileSecureStorageSigner(handle: String, address: String, promise: Promise) {
+        try {
+            promise.resolve(
+                signerHandleMap(
+                    NativeSdk.registerMobileSecureStorageSigner(
+                        handle,
+                        address,
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun unregisterSigner(handle: String, promise: Promise) {
         try {
             promise.resolve(NativeSdk.unregisterSigner(handle))
@@ -358,6 +390,30 @@ class PrivacyPoolsSdkModule(
                 finalizedExecutionMap(
                     NativeSdk.finalizePreparedTransaction(
                         rpcUrl,
+                        preparedExecutionRecord(prepared),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun finalizePreparedTransactionForSigner(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                finalizedExecutionMap(
+                    NativeSdk.finalizePreparedTransactionForSigner(
+                        rpcUrl,
+                        signerHandle,
                         preparedExecutionRecord(prepared),
                     )
                 )

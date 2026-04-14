@@ -309,6 +309,42 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(registerHostProvidedSigner:address:resolver:rejecter:)
+    func registerHostProvidedSigner(
+        handle: String,
+        address: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let signer = try PrivacyPoolsSdkClient.registerHostProvidedSigner(
+                handle: handle,
+                address: address
+            )
+            resolve(signerHandleMap(signer))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(registerMobileSecureStorageSigner:address:resolver:rejecter:)
+    func registerMobileSecureStorageSigner(
+        handle: String,
+        address: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let signer = try PrivacyPoolsSdkClient.registerMobileSecureStorageSigner(
+                handle: handle,
+                address: address
+            )
+            resolve(signerHandleMap(signer))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(unregisterSigner:resolver:rejecter:)
     func unregisterSigner(
         handle: String,
@@ -332,6 +368,26 @@ final class PrivacyPoolsSdk: NSObject {
         do {
             let finalized = try PrivacyPoolsSdkClient.finalizePreparedTransaction(
                 rpcUrl: rpcUrl,
+                prepared: try preparedExecutionRecord(from: prepared)
+            )
+            resolve(finalizedExecutionMap(finalized))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(finalizePreparedTransactionForSigner:signerHandle:prepared:resolver:rejecter:)
+    func finalizePreparedTransactionForSigner(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let finalized = try PrivacyPoolsSdkClient.finalizePreparedTransactionForSigner(
+                rpcUrl: rpcUrl,
+                signerHandle: signerHandle,
                 prepared: try preparedExecutionRecord(from: prepared)
             )
             resolve(finalizedExecutionMap(finalized))

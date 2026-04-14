@@ -18,4 +18,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "privacy-pools-sdk-android"
+rootProject.name = "privacy-pools-sdk-react-native-android"

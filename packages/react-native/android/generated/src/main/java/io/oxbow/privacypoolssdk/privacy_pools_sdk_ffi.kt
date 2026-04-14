@@ -653,6 +653,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction_for_signer(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
@@ -681,7 +683,11 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
     ): Short
@@ -726,6 +732,8 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_targ
 ): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction_for_signer(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -754,7 +762,11 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_execution(`
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(`handle`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(`handle`: RustBuffer.ByValue,`mnemonic`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_mobile_secure_storage_signer(`handle`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -914,6 +926,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction_for_signer() != 13110.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -956,7 +971,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer() != 61118.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682.toShort()) {
@@ -2895,6 +2916,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class SignerRequiresExternalSigning(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class InvalidManifest(
 
         val v1: kotlin.String
@@ -2951,10 +2980,13 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             7 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            8 -> FfiException.InvalidManifest(
+            8 -> FfiException.SignerRequiresExternalSigning(
                 FfiConverterString.read(buf),
                 )
-            9 -> FfiException.OperationFailed(
+            9 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            10 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -2994,6 +3026,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.SignerNotFound -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.SignerRequiresExternalSigning -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -3048,13 +3085,18 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.SignerRequiresExternalSigning -> {
                 buf.putInt(8)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(9)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(10)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
@@ -3452,6 +3494,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `finalizePreparedTransactionForSigner`(`rpcUrl`: kotlin.String, `signerHandle`: kotlin.String, `prepared`: FfiPreparedTransactionExecution): FfiFinalizedTransactionExecution {
+            return FfiConverterTypeFfiFinalizedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction_for_signer(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`signerHandle`),FfiConverterTypeFfiPreparedTransactionExecution.lower(`prepared`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `formatGroth16ProofBundle`(`proof`: FfiProofBundle): FfiFormattedGroth16Proof {
             return FfiConverterTypeFfiFormattedGroth16Proof.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -3605,12 +3658,34 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `registerHostProvidedSigner`(`handle`: kotlin.String, `address`: kotlin.String): FfiSignerHandle {
+            return FfiConverterTypeFfiSignerHandle.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(
+
+        FfiConverterString.lower(`handle`),FfiConverterString.lower(`address`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `registerLocalMnemonicSigner`(`handle`: kotlin.String, `mnemonic`: kotlin.String, `index`: kotlin.UInt): FfiSignerHandle {
             return FfiConverterTypeFfiSignerHandle.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
 
         FfiConverterString.lower(`handle`),FfiConverterString.lower(`mnemonic`),FfiConverterUInt.lower(`index`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `registerMobileSecureStorageSigner`(`handle`: kotlin.String, `address`: kotlin.String): FfiSignerHandle {
+            return FfiConverterTypeFfiSignerHandle.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_mobile_secure_storage_signer(
+
+        FfiConverterString.lower(`handle`),FfiConverterString.lower(`address`),_status)
 }
     )
     }

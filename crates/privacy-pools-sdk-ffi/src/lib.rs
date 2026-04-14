@@ -11,7 +11,7 @@ use privacy_pools_sdk::{
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
-    signer::{LocalMnemonicSigner, SignerAdapter, SignerKind},
+    signer::{ExternalSigner, LocalMnemonicSigner, SignerAdapter, SignerKind},
 };
 use std::{
     collections::HashMap,
@@ -37,6 +37,8 @@ pub enum FfiError {
     InvalidCompatibilityMode(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
+    #[error("signer handle requires external signing: {0}")]
+    SignerRequiresExternalSigning(String),
     #[error("artifact manifest parse failed: {0}")]
     InvalidManifest(String),
     #[error("sdk operation failed: {0}")]
@@ -324,24 +326,34 @@ fn sdk() -> PrivacyPoolsSdk {
 #[derive(Debug, Clone)]
 enum RegisteredSigner {
     LocalMnemonic(LocalMnemonicSigner),
+    External(ExternalSigner),
 }
 
 impl RegisteredSigner {
     fn address(&self) -> Address {
         match self {
             Self::LocalMnemonic(signer) => signer.address(),
+            Self::External(signer) => signer.address(),
         }
     }
 
     fn kind(&self) -> SignerKind {
         match self {
             Self::LocalMnemonic(signer) => signer.kind(),
+            Self::External(signer) => signer.kind(),
         }
     }
 
-    fn local_mnemonic(&self) -> &LocalMnemonicSigner {
+    fn sign_transaction_request(
+        &self,
+        handle: &str,
+        request: &FinalizedTransactionRequest,
+    ) -> Result<alloy_primitives::Bytes, FfiError> {
         match self {
-            Self::LocalMnemonic(signer) => signer,
+            Self::LocalMnemonic(signer) => signer
+                .sign_transaction_request(request)
+                .map_err(|error| FfiError::OperationFailed(error.to_string())),
+            Self::External(_) => Err(FfiError::SignerRequiresExternalSigning(handle.to_owned())),
         }
     }
 }
@@ -501,6 +513,27 @@ fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
         .get(handle)
         .cloned()
         .ok_or_else(|| FfiError::SignerNotFound(handle.to_owned()))
+}
+
+fn finalize_for_signer_handle(
+    rpc_url: &str,
+    signer_handle: &str,
+    prepared: FfiPreparedTransactionExecution,
+) -> Result<FfiFinalizedTransactionExecution, FfiError> {
+    let signer = registered_signer(signer_handle)?;
+    let finalized = block_on_sdk(
+        sdk().finalize_prepared_transaction(rpc_url, from_ffi_prepared_execution(prepared)?),
+    )?;
+
+    if finalized.request.from != signer.address() {
+        return Err(FfiError::OperationFailed(format!(
+            "finalized transaction signer mismatch for handle {signer_handle}: expected {}, got {}",
+            signer.address(),
+            finalized.request.from
+        )));
+    }
+
+    Ok(to_ffi_finalized_execution(finalized))
 }
 
 fn to_ffi_secrets(
@@ -1357,6 +1390,24 @@ pub fn register_local_mnemonic_signer(
 }
 
 #[uniffi::export]
+pub fn register_host_provided_signer(
+    handle: String,
+    address: String,
+) -> Result<FfiSignerHandle, FfiError> {
+    let signer = ExternalSigner::host_provided(parse_address(&address)?);
+    register_signer(handle, RegisteredSigner::External(signer))
+}
+
+#[uniffi::export]
+pub fn register_mobile_secure_storage_signer(
+    handle: String,
+    address: String,
+) -> Result<FfiSignerHandle, FfiError> {
+    let signer = ExternalSigner::mobile_secure_storage(parse_address(&address)?);
+    register_signer(handle, RegisteredSigner::External(signer))
+}
+
+#[uniffi::export]
 pub fn unregister_signer(handle: String) -> Result<bool, FfiError> {
     remove_signer(&handle)
 }
@@ -1372,6 +1423,15 @@ pub fn finalize_prepared_transaction(
 }
 
 #[uniffi::export]
+pub fn finalize_prepared_transaction_for_signer(
+    rpc_url: String,
+    signer_handle: String,
+    prepared: FfiPreparedTransactionExecution,
+) -> Result<FfiFinalizedTransactionExecution, FfiError> {
+    finalize_for_signer_handle(&rpc_url, &signer_handle, prepared)
+}
+
+#[uniffi::export]
 pub fn submit_prepared_transaction(
     rpc_url: String,
     signer_handle: String,
@@ -1384,10 +1444,16 @@ pub fn submit_prepared_transaction(
         from_ffi_prepared_execution(prepared)?,
         &client,
     ))?;
-    let signed_transaction = signer
-        .local_mnemonic()
-        .sign_transaction_request(&finalized.request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    if finalized.request.from != signer.address() {
+        return Err(FfiError::OperationFailed(format!(
+            "finalized transaction signer mismatch for handle {signer_handle}: expected {}, got {}",
+            signer.address(),
+            finalized.request.from
+        )));
+    }
+
+    let signed_transaction = signer.sign_transaction_request(&signer_handle, &finalized.request)?;
 
     Ok(to_ffi_submitted_execution(block_on_sdk(
         sdk().submit_finalized_transaction_with_client(finalized, &signed_transaction, &client),
@@ -2005,5 +2071,47 @@ mod tests {
             formatted.pub_signals[0],
             fixture["expected"]["pubSignals"][0].as_str().unwrap()
         );
+    }
+
+    #[test]
+    fn ffi_registers_external_signer_handles() {
+        let host = register_host_provided_signer(
+            "host-wallet".to_owned(),
+            "0x1111111111111111111111111111111111111111".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(host.kind, "host_provided");
+        assert_eq!(host.address, "0x1111111111111111111111111111111111111111");
+
+        let mobile = register_mobile_secure_storage_signer(
+            "mobile-wallet".to_owned(),
+            "0x2222222222222222222222222222222222222222".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(mobile.kind, "mobile_secure_storage");
+        assert_eq!(mobile.address, "0x2222222222222222222222222222222222222222");
+
+        let request = FinalizedTransactionRequest {
+            kind: privacy_pools_sdk::core::TransactionKind::Withdraw,
+            chain_id: 1,
+            from: parse_address(&host.address).unwrap(),
+            to: parse_address("0x3333333333333333333333333333333333333333").unwrap(),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: Default::default(),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+
+        let registered = registered_signer("host-wallet").unwrap();
+        assert!(matches!(
+            registered.sign_transaction_request("host-wallet", &request),
+            Err(FfiError::SignerRequiresExternalSigning(handle)) if handle == "host-wallet"
+        ));
+
+        assert!(unregister_signer("host-wallet".to_owned()).unwrap());
+        assert!(unregister_signer("mobile-wallet".to_owned()).unwrap());
     }
 }

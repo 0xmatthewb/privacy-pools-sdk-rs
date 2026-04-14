@@ -9,6 +9,7 @@ import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
 import io.oxbow.privacypoolssdk.deriveWithdrawalSecrets as ffiDeriveWithdrawalSecrets
 import io.oxbow.privacypoolssdk.fastBackendSupportedOnTarget as ffiFastBackendSupportedOnTarget
 import io.oxbow.privacypoolssdk.finalizePreparedTransaction as ffiFinalizePreparedTransaction
+import io.oxbow.privacypoolssdk.finalizePreparedTransactionForSigner as ffiFinalizePreparedTransactionForSigner
 import io.oxbow.privacypoolssdk.formatGroth16ProofBundle as ffiFormatGroth16ProofBundle
 import io.oxbow.privacypoolssdk.generateMerkleProof as ffiGenerateMerkleProof
 import io.oxbow.privacypoolssdk.getArtifactStatuses as ffiGetArtifactStatuses
@@ -23,7 +24,9 @@ import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTr
 import io.oxbow.privacypoolssdk.prepareRelayExecution as ffiPrepareRelayExecution
 import io.oxbow.privacypoolssdk.prepareWithdrawalExecution as ffiPrepareWithdrawalExecution
 import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
+import io.oxbow.privacypoolssdk.registerHostProvidedSigner as ffiRegisterHostProvidedSigner
 import io.oxbow.privacypoolssdk.registerLocalMnemonicSigner as ffiRegisterLocalMnemonicSigner
+import io.oxbow.privacypoolssdk.registerMobileSecureStorageSigner as ffiRegisterMobileSecureStorageSigner
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.submitPreparedTransaction as ffiSubmitPreparedTransaction
 import io.oxbow.privacypoolssdk.submitSignedTransaction as ffiSubmitSignedTransaction
@@ -159,6 +162,18 @@ object PrivacyPoolsSdk {
     ): FfiSignerHandle = ffiRegisterLocalMnemonicSigner(handle, mnemonic, index)
 
     @Throws(FfiException::class)
+    fun registerHostProvidedSigner(
+        handle: String,
+        address: String,
+    ): FfiSignerHandle = ffiRegisterHostProvidedSigner(handle, address)
+
+    @Throws(FfiException::class)
+    fun registerMobileSecureStorageSigner(
+        handle: String,
+        address: String,
+    ): FfiSignerHandle = ffiRegisterMobileSecureStorageSigner(handle, address)
+
+    @Throws(FfiException::class)
     fun unregisterSigner(handle: String): Boolean = ffiUnregisterSigner(handle)
 
     @Throws(FfiException::class)
@@ -167,6 +182,14 @@ object PrivacyPoolsSdk {
         prepared: FfiPreparedTransactionExecution,
     ): FfiFinalizedTransactionExecution =
         ffiFinalizePreparedTransaction(rpcUrl, prepared)
+
+    @Throws(FfiException::class)
+    fun finalizePreparedTransactionForSigner(
+        rpcUrl: String,
+        signerHandle: String,
+        prepared: FfiPreparedTransactionExecution,
+    ): FfiFinalizedTransactionExecution =
+        ffiFinalizePreparedTransactionForSigner(rpcUrl, signerHandle, prepared)
 
     @Throws(FfiException::class)
     fun submitPreparedTransaction(

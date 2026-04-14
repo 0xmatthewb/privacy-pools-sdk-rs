@@ -316,9 +316,22 @@ export type NativePrivacyPoolsSdkModule = {
     mnemonic: string,
     index: number,
   ): Promise<SignerHandle>;
+  registerHostProvidedSigner(
+    handle: string,
+    address: string,
+  ): Promise<SignerHandle>;
+  registerMobileSecureStorageSigner(
+    handle: string,
+    address: string,
+  ): Promise<SignerHandle>;
   unregisterSigner(handle: string): Promise<boolean>;
   finalizePreparedTransaction(
     rpcUrl: string,
+    prepared: PreparedTransactionExecution,
+  ): Promise<FinalizedTransactionExecution>;
+  finalizePreparedTransactionForSigner(
+    rpcUrl: string,
+    signerHandle: string,
     prepared: PreparedTransactionExecution,
   ): Promise<FinalizedTransactionExecution>;
   submitPreparedTransaction(
@@ -535,6 +548,18 @@ export const registerLocalMnemonicSigner = (
 ): Promise<SignerHandle> =>
   requireNativeModule().registerLocalMnemonicSigner(handle, mnemonic, index);
 
+export const registerHostProvidedSigner = (
+  handle: string,
+  address: string,
+): Promise<SignerHandle> =>
+  requireNativeModule().registerHostProvidedSigner(handle, address);
+
+export const registerMobileSecureStorageSigner = (
+  handle: string,
+  address: string,
+): Promise<SignerHandle> =>
+  requireNativeModule().registerMobileSecureStorageSigner(handle, address);
+
 export const unregisterSigner = (handle: string): Promise<boolean> =>
   requireNativeModule().unregisterSigner(handle);
 
@@ -543,6 +568,17 @@ export const finalizePreparedTransaction = (
   prepared: PreparedTransactionExecution,
 ): Promise<FinalizedTransactionExecution> =>
   requireNativeModule().finalizePreparedTransaction(rpcUrl, prepared);
+
+export const finalizePreparedTransactionForSigner = (
+  rpcUrl: string,
+  signerHandle: string,
+  prepared: PreparedTransactionExecution,
+): Promise<FinalizedTransactionExecution> =>
+  requireNativeModule().finalizePreparedTransactionForSigner(
+    rpcUrl,
+    signerHandle,
+    prepared,
+  );
 
 export const submitPreparedTransaction = (
   rpcUrl: string,

@@ -61,6 +61,9 @@ Implemented now:
   summaries
 - finalized transaction requests for host-provided or mobile secure-storage
   signers, including nonce and fee resolution on top of refreshed preflight
+- concrete signer-handle registration for `local_dev`, `host_provided`, and
+  `mobile_secure_storage` flows, plus signer-aware finalization helpers that
+  keep external signing on the finalized Rust-owned request boundary
 - validated raw signed-transaction submission that checks signer identity and
   transaction fields against the finalized Rust-owned request before broadcast
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
@@ -83,5 +86,3 @@ Next milestone:
 
 - publishable React Native release builds with staged native binaries and
   mobile smoke builds
-- concrete host-provided and mobile secure-storage signer adapters layered onto
-  the finalized signing/submission boundary
