@@ -12,6 +12,8 @@ pub enum TreeError {
     LeafNotFound,
     #[error("circuit depth {depth} is smaller than proof depth {proof_depth}")]
     InvalidCircuitDepth { depth: usize, proof_depth: usize },
+    #[error("circuit depth {depth} exceeds protocol maximum {max_depth}")]
+    DepthExceedsProtocolMaximum { depth: usize, max_depth: usize },
     #[error(transparent)]
     LeanImt(#[from] LeanIMTError),
     #[error(transparent)]
@@ -49,6 +51,13 @@ pub fn to_circuit_witness(
     proof: &MerkleProof,
     depth: usize,
 ) -> Result<CircuitMerkleWitness, TreeError> {
+    if depth > DEFAULT_CIRCUIT_DEPTH {
+        return Err(TreeError::DepthExceedsProtocolMaximum {
+            depth,
+            max_depth: DEFAULT_CIRCUIT_DEPTH,
+        });
+    }
+
     if proof.siblings.len() > depth {
         return Err(TreeError::InvalidCircuitDepth {
             depth,
@@ -158,6 +167,56 @@ mod tests {
         assert!(matches!(
             generate_merkle_proof(&[U256::from(11), U256::from(22)], U256::from(33)),
             Err(TreeError::LeafNotFound)
+        ));
+    }
+
+    #[test]
+    fn empty_trees_fail_closed() {
+        assert!(matches!(
+            generate_merkle_proof(&[], U256::from(33)),
+            Err(TreeError::LeafNotFound)
+        ));
+    }
+
+    #[test]
+    fn singleton_trees_generate_empty_sibling_paths() {
+        let proof = generate_merkle_proof(&[U256::from(44)], U256::from(44)).unwrap();
+
+        assert_eq!(proof.root, U256::from(44));
+        assert_eq!(proof.leaf, U256::from(44));
+        assert_eq!(proof.index, 0);
+        assert!(proof.siblings.is_empty());
+        assert!(verify_merkle_proof(&proof).unwrap());
+
+        let witness = to_circuit_witness(&proof, DEFAULT_CIRCUIT_DEPTH).unwrap();
+        assert_eq!(witness.siblings.len(), DEFAULT_CIRCUIT_DEPTH);
+        assert!(
+            witness
+                .siblings
+                .iter()
+                .all(|sibling| *sibling == U256::ZERO)
+        );
+    }
+
+    #[test]
+    fn rejects_witness_depths_above_protocol_maximum() {
+        let proof = generate_merkle_proof(
+            &[
+                U256::from(11),
+                U256::from(22),
+                U256::from(33),
+                U256::from(44),
+            ],
+            U256::from(44),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            to_circuit_witness(&proof, DEFAULT_CIRCUIT_DEPTH + 1),
+            Err(TreeError::DepthExceedsProtocolMaximum {
+                depth,
+                max_depth
+            }) if depth == DEFAULT_CIRCUIT_DEPTH + 1 && max_depth == DEFAULT_CIRCUIT_DEPTH
         ));
     }
 }

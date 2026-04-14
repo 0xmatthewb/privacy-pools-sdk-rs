@@ -147,8 +147,10 @@ fn stage_react_native_package(args: Vec<String>) -> Result<()> {
             &workspace_root.join("bindings/android/src/main/jniLibs"),
             &android_jni_dir,
         )?;
-    } else {
-        remove_path_if_exists(&android_jni_dir)?;
+    } else if !android_jni_dir.exists() {
+        println!(
+            "warning: package-local Android native binaries are absent; run react-native-package --with-android-native before publishing"
+        );
     }
 
     let ios_frameworks_dir = package_root.join("ios/frameworks");
@@ -157,8 +159,10 @@ fn stage_react_native_package(args: Vec<String>) -> Result<()> {
             &workspace_root.join("bindings/ios/build/PrivacyPoolsSdkFFI.xcframework"),
             &ios_frameworks_dir.join("PrivacyPoolsSdkFFI.xcframework"),
         )?;
-    } else {
-        remove_path_if_exists(&ios_frameworks_dir)?;
+    } else if !ios_frameworks_dir.exists() {
+        println!(
+            "warning: package-local iOS native frameworks are absent; run react-native-package --with-ios-native before publishing"
+        );
     }
 
     println!("staged React Native package assets into packages/react-native");

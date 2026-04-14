@@ -79,6 +79,10 @@ pub fn hash_precommitment(
     poseidon_hash(&[nullifier, secret])
 }
 
+pub fn hash_nullifier(nullifier: Nullifier) -> Result<FieldElement, CryptoError> {
+    poseidon_hash(&[nullifier])
+}
+
 pub fn get_commitment(
     value: FieldElement,
     label: FieldElement,
@@ -219,6 +223,26 @@ mod tests {
             commitment.nullifier_hash,
             U256::from_str(fixture["commitment"]["nullifierHash"].as_str().unwrap()).unwrap()
         );
+    }
+
+    #[test]
+    fn distinguishes_circuit_nullifier_hash_from_sdk_compat_field() {
+        let fixture = vector();
+        let mnemonic = fixture["mnemonic"].as_str().unwrap();
+        let keys = generate_master_keys(mnemonic).unwrap();
+        let scope = U256::from_str(fixture["scope"].as_str().unwrap()).unwrap();
+        let (deposit_nullifier, deposit_secret) =
+            generate_deposit_secrets(&keys, scope, U256::ZERO).unwrap();
+        let commitment = get_commitment(
+            U256::from(1000),
+            U256::from(456_u64),
+            deposit_nullifier,
+            deposit_secret,
+        )
+        .unwrap();
+        let circuit_nullifier_hash = hash_nullifier(deposit_nullifier).unwrap();
+
+        assert_ne!(circuit_nullifier_hash, commitment.nullifier_hash);
     }
 
     #[test]

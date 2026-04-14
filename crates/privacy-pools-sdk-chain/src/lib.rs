@@ -32,14 +32,18 @@ sol! {
 
     interface IPrivacyPool {
         function currentRoot() external view returns (uint256);
+        function currentRootIndex() external view returns (uint32);
+        function roots(uint256 index) external view returns (uint256);
         function withdraw(WithdrawalAbi _withdrawal, WithdrawProofAbi _proof) external;
     }
 
     interface IEntrypoint {
-        function latestRoot(address pool) external view returns (uint256);
+        function latestRoot() external view returns (uint256);
         function relay(WithdrawalAbi _withdrawal, WithdrawProofAbi _proof, uint256 scope) external;
     }
 }
+
+const ROOT_HISTORY_SIZE: u32 = 64;
 
 #[derive(Debug, Error)]
 pub enum ChainError {
@@ -451,7 +455,7 @@ pub fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> Root
         kind: RootReadKind::Asp,
         contract_address: entrypoint_address,
         pool_address,
-        call_data: Bytes::from(IEntrypoint::latestRootCall { pool: pool_address }.abi_encode()),
+        call_data: Bytes::from(IEntrypoint::latestRootCall {}.abi_encode()),
     }
 }
 
@@ -630,34 +634,48 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
 
     let mut root_checks = Vec::with_capacity(report.root_checks.len());
     for check in &report.root_checks {
-        let read = RootRead {
-            kind: check.kind,
-            contract_address: check.contract_address,
-            pool_address: check.pool_address,
-            call_data: root_call_data(check.kind, check.contract_address, check.pool_address),
-        };
-        let actual_root = client.read_root(&read).await?;
-        if actual_root != check.expected_root {
-            return Err(match check.kind {
-                RootReadKind::PoolState => ChainError::StateRootMismatch {
-                    expected: check.expected_root,
-                    actual: actual_root,
-                },
-                RootReadKind::Asp => ChainError::AspRootMismatch {
-                    expected: check.expected_root,
-                    actual: actual_root,
-                },
-            });
-        }
+        match check.kind {
+            RootReadKind::PoolState => {
+                let actual_root =
+                    verify_known_pool_root(client, check.pool_address, check.expected_root).await?;
+                root_checks.push(RootCheck {
+                    kind: check.kind,
+                    contract_address: check.contract_address,
+                    pool_address: check.pool_address,
+                    expected_root: check.expected_root,
+                    actual_root,
+                    matches: true,
+                });
+            }
+            RootReadKind::Asp => {
+                let read = RootRead {
+                    kind: check.kind,
+                    contract_address: check.contract_address,
+                    pool_address: check.pool_address,
+                    call_data: root_call_data(
+                        check.kind,
+                        check.contract_address,
+                        check.pool_address,
+                    ),
+                };
+                let actual_root = client.read_root(&read).await?;
+                if actual_root != check.expected_root {
+                    return Err(ChainError::AspRootMismatch {
+                        expected: check.expected_root,
+                        actual: actual_root,
+                    });
+                }
 
-        root_checks.push(RootCheck {
-            kind: check.kind,
-            contract_address: check.contract_address,
-            pool_address: check.pool_address,
-            expected_root: check.expected_root,
-            actual_root,
-            matches: true,
-        });
+                root_checks.push(RootCheck {
+                    kind: check.kind,
+                    contract_address: check.contract_address,
+                    pool_address: check.pool_address,
+                    expected_root: check.expected_root,
+                    actual_root,
+                    matches: true,
+                });
+            }
+        }
     }
 
     let estimated_gas = client.simulate_transaction(report.caller, plan).await?;
@@ -759,29 +777,41 @@ async fn preflight_transaction<C: ExecutionClient>(
 
     let mut root_checks = Vec::with_capacity(root_reads.len());
     for (read, expected_root, mismatch_error) in root_reads {
-        let actual_root = client.read_root(&read).await?;
-        if actual_root != expected_root {
-            return Err(match mismatch_error {
-                ChainError::StateRootMismatch { .. } => ChainError::StateRootMismatch {
-                    expected: expected_root,
-                    actual: actual_root,
-                },
-                ChainError::AspRootMismatch { .. } => ChainError::AspRootMismatch {
-                    expected: expected_root,
-                    actual: actual_root,
-                },
-                other => other,
-            });
-        }
+        match read.kind {
+            RootReadKind::PoolState => {
+                let actual_root =
+                    verify_known_pool_root(client, read.pool_address, expected_root).await?;
+                root_checks.push(RootCheck {
+                    kind: read.kind,
+                    contract_address: read.contract_address,
+                    pool_address: read.pool_address,
+                    expected_root,
+                    actual_root,
+                    matches: true,
+                });
+            }
+            RootReadKind::Asp => {
+                let actual_root = client.read_root(&read).await?;
+                if actual_root != expected_root {
+                    return Err(match mismatch_error {
+                        ChainError::AspRootMismatch { .. } => ChainError::AspRootMismatch {
+                            expected: expected_root,
+                            actual: actual_root,
+                        },
+                        other => other,
+                    });
+                }
 
-        root_checks.push(RootCheck {
-            kind: read.kind,
-            contract_address: read.contract_address,
-            pool_address: read.pool_address,
-            expected_root,
-            actual_root,
-            matches: true,
-        });
+                root_checks.push(RootCheck {
+                    kind: read.kind,
+                    contract_address: read.contract_address,
+                    pool_address: read.pool_address,
+                    expected_root,
+                    actual_root,
+                    matches: true,
+                });
+            }
+        }
     }
 
     let estimated_gas = client.simulate_transaction(policy.caller, plan).await?;
@@ -837,9 +867,81 @@ fn root_call_data(kind: RootReadKind, _contract_address: Address, pool_address: 
     match kind {
         RootReadKind::PoolState => Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
         RootReadKind::Asp => {
-            Bytes::from(IEntrypoint::latestRootCall { pool: pool_address }.abi_encode())
+            let _ = pool_address;
+            Bytes::from(IEntrypoint::latestRootCall {}.abi_encode())
         }
     }
+}
+
+fn current_root_index_read(pool_address: Address) -> RootRead {
+    RootRead {
+        kind: RootReadKind::PoolState,
+        contract_address: pool_address,
+        pool_address,
+        call_data: Bytes::from(IPrivacyPool::currentRootIndexCall {}.abi_encode()),
+    }
+}
+
+fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
+    RootRead {
+        kind: RootReadKind::PoolState,
+        contract_address: pool_address,
+        pool_address,
+        call_data: Bytes::from(
+            IPrivacyPool::rootsCall {
+                index: U256::from(index),
+            }
+            .abi_encode(),
+        ),
+    }
+}
+
+async fn verify_known_pool_root<C: ExecutionClient>(
+    client: &C,
+    pool_address: Address,
+    expected_root: U256,
+) -> Result<U256, ChainError> {
+    let current_root = client.read_root(&state_root_read(pool_address)).await?;
+    if current_root == expected_root {
+        return Ok(actual_known_root(expected_root));
+    }
+
+    if expected_root.is_zero() {
+        return Err(ChainError::StateRootMismatch {
+            expected: expected_root,
+            actual: current_root,
+        });
+    }
+
+    let current_index = decode_root_index(
+        client
+            .read_root(&current_root_index_read(pool_address))
+            .await?,
+    )?;
+    let mut index = current_index;
+
+    for _ in 0..ROOT_HISTORY_SIZE {
+        let historical_root = client
+            .read_root(&historical_state_root_read(pool_address, index))
+            .await?;
+        if historical_root == expected_root {
+            return Ok(actual_known_root(expected_root));
+        }
+        index = (index + ROOT_HISTORY_SIZE - 1) % ROOT_HISTORY_SIZE;
+    }
+
+    Err(ChainError::StateRootMismatch {
+        expected: expected_root,
+        actual: current_root,
+    })
+}
+
+fn actual_known_root(root: U256) -> U256 {
+    root
+}
+
+fn decode_root_index(value: U256) -> Result<u32, ChainError> {
+    u32::try_from(value).map_err(|_| ChainError::InvalidRootResponse(32))
 }
 
 fn transaction_request(plan: &TransactionPlan, caller: Address) -> TransactionRequest {
@@ -1028,7 +1130,7 @@ mod tests {
     struct MockExecutionClient {
         chain_id: u64,
         code_hashes: std::collections::HashMap<Address, B256>,
-        roots: std::collections::HashMap<(RootReadKind, Address), U256>,
+        roots: std::collections::HashMap<(Address, Bytes), U256>,
         estimated_gas: u64,
     }
 
@@ -1047,7 +1149,7 @@ mod tests {
 
         async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError> {
             self.roots
-                .get(&(read.kind, read.contract_address))
+                .get(&(read.contract_address, read.call_data.clone()))
                 .copied()
                 .ok_or_else(|| {
                     ChainError::Transport(format!(
@@ -1085,6 +1187,10 @@ mod tests {
         );
         assert_eq!(asp_read.pool_address, pool);
         assert_eq!(asp_read.kind, RootReadKind::Asp);
+        assert_eq!(
+            asp_read.call_data,
+            Bytes::from(IEntrypoint::latestRootCall {}.abi_encode())
+        );
         assert_ne!(read.call_data, asp_read.call_data);
     }
 
@@ -1137,10 +1243,14 @@ mod tests {
                 fixture["expected"]["pC"][1].as_str().unwrap().to_owned()
             ]
         );
-        assert_eq!(formatted.pub_signals.len(), 6);
         assert_eq!(
-            formatted.pub_signals[0],
-            fixture["expected"]["pubSignals"][0].as_str().unwrap()
+            formatted.pub_signals,
+            fixture["expected"]["pubSignals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1347,7 +1457,14 @@ mod tests {
                 pool,
                 b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             )]),
-            roots: std::collections::HashMap::from([((RootReadKind::PoolState, pool), state_root)]),
+            roots: std::collections::HashMap::from([
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+            ]),
             estimated_gas: 420_000,
         };
         let policy = ExecutionPolicy {
@@ -1373,7 +1490,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_stale_state_roots_during_withdrawal_preflight() {
+    async fn accepts_known_historical_state_roots_during_withdrawal_preflight() {
         let pool = address!("0987654321098765432109876543210987654321");
         let proof = ProofBundle {
             proof: privacy_pools_sdk_core::SnarkJsProof {
@@ -1404,10 +1521,95 @@ mod tests {
                 pool,
                 b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             )]),
-            roots: std::collections::HashMap::from([(
-                (RootReadKind::PoolState, pool),
-                U256::from(555_u64),
+            roots: std::collections::HashMap::from([
+                ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
+                (
+                    (pool, current_root_index_read(pool).call_data),
+                    U256::from(3_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 3).call_data),
+                    U256::from(555_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 2).call_data),
+                    U256::from(444_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 1).call_data),
+                    U256::from(123_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    U256::from(111_u64),
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: None,
+        };
+
+        let report = preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), &policy)
+            .await
+            .unwrap();
+
+        assert!(report.root_checks[0].matches);
+        assert_eq!(report.root_checks[0].expected_root, U256::from(123_u64));
+        assert_eq!(report.root_checks[0].actual_root, U256::from(123_u64));
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_state_roots_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let mut roots = std::collections::HashMap::from([
+            ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
+            (
+                (pool, current_root_index_read(pool).call_data),
+                U256::from(1_u64),
+            ),
+        ]);
+        for index in 0..ROOT_HISTORY_SIZE {
+            roots.insert(
+                (pool, historical_state_root_read(pool, index).call_data),
+                U256::from(400_u64 + index as u64),
+            );
+        }
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([(
+                pool,
+                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             )]),
+            roots,
             estimated_gas: 420_000,
         };
         let policy = ExecutionPolicy {
@@ -1477,8 +1679,16 @@ mod tests {
                 ),
             ]),
             roots: std::collections::HashMap::from([
-                ((RootReadKind::PoolState, pool), state_root),
-                ((RootReadKind::Asp, entrypoint), U256::from(888_u64)),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    U256::from(888_u64),
+                ),
             ]),
             estimated_gas: 420_000,
         };
@@ -1571,6 +1781,140 @@ mod tests {
             validate_signed_transaction(&signed, &legacy_request),
             Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
                 if field == "fee_model" && expected == "legacy" && actual == "dynamic"
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_wrong_chain_id() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        let wrong_chain = FinalizedTransactionRequest {
+            chain_id: 10,
+            ..request
+        };
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &wrong_chain),
+            Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
+                if field == "chain_id" && expected == "10" && actual == "1"
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_wrong_target() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        let wrong_target = FinalizedTransactionRequest {
+            to: address!("3333333333333333333333333333333333333333"),
+            ..request
+        };
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &wrong_target),
+            Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
+                if field == "to"
+                    && expected == "0x3333333333333333333333333333333333333333"
+                    && actual == "0x2222222222222222222222222222222222222222"
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_wrong_nonce() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        let wrong_nonce = FinalizedTransactionRequest {
+            nonce: 8,
+            ..request
+        };
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &wrong_nonce),
+            Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
+                if field == "nonce" && expected == "8" && actual == "7"
+        ));
+    }
+
+    #[test]
+    fn rejects_signed_transactions_with_wrong_gas_limit() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        let wrong_gas_limit = FinalizedTransactionRequest {
+            gas_limit: 25_000,
+            ..request
+        };
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &wrong_gas_limit),
+            Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
+                if field == "gas_limit" && expected == "25000" && actual == "21000"
         ));
     }
 }

@@ -2533,6 +2533,36 @@ mod tests {
     }
 
     #[test]
+    fn ffi_rejects_unordered_recovery_streams() {
+        assert!(matches!(
+            checkpoint_recovery(
+                vec![
+                    FfiPoolEvent {
+                        block_number: 18,
+                        transaction_index: 1,
+                        log_index: 3,
+                        pool_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                        commitment_hash: "22".to_owned(),
+                    },
+                    FfiPoolEvent {
+                        block_number: 12,
+                        transaction_index: 0,
+                        log_index: 0,
+                        pool_address: "0x1111111111111111111111111111111111111111".to_owned(),
+                        commitment_hash: "11".to_owned(),
+                    },
+                ],
+                FfiRecoveryPolicy {
+                    compatibility_mode: "strict".to_owned(),
+                    fail_closed: true,
+                },
+            ),
+            Err(FfiError::OperationFailed(message))
+                if message.contains("canonically ordered")
+        ));
+    }
+
+    #[test]
     fn ffi_plans_offline_transactions() {
         let proof = FfiProofBundle {
             proof: FfiSnarkJsProof {
