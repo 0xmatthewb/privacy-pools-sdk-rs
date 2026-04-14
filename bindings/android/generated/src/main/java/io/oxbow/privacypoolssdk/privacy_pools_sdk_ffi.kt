@@ -635,9 +635,21 @@ internal object IntegrityCheckingUniffiLib {
         uniffiCheckContractApiVersion(this)
         uniffiCheckApiChecksums(this)
     }
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_stable_backend_name(
     ): Short
@@ -662,10 +674,22 @@ internal object UniffiLib {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "privacy_pools_sdk_ffi"))
         
     }
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(`proof`: RustBuffer.ByValue,`depth`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_version(uniffi_out_err: UniffiRustCallStatus, 
@@ -795,10 +819,28 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_stable_backend_name() != 11272.toShort()) {
@@ -908,6 +950,29 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
+
+/**
+ * @suppress
+ */
+public object FfiConverterULong: FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong {
+        return value.toULong()
+    }
+
+    override fun read(buf: ByteBuffer): ULong {
+        return lift(buf.getLong())
+    }
+
+    override fun lower(value: ULong): Long {
+        return value.toLong()
+    }
+
+    override fun allocationSize(value: ULong) = 8UL
+
+    override fun write(value: ULong, buf: ByteBuffer) {
+        buf.putLong(value.toLong())
+    }
+}
 
 /**
  * @suppress
@@ -1058,6 +1123,122 @@ public object FfiConverterTypeFfiArtifactVerification: FfiConverterRustBuffer<Ff
 
 
 
+data class FfiCircuitMerkleWitness (
+    var `root`: kotlin.String
+    , 
+    var `leaf`: kotlin.String
+    , 
+    var `index`: kotlin.ULong
+    , 
+    var `siblings`: List<kotlin.String>
+    , 
+    var `depth`: kotlin.ULong
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiCircuitMerkleWitness: FfiConverterRustBuffer<FfiCircuitMerkleWitness> {
+    override fun read(buf: ByteBuffer): FfiCircuitMerkleWitness {
+        return FfiCircuitMerkleWitness(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterSequenceString.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiCircuitMerkleWitness) = (
+            FfiConverterString.allocationSize(value.`root`) +
+            FfiConverterString.allocationSize(value.`leaf`) +
+            FfiConverterULong.allocationSize(value.`index`) +
+            FfiConverterSequenceString.allocationSize(value.`siblings`) +
+            FfiConverterULong.allocationSize(value.`depth`)
+    )
+
+    override fun write(value: FfiCircuitMerkleWitness, buf: ByteBuffer) {
+            FfiConverterString.write(value.`root`, buf)
+            FfiConverterString.write(value.`leaf`, buf)
+            FfiConverterULong.write(value.`index`, buf)
+            FfiConverterSequenceString.write(value.`siblings`, buf)
+            FfiConverterULong.write(value.`depth`, buf)
+    }
+}
+
+
+
+data class FfiCommitment (
+    var `hash`: kotlin.String
+    , 
+    var `nullifierHash`: kotlin.String
+    , 
+    var `precommitmentHash`: kotlin.String
+    , 
+    var `value`: kotlin.String
+    , 
+    var `label`: kotlin.String
+    , 
+    var `nullifier`: kotlin.String
+    , 
+    var `secret`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiCommitment: FfiConverterRustBuffer<FfiCommitment> {
+    override fun read(buf: ByteBuffer): FfiCommitment {
+        return FfiCommitment(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiCommitment) = (
+            FfiConverterString.allocationSize(value.`hash`) +
+            FfiConverterString.allocationSize(value.`nullifierHash`) +
+            FfiConverterString.allocationSize(value.`precommitmentHash`) +
+            FfiConverterString.allocationSize(value.`value`) +
+            FfiConverterString.allocationSize(value.`label`) +
+            FfiConverterString.allocationSize(value.`nullifier`) +
+            FfiConverterString.allocationSize(value.`secret`)
+    )
+
+    override fun write(value: FfiCommitment, buf: ByteBuffer) {
+            FfiConverterString.write(value.`hash`, buf)
+            FfiConverterString.write(value.`nullifierHash`, buf)
+            FfiConverterString.write(value.`precommitmentHash`, buf)
+            FfiConverterString.write(value.`value`, buf)
+            FfiConverterString.write(value.`label`, buf)
+            FfiConverterString.write(value.`nullifier`, buf)
+            FfiConverterString.write(value.`secret`, buf)
+    }
+}
+
+
+
 data class FfiMasterKeys (
     var `masterNullifier`: kotlin.String
     , 
@@ -1091,6 +1272,183 @@ public object FfiConverterTypeFfiMasterKeys: FfiConverterRustBuffer<FfiMasterKey
     override fun write(value: FfiMasterKeys, buf: ByteBuffer) {
             FfiConverterString.write(value.`masterNullifier`, buf)
             FfiConverterString.write(value.`masterSecret`, buf)
+    }
+}
+
+
+
+data class FfiMerkleProof (
+    var `root`: kotlin.String
+    , 
+    var `leaf`: kotlin.String
+    , 
+    var `index`: kotlin.ULong
+    , 
+    var `siblings`: List<kotlin.String>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiMerkleProof: FfiConverterRustBuffer<FfiMerkleProof> {
+    override fun read(buf: ByteBuffer): FfiMerkleProof {
+        return FfiMerkleProof(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterSequenceString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiMerkleProof) = (
+            FfiConverterString.allocationSize(value.`root`) +
+            FfiConverterString.allocationSize(value.`leaf`) +
+            FfiConverterULong.allocationSize(value.`index`) +
+            FfiConverterSequenceString.allocationSize(value.`siblings`)
+    )
+
+    override fun write(value: FfiMerkleProof, buf: ByteBuffer) {
+            FfiConverterString.write(value.`root`, buf)
+            FfiConverterString.write(value.`leaf`, buf)
+            FfiConverterULong.write(value.`index`, buf)
+            FfiConverterSequenceString.write(value.`siblings`, buf)
+    }
+}
+
+
+
+data class FfiPoolEvent (
+    var `blockNumber`: kotlin.ULong
+    , 
+    var `transactionIndex`: kotlin.ULong
+    , 
+    var `logIndex`: kotlin.ULong
+    , 
+    var `poolAddress`: kotlin.String
+    , 
+    var `commitmentHash`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiPoolEvent: FfiConverterRustBuffer<FfiPoolEvent> {
+    override fun read(buf: ByteBuffer): FfiPoolEvent {
+        return FfiPoolEvent(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiPoolEvent) = (
+            FfiConverterULong.allocationSize(value.`blockNumber`) +
+            FfiConverterULong.allocationSize(value.`transactionIndex`) +
+            FfiConverterULong.allocationSize(value.`logIndex`) +
+            FfiConverterString.allocationSize(value.`poolAddress`) +
+            FfiConverterString.allocationSize(value.`commitmentHash`)
+    )
+
+    override fun write(value: FfiPoolEvent, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`blockNumber`, buf)
+            FfiConverterULong.write(value.`transactionIndex`, buf)
+            FfiConverterULong.write(value.`logIndex`, buf)
+            FfiConverterString.write(value.`poolAddress`, buf)
+            FfiConverterString.write(value.`commitmentHash`, buf)
+    }
+}
+
+
+
+data class FfiRecoveryCheckpoint (
+    var `latestBlock`: kotlin.ULong
+    , 
+    var `commitmentsSeen`: kotlin.ULong
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiRecoveryCheckpoint: FfiConverterRustBuffer<FfiRecoveryCheckpoint> {
+    override fun read(buf: ByteBuffer): FfiRecoveryCheckpoint {
+        return FfiRecoveryCheckpoint(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiRecoveryCheckpoint) = (
+            FfiConverterULong.allocationSize(value.`latestBlock`) +
+            FfiConverterULong.allocationSize(value.`commitmentsSeen`)
+    )
+
+    override fun write(value: FfiRecoveryCheckpoint, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`latestBlock`, buf)
+            FfiConverterULong.write(value.`commitmentsSeen`, buf)
+    }
+}
+
+
+
+data class FfiRecoveryPolicy (
+    var `compatibilityMode`: kotlin.String
+    , 
+    var `failClosed`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiRecoveryPolicy: FfiConverterRustBuffer<FfiRecoveryPolicy> {
+    override fun read(buf: ByteBuffer): FfiRecoveryPolicy {
+        return FfiRecoveryPolicy(
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiRecoveryPolicy) = (
+            FfiConverterString.allocationSize(value.`compatibilityMode`) +
+            FfiConverterBoolean.allocationSize(value.`failClosed`)
+    )
+
+    override fun write(value: FfiRecoveryPolicy, buf: ByteBuffer) {
+            FfiConverterString.write(value.`compatibilityMode`, buf)
+            FfiConverterBoolean.write(value.`failClosed`, buf)
     }
 }
 
@@ -1144,6 +1502,44 @@ public object FfiConverterTypeFfiRootRead: FfiConverterRustBuffer<FfiRootRead> {
 
 
 
+data class FfiSecrets (
+    var `nullifier`: kotlin.String
+    , 
+    var `secret`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSecrets: FfiConverterRustBuffer<FfiSecrets> {
+    override fun read(buf: ByteBuffer): FfiSecrets {
+        return FfiSecrets(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSecrets) = (
+            FfiConverterString.allocationSize(value.`nullifier`) +
+            FfiConverterString.allocationSize(value.`secret`)
+    )
+
+    override fun write(value: FfiSecrets, buf: ByteBuffer) {
+            FfiConverterString.write(value.`nullifier`, buf)
+            FfiConverterString.write(value.`secret`, buf)
+    }
+}
+
+
+
 
 
 sealed class FfiException: kotlin.Exception() {
@@ -1156,7 +1552,23 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
     
+    class InvalidField(
+        
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
     class InvalidArtifactKind(
+        
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class InvalidCompatibilityMode(
         
         val v1: kotlin.String
         ) : FfiException() {
@@ -1202,13 +1614,19 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             1 -> FfiException.InvalidAddress(
                 FfiConverterString.read(buf),
                 )
-            2 -> FfiException.InvalidArtifactKind(
+            2 -> FfiException.InvalidField(
                 FfiConverterString.read(buf),
                 )
-            3 -> FfiException.InvalidManifest(
+            3 -> FfiException.InvalidArtifactKind(
                 FfiConverterString.read(buf),
                 )
-            4 -> FfiException.OperationFailed(
+            4 -> FfiException.InvalidCompatibilityMode(
+                FfiConverterString.read(buf),
+                )
+            5 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            6 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -1222,7 +1640,17 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
             )
+            is FfiException.InvalidField -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
             is FfiException.InvalidArtifactKind -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidCompatibilityMode -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -1247,18 +1675,28 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidArtifactKind -> {
+            is FfiException.InvalidField -> {
                 buf.putInt(2)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.InvalidArtifactKind -> {
                 buf.putInt(3)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidCompatibilityMode -> {
                 buf.putInt(4)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.InvalidManifest -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(6)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
@@ -1266,6 +1704,95 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
     }
 
 }
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.String>> {
+    override fun read(buf: ByteBuffer): List<kotlin.String> {
+        val len = buf.getInt()
+        return List<kotlin.String>(len) {
+            FfiConverterString.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.String>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterString.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.String>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterString.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<FfiPoolEvent>> {
+    override fun read(buf: ByteBuffer): List<FfiPoolEvent> {
+        val len = buf.getInt()
+        return List<FfiPoolEvent>(len) {
+            FfiConverterTypeFfiPoolEvent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiPoolEvent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiPoolEvent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiPoolEvent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiPoolEvent.write(it, buf)
+        }
+    }
+}
+    @Throws(FfiException::class) fun `buildCircuitMerkleWitness`(`proof`: FfiMerkleProof, `depth`: kotlin.ULong): FfiCircuitMerkleWitness {
+            return FfiConverterTypeFfiCircuitMerkleWitness.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(
+    
+        FfiConverterTypeFfiMerkleProof.lower(`proof`),FfiConverterULong.lower(`depth`),_status)
+}
+    )
+    }
+    
+
+    @Throws(FfiException::class) fun `checkpointRecovery`(`events`: List<FfiPoolEvent>, `policy`: FfiRecoveryPolicy): FfiRecoveryCheckpoint {
+            return FfiConverterTypeFfiRecoveryCheckpoint.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(
+    
+        FfiConverterSequenceTypeFfiPoolEvent.lower(`events`),FfiConverterTypeFfiRecoveryPolicy.lower(`policy`),_status)
+}
+    )
+    }
+    
+
+    @Throws(FfiException::class) fun `deriveDepositSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `scope`: kotlin.String, `index`: kotlin.String): FfiSecrets {
+            return FfiConverterTypeFfiSecrets.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
+    
+        FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`scope`),FfiConverterString.lower(`index`),_status)
+}
+    )
+    }
+    
+
     @Throws(FfiException::class) fun `deriveMasterKeys`(`mnemonic`: kotlin.String): FfiMasterKeys {
             return FfiConverterTypeFfiMasterKeys.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -1276,12 +1803,45 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
     )
     }
     
+
+    @Throws(FfiException::class) fun `deriveWithdrawalSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `label`: kotlin.String, `index`: kotlin.String): FfiSecrets {
+            return FfiConverterTypeFfiSecrets.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
+    
+        FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`label`),FfiConverterString.lower(`index`),_status)
+}
+    )
+    }
+    
  fun `fastBackendSupportedOnTarget`(): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(
     
         _status)
+}
+    )
+    }
+    
+
+    @Throws(FfiException::class) fun `generateMerkleProof`(`leaves`: List<kotlin.String>, `leaf`: kotlin.String): FfiMerkleProof {
+            return FfiConverterTypeFfiMerkleProof.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
+    
+        FfiConverterSequenceString.lower(`leaves`),FfiConverterString.lower(`leaf`),_status)
+}
+    )
+    }
+    
+
+    @Throws(FfiException::class) fun `getCommitment`(`value`: kotlin.String, `label`: kotlin.String, `nullifier`: kotlin.String, `secret`: kotlin.String): FfiCommitment {
+            return FfiConverterTypeFfiCommitment.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(
+    
+        FfiConverterString.lower(`value`),FfiConverterString.lower(`label`),FfiConverterString.lower(`nullifier`),FfiConverterString.lower(`secret`),_status)
 }
     )
     }

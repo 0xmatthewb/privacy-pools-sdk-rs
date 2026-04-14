@@ -17,6 +17,62 @@ public enum PrivacyPoolsSdkClient {
         try deriveMasterKeys(mnemonic: mnemonic)
     }
 
+    public static func depositSecrets(
+        masterNullifier: String,
+        masterSecret: String,
+        scope: String,
+        index: String,
+    ) throws -> FfiSecrets {
+        try deriveDepositSecrets(
+            masterNullifier: masterNullifier,
+            masterSecret: masterSecret,
+            scope: scope,
+            index: index
+        )
+    }
+
+    public static func withdrawalSecrets(
+        masterNullifier: String,
+        masterSecret: String,
+        label: String,
+        index: String,
+    ) throws -> FfiSecrets {
+        try deriveWithdrawalSecrets(
+            masterNullifier: masterNullifier,
+            masterSecret: masterSecret,
+            label: label,
+            index: index
+        )
+    }
+
+    public static func commitment(
+        value: String,
+        label: String,
+        nullifier: String,
+        secret: String,
+    ) throws -> FfiCommitment {
+        try getCommitment(
+            value: value,
+            label: label,
+            nullifier: nullifier,
+            secret: secret
+        )
+    }
+
+    public static func merkleProof(
+        leaves: [String],
+        leaf: String,
+    ) throws -> FfiMerkleProof {
+        try generateMerkleProof(leaves: leaves, leaf: leaf)
+    }
+
+    public static func circuitMerkleWitness(
+        proof: FfiMerkleProof,
+        depth: UInt64,
+    ) throws -> FfiCircuitMerkleWitness {
+        try buildCircuitMerkleWitness(proof: proof, depth: depth)
+    }
+
     public static func poolStateRootRead(
         poolAddress: String,
     ) throws -> FfiRootRead {
@@ -33,7 +89,7 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
-    public static func verifyArtifactBytes(
+    public static func verifyArtifactDescriptorBytes(
         manifestJson: String,
         circuit: String,
         kind: String,
@@ -45,5 +101,12 @@ public enum PrivacyPoolsSdkClient {
             kind: kind,
             bytes: bytes
         )
+    }
+
+    public static func recoveryCheckpoint(
+        events: [FfiPoolEvent],
+        policy: FfiRecoveryPolicy,
+    ) throws -> FfiRecoveryCheckpoint {
+        try checkpointRecovery(events: events, policy: policy)
     }
 }

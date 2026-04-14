@@ -419,6 +419,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -562,6 +578,146 @@ public func FfiConverterTypeFfiArtifactVerification_lower(_ value: FfiArtifactVe
 }
 
 
+public struct FfiCircuitMerkleWitness: Equatable, Hashable {
+    public var root: String
+    public var leaf: String
+    public var index: UInt64
+    public var siblings: [String]
+    public var depth: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(root: String, leaf: String, index: UInt64, siblings: [String], depth: UInt64) {
+        self.root = root
+        self.leaf = leaf
+        self.index = index
+        self.siblings = siblings
+        self.depth = depth
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCircuitMerkleWitness: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCircuitMerkleWitness: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCircuitMerkleWitness {
+        return
+            try FfiCircuitMerkleWitness(
+                root: FfiConverterString.read(from: &buf), 
+                leaf: FfiConverterString.read(from: &buf), 
+                index: FfiConverterUInt64.read(from: &buf), 
+                siblings: FfiConverterSequenceString.read(from: &buf), 
+                depth: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCircuitMerkleWitness, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.root, into: &buf)
+        FfiConverterString.write(value.leaf, into: &buf)
+        FfiConverterUInt64.write(value.index, into: &buf)
+        FfiConverterSequenceString.write(value.siblings, into: &buf)
+        FfiConverterUInt64.write(value.depth, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCircuitMerkleWitness_lift(_ buf: RustBuffer) throws -> FfiCircuitMerkleWitness {
+    return try FfiConverterTypeFfiCircuitMerkleWitness.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCircuitMerkleWitness_lower(_ value: FfiCircuitMerkleWitness) -> RustBuffer {
+    return FfiConverterTypeFfiCircuitMerkleWitness.lower(value)
+}
+
+
+public struct FfiCommitment: Equatable, Hashable {
+    public var hash: String
+    public var nullifierHash: String
+    public var precommitmentHash: String
+    public var value: String
+    public var label: String
+    public var nullifier: String
+    public var secret: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(hash: String, nullifierHash: String, precommitmentHash: String, value: String, label: String, nullifier: String, secret: String) {
+        self.hash = hash
+        self.nullifierHash = nullifierHash
+        self.precommitmentHash = precommitmentHash
+        self.value = value
+        self.label = label
+        self.nullifier = nullifier
+        self.secret = secret
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiCommitment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCommitment: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCommitment {
+        return
+            try FfiCommitment(
+                hash: FfiConverterString.read(from: &buf), 
+                nullifierHash: FfiConverterString.read(from: &buf), 
+                precommitmentHash: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf), 
+                label: FfiConverterString.read(from: &buf), 
+                nullifier: FfiConverterString.read(from: &buf), 
+                secret: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCommitment, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.hash, into: &buf)
+        FfiConverterString.write(value.nullifierHash, into: &buf)
+        FfiConverterString.write(value.precommitmentHash, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.nullifier, into: &buf)
+        FfiConverterString.write(value.secret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitment_lift(_ buf: RustBuffer) throws -> FfiCommitment {
+    return try FfiConverterTypeFfiCommitment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitment_lower(_ value: FfiCommitment) -> RustBuffer {
+    return FfiConverterTypeFfiCommitment.lower(value)
+}
+
+
 public struct FfiMasterKeys: Equatable, Hashable {
     public var masterNullifier: String
     public var masterSecret: String
@@ -613,6 +769,242 @@ public func FfiConverterTypeFfiMasterKeys_lift(_ buf: RustBuffer) throws -> FfiM
 #endif
 public func FfiConverterTypeFfiMasterKeys_lower(_ value: FfiMasterKeys) -> RustBuffer {
     return FfiConverterTypeFfiMasterKeys.lower(value)
+}
+
+
+public struct FfiMerkleProof: Equatable, Hashable {
+    public var root: String
+    public var leaf: String
+    public var index: UInt64
+    public var siblings: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(root: String, leaf: String, index: UInt64, siblings: [String]) {
+        self.root = root
+        self.leaf = leaf
+        self.index = index
+        self.siblings = siblings
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiMerkleProof: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMerkleProof: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMerkleProof {
+        return
+            try FfiMerkleProof(
+                root: FfiConverterString.read(from: &buf), 
+                leaf: FfiConverterString.read(from: &buf), 
+                index: FfiConverterUInt64.read(from: &buf), 
+                siblings: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiMerkleProof, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.root, into: &buf)
+        FfiConverterString.write(value.leaf, into: &buf)
+        FfiConverterUInt64.write(value.index, into: &buf)
+        FfiConverterSequenceString.write(value.siblings, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMerkleProof_lift(_ buf: RustBuffer) throws -> FfiMerkleProof {
+    return try FfiConverterTypeFfiMerkleProof.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMerkleProof_lower(_ value: FfiMerkleProof) -> RustBuffer {
+    return FfiConverterTypeFfiMerkleProof.lower(value)
+}
+
+
+public struct FfiPoolEvent: Equatable, Hashable {
+    public var blockNumber: UInt64
+    public var transactionIndex: UInt64
+    public var logIndex: UInt64
+    public var poolAddress: String
+    public var commitmentHash: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(blockNumber: UInt64, transactionIndex: UInt64, logIndex: UInt64, poolAddress: String, commitmentHash: String) {
+        self.blockNumber = blockNumber
+        self.transactionIndex = transactionIndex
+        self.logIndex = logIndex
+        self.poolAddress = poolAddress
+        self.commitmentHash = commitmentHash
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiPoolEvent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPoolEvent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPoolEvent {
+        return
+            try FfiPoolEvent(
+                blockNumber: FfiConverterUInt64.read(from: &buf), 
+                transactionIndex: FfiConverterUInt64.read(from: &buf), 
+                logIndex: FfiConverterUInt64.read(from: &buf), 
+                poolAddress: FfiConverterString.read(from: &buf), 
+                commitmentHash: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPoolEvent, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.blockNumber, into: &buf)
+        FfiConverterUInt64.write(value.transactionIndex, into: &buf)
+        FfiConverterUInt64.write(value.logIndex, into: &buf)
+        FfiConverterString.write(value.poolAddress, into: &buf)
+        FfiConverterString.write(value.commitmentHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPoolEvent_lift(_ buf: RustBuffer) throws -> FfiPoolEvent {
+    return try FfiConverterTypeFfiPoolEvent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPoolEvent_lower(_ value: FfiPoolEvent) -> RustBuffer {
+    return FfiConverterTypeFfiPoolEvent.lower(value)
+}
+
+
+public struct FfiRecoveryCheckpoint: Equatable, Hashable {
+    public var latestBlock: UInt64
+    public var commitmentsSeen: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(latestBlock: UInt64, commitmentsSeen: UInt64) {
+        self.latestBlock = latestBlock
+        self.commitmentsSeen = commitmentsSeen
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiRecoveryCheckpoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRecoveryCheckpoint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRecoveryCheckpoint {
+        return
+            try FfiRecoveryCheckpoint(
+                latestBlock: FfiConverterUInt64.read(from: &buf), 
+                commitmentsSeen: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRecoveryCheckpoint, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.latestBlock, into: &buf)
+        FfiConverterUInt64.write(value.commitmentsSeen, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecoveryCheckpoint_lift(_ buf: RustBuffer) throws -> FfiRecoveryCheckpoint {
+    return try FfiConverterTypeFfiRecoveryCheckpoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecoveryCheckpoint_lower(_ value: FfiRecoveryCheckpoint) -> RustBuffer {
+    return FfiConverterTypeFfiRecoveryCheckpoint.lower(value)
+}
+
+
+public struct FfiRecoveryPolicy: Equatable, Hashable {
+    public var compatibilityMode: String
+    public var failClosed: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(compatibilityMode: String, failClosed: Bool) {
+        self.compatibilityMode = compatibilityMode
+        self.failClosed = failClosed
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiRecoveryPolicy: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRecoveryPolicy: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRecoveryPolicy {
+        return
+            try FfiRecoveryPolicy(
+                compatibilityMode: FfiConverterString.read(from: &buf), 
+                failClosed: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRecoveryPolicy, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.compatibilityMode, into: &buf)
+        FfiConverterBool.write(value.failClosed, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecoveryPolicy_lift(_ buf: RustBuffer) throws -> FfiRecoveryPolicy {
+    return try FfiConverterTypeFfiRecoveryPolicy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecoveryPolicy_lower(_ value: FfiRecoveryPolicy) -> RustBuffer {
+    return FfiConverterTypeFfiRecoveryPolicy.lower(value)
 }
 
 
@@ -678,13 +1070,71 @@ public func FfiConverterTypeFfiRootRead_lower(_ value: FfiRootRead) -> RustBuffe
 }
 
 
+public struct FfiSecrets: Equatable, Hashable {
+    public var nullifier: String
+    public var secret: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(nullifier: String, secret: String) {
+        self.nullifier = nullifier
+        self.secret = secret
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSecrets: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSecrets: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSecrets {
+        return
+            try FfiSecrets(
+                nullifier: FfiConverterString.read(from: &buf), 
+                secret: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSecrets, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.nullifier, into: &buf)
+        FfiConverterString.write(value.secret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSecrets_lift(_ buf: RustBuffer) throws -> FfiSecrets {
+    return try FfiConverterTypeFfiSecrets.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSecrets_lower(_ value: FfiSecrets) -> RustBuffer {
+    return FfiConverterTypeFfiSecrets.lower(value)
+}
+
+
 public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
     case InvalidAddress(String
     )
+    case InvalidField(String
+    )
     case InvalidArtifactKind(String
+    )
+    case InvalidCompatibilityMode(String
     )
     case InvalidManifest(String
     )
@@ -722,13 +1172,19 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 1: return .InvalidAddress(
             try FfiConverterString.read(from: &buf)
             )
-        case 2: return .InvalidArtifactKind(
+        case 2: return .InvalidField(
             try FfiConverterString.read(from: &buf)
             )
-        case 3: return .InvalidManifest(
+        case 3: return .InvalidArtifactKind(
             try FfiConverterString.read(from: &buf)
             )
-        case 4: return .OperationFailed(
+        case 4: return .InvalidCompatibilityMode(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 5: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -748,18 +1204,28 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .InvalidArtifactKind(v1):
+        case let .InvalidField(v1):
             writeInt(&buf, Int32(2))
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .InvalidManifest(v1):
+        case let .InvalidArtifactKind(v1):
             writeInt(&buf, Int32(3))
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .OperationFailed(v1):
+        case let .InvalidCompatibilityMode(v1):
             writeInt(&buf, Int32(4))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .InvalidManifest(v1):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -780,6 +1246,82 @@ public func FfiConverterTypeFfiError_lift(_ buf: RustBuffer) throws -> FfiError 
 public func FfiConverterTypeFfiError_lower(_ value: FfiError) -> RustBuffer {
     return FfiConverterTypeFfiError.lower(value)
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiPoolEvent]
+
+    public static func write(_ value: [FfiPoolEvent], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiPoolEvent.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiPoolEvent] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiPoolEvent]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiPoolEvent.read(from: &buf))
+        }
+        return seq
+    }
+}
+public func buildCircuitMerkleWitness(proof: FfiMerkleProof, depth: UInt64)throws  -> FfiCircuitMerkleWitness  {
+    return try  FfiConverterTypeFfiCircuitMerkleWitness_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(
+        FfiConverterTypeFfiMerkleProof_lower(proof),
+        FfiConverterUInt64.lower(depth),$0
+    )
+})
+}
+public func checkpointRecovery(events: [FfiPoolEvent], policy: FfiRecoveryPolicy)throws  -> FfiRecoveryCheckpoint  {
+    return try  FfiConverterTypeFfiRecoveryCheckpoint_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(
+        FfiConverterSequenceTypeFfiPoolEvent.lower(events),
+        FfiConverterTypeFfiRecoveryPolicy_lower(policy),$0
+    )
+})
+}
+public func deriveDepositSecrets(masterNullifier: String, masterSecret: String, scope: String, index: String)throws  -> FfiSecrets  {
+    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
+        FfiConverterString.lower(masterNullifier),
+        FfiConverterString.lower(masterSecret),
+        FfiConverterString.lower(scope),
+        FfiConverterString.lower(index),$0
+    )
+})
+}
 public func deriveMasterKeys(mnemonic: String)throws  -> FfiMasterKeys  {
     return try  FfiConverterTypeFfiMasterKeys_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(
@@ -787,9 +1329,37 @@ public func deriveMasterKeys(mnemonic: String)throws  -> FfiMasterKeys  {
     )
 })
 }
+public func deriveWithdrawalSecrets(masterNullifier: String, masterSecret: String, label: String, index: String)throws  -> FfiSecrets  {
+    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
+        FfiConverterString.lower(masterNullifier),
+        FfiConverterString.lower(masterSecret),
+        FfiConverterString.lower(label),
+        FfiConverterString.lower(index),$0
+    )
+})
+}
 public func fastBackendSupportedOnTarget() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target($0
+    )
+})
+}
+public func generateMerkleProof(leaves: [String], leaf: String)throws  -> FfiMerkleProof  {
+    return try  FfiConverterTypeFfiMerkleProof_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
+        FfiConverterSequenceString.lower(leaves),
+        FfiConverterString.lower(leaf),$0
+    )
+})
+}
+public func getCommitment(value: String, label: String, nullifier: String, secret: String)throws  -> FfiCommitment  {
+    return try  FfiConverterTypeFfiCommitment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(
+        FfiConverterString.lower(value),
+        FfiConverterString.lower(label),
+        FfiConverterString.lower(nullifier),
+        FfiConverterString.lower(secret),$0
     )
 })
 }
@@ -846,10 +1416,28 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_stable_backend_name() != 11272) {

@@ -1,7 +1,13 @@
 package io.oxbow.privacypoolssdk
 
+import io.oxbow.privacypoolssdk.buildCircuitMerkleWitness as ffiBuildCircuitMerkleWitness
+import io.oxbow.privacypoolssdk.checkpointRecovery as ffiCheckpointRecovery
 import io.oxbow.privacypoolssdk.deriveMasterKeys as ffiDeriveMasterKeys
+import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
+import io.oxbow.privacypoolssdk.deriveWithdrawalSecrets as ffiDeriveWithdrawalSecrets
 import io.oxbow.privacypoolssdk.fastBackendSupportedOnTarget as ffiFastBackendSupportedOnTarget
+import io.oxbow.privacypoolssdk.generateMerkleProof as ffiGenerateMerkleProof
+import io.oxbow.privacypoolssdk.getCommitment as ffiGetCommitment
 import io.oxbow.privacypoolssdk.getStableBackendName as ffiGetStableBackendName
 import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
 import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
@@ -20,6 +26,40 @@ object PrivacyPoolsSdk {
     fun masterKeys(mnemonic: String): FfiMasterKeys = ffiDeriveMasterKeys(mnemonic)
 
     @Throws(FfiException::class)
+    fun depositSecrets(
+        masterNullifier: String,
+        masterSecret: String,
+        scope: String,
+        index: String,
+    ): FfiSecrets = ffiDeriveDepositSecrets(masterNullifier, masterSecret, scope, index)
+
+    @Throws(FfiException::class)
+    fun withdrawalSecrets(
+        masterNullifier: String,
+        masterSecret: String,
+        label: String,
+        index: String,
+    ): FfiSecrets = ffiDeriveWithdrawalSecrets(masterNullifier, masterSecret, label, index)
+
+    @Throws(FfiException::class)
+    fun commitment(
+        value: String,
+        label: String,
+        nullifier: String,
+        secret: String,
+    ): FfiCommitment = ffiGetCommitment(value, label, nullifier, secret)
+
+    @Throws(FfiException::class)
+    fun merkleProof(leaves: List<String>, leaf: String): FfiMerkleProof =
+        ffiGenerateMerkleProof(leaves, leaf)
+
+    @Throws(FfiException::class)
+    fun circuitMerkleWitness(
+        proof: FfiMerkleProof,
+        depth: Long,
+    ): FfiCircuitMerkleWitness = ffiBuildCircuitMerkleWitness(proof, depth.toULong())
+
+    @Throws(FfiException::class)
     fun poolStateRootRead(poolAddress: String): FfiRootRead =
         ffiPlanPoolStateRootRead(poolAddress)
 
@@ -35,4 +75,10 @@ object PrivacyPoolsSdk {
         bytes: ByteArray,
     ): FfiArtifactVerification =
         ffiVerifyArtifactBytes(manifestJson, circuit, kind, bytes)
+
+    @Throws(FfiException::class)
+    fun recoveryCheckpoint(
+        events: List<FfiPoolEvent>,
+        policy: FfiRecoveryPolicy,
+    ): FfiRecoveryCheckpoint = ffiCheckpointRecovery(events, policy)
 }
