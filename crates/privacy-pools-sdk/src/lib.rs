@@ -158,6 +158,27 @@ impl PrivacyPoolsSdk {
         chain::format_groth16_proof(proof)
     }
 
+    pub fn plan_withdrawal_transaction(
+        &self,
+        chain_id: u64,
+        pool_address: Address,
+        withdrawal: &core::Withdrawal,
+        proof: &core::ProofBundle,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_withdrawal_transaction(chain_id, pool_address, withdrawal, proof)
+    }
+
+    pub fn plan_relay_transaction(
+        &self,
+        chain_id: u64,
+        entrypoint_address: Address,
+        withdrawal: &core::Withdrawal,
+        proof: &core::ProofBundle,
+        scope: U256,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_relay_transaction(chain_id, entrypoint_address, withdrawal, proof, scope)
+    }
+
     pub fn build_withdrawal_circuit_input(
         &self,
         request: &core::WithdrawalWitnessRequest,
@@ -467,5 +488,50 @@ mod tests {
         assert_eq!(proving_request.circuit, "withdraw");
         assert_eq!(proving_request.artifact_version, "0.1.0-alpha.1");
         assert!(proving_request.zkey_path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn plans_offline_withdrawal_and_relay_transactions() {
+        let sdk = PrivacyPoolsSdk::default();
+        let proof = core::ProofBundle {
+            proof: core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let withdrawal = core::Withdrawal {
+            processooor: address!("1111111111111111111111111111111111111111"),
+            data: bytes!("1234"),
+        };
+
+        let withdraw = sdk
+            .plan_withdrawal_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &withdrawal,
+                &proof,
+            )
+            .unwrap();
+        let relay = sdk
+            .plan_relay_transaction(
+                1,
+                address!("1234567890123456789012345678901234567890"),
+                &withdrawal,
+                &proof,
+                U256::from(123_u64),
+            )
+            .unwrap();
+
+        assert_eq!(withdraw.kind, core::TransactionKind::Withdraw);
+        assert_eq!(relay.kind, core::TransactionKind::Relay);
+        assert_eq!(withdraw.chain_id, 1);
+        assert_eq!(relay.chain_id, 1);
     }
 }

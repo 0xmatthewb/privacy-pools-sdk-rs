@@ -4,8 +4,8 @@ use privacy_pools_sdk::{
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, Commitment, FormattedGroth16Proof, MasterKeys, MerkleProof,
-        ProofBundle, RootReadKind, SnarkJsProof, Withdrawal, WithdrawalCircuitInput,
-        WithdrawalWitnessRequest,
+        ProofBundle, RootReadKind, SnarkJsProof, TransactionPlan, Withdrawal,
+        WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
@@ -79,6 +79,16 @@ pub struct FfiFormattedGroth16Proof {
     pub p_b: Vec<Vec<String>>,
     pub p_c: Vec<String>,
     pub pub_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiTransactionPlan {
+    pub kind: String,
+    pub chain_id: u64,
+    pub target: String,
+    pub calldata: String,
+    pub value: String,
+    pub proof: FfiFormattedGroth16Proof,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -259,6 +269,13 @@ fn root_read_kind_label(kind: RootReadKind) -> String {
     }
 }
 
+fn transaction_kind_label(kind: privacy_pools_sdk::core::TransactionKind) -> String {
+    match kind {
+        privacy_pools_sdk::core::TransactionKind::Withdraw => "withdraw".to_owned(),
+        privacy_pools_sdk::core::TransactionKind::Relay => "relay".to_owned(),
+    }
+}
+
 fn artifact_kind_label(kind: ArtifactKind) -> String {
     match kind {
         ArtifactKind::Wasm => "wasm".to_owned(),
@@ -330,6 +347,17 @@ fn to_ffi_formatted_groth16_proof(proof: FormattedGroth16Proof) -> FfiFormattedG
             .collect(),
         p_c: proof.p_c.into_iter().collect(),
         pub_signals: proof.pub_signals,
+    }
+}
+
+fn to_ffi_transaction_plan(plan: TransactionPlan) -> FfiTransactionPlan {
+    FfiTransactionPlan {
+        kind: transaction_kind_label(plan.kind),
+        chain_id: plan.chain_id,
+        target: plan.target.to_string(),
+        calldata: format!("0x{}", hex::encode(plan.calldata)),
+        value: field_label(plan.value),
+        proof: to_ffi_formatted_groth16_proof(plan.proof),
     }
 }
 
@@ -643,6 +671,46 @@ pub fn build_withdrawal_circuit_input(
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     to_ffi_withdrawal_circuit_input(input)
+}
+
+#[uniffi::export]
+pub fn plan_withdrawal_transaction(
+    chain_id: u64,
+    pool_address: String,
+    withdrawal: FfiWithdrawal,
+    proof: FfiProofBundle,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let plan = sdk()
+        .plan_withdrawal_transaction(
+            chain_id,
+            parse_address(&pool_address)?,
+            &from_ffi_withdrawal(withdrawal)?,
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
+}
+
+#[uniffi::export]
+pub fn plan_relay_transaction(
+    chain_id: u64,
+    entrypoint_address: String,
+    withdrawal: FfiWithdrawal,
+    proof: FfiProofBundle,
+    scope: String,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let plan = sdk()
+        .plan_relay_transaction(
+            chain_id,
+            parse_address(&entrypoint_address)?,
+            &from_ffi_withdrawal(withdrawal)?,
+            &from_ffi_proof_bundle(proof)?,
+            parse_field(&scope)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
 }
 
 #[uniffi::export]
@@ -1014,6 +1082,50 @@ mod tests {
         assert_eq!(checkpoint.commitments_seen, 2);
         assert!(is_current_state_root("12".to_owned(), "12".to_owned()).unwrap());
         assert!(!is_current_state_root("12".to_owned(), "18".to_owned()).unwrap());
+    }
+
+    #[test]
+    fn ffi_plans_offline_transactions() {
+        let proof = FfiProofBundle {
+            proof: FfiSnarkJsProof {
+                pi_a: vec!["123".to_owned(), "123".to_owned()],
+                pi_b: vec![
+                    vec!["69".to_owned(), "123".to_owned()],
+                    vec!["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: vec!["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let withdrawal = FfiWithdrawal {
+            processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+            data: vec![0x12, 0x34],
+        };
+
+        let withdraw = plan_withdrawal_transaction(
+            1,
+            "0x0987654321098765432109876543210987654321".to_owned(),
+            withdrawal.clone(),
+            proof.clone(),
+        )
+        .unwrap();
+        let relay = plan_relay_transaction(
+            1,
+            "0x1234567890123456789012345678901234567890".to_owned(),
+            withdrawal,
+            proof,
+            "123".to_owned(),
+        )
+        .unwrap();
+
+        assert_eq!(withdraw.kind, "withdraw");
+        assert_eq!(relay.kind, "relay");
+        assert_eq!(withdraw.chain_id, 1);
+        assert_eq!(relay.chain_id, 1);
+        assert!(withdraw.calldata.starts_with("0x"));
+        assert!(relay.calldata.starts_with("0x"));
     }
 
     #[test]

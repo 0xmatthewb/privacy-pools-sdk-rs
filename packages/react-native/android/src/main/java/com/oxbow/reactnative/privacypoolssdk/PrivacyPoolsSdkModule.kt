@@ -24,6 +24,7 @@ import io.oxbow.privacypoolssdk.FfiResolvedArtifactBundle
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
 import io.oxbow.privacypoolssdk.FfiSnarkJsProof
+import io.oxbow.privacypoolssdk.FfiTransactionPlan
 import io.oxbow.privacypoolssdk.FfiWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.FfiWithdrawal
 import io.oxbow.privacypoolssdk.FfiWithdrawalWitnessRequest
@@ -171,6 +172,60 @@ class PrivacyPoolsSdkModule(
             promise.resolve(
                 withdrawalCircuitInputMap(
                     NativeSdk.withdrawalCircuitInput(withdrawalWitnessRequestRecord(request))
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun planWithdrawalTransaction(
+        chainId: Double,
+        poolAddress: String,
+        withdrawal: ReadableMap,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                transactionPlanMap(
+                    NativeSdk.withdrawalTransactionPlan(
+                        chainId.toLong().toULong(),
+                        poolAddress,
+                        withdrawalRecord(withdrawal),
+                        proofBundleRecord(proof),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun planRelayTransaction(
+        chainId: Double,
+        entrypointAddress: String,
+        withdrawal: ReadableMap,
+        proof: ReadableMap,
+        scope: String,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                transactionPlanMap(
+                    NativeSdk.relayTransactionPlan(
+                        chainId.toLong().toULong(),
+                        entrypointAddress,
+                        withdrawalRecord(withdrawal),
+                        proofBundleRecord(proof),
+                        scope,
+                    )
                 )
             )
         } catch (error: FfiException) {
@@ -445,6 +500,15 @@ class PrivacyPoolsSdkModule(
             putArray("asp_siblings", Arguments.fromList(input.aspSiblings))
             putDouble("asp_index", input.aspIndex.toDouble())
         }
+
+    private fun transactionPlanMap(plan: FfiTransactionPlan) = Arguments.createMap().apply {
+        putString("kind", plan.kind)
+        putDouble("chain_id", plan.chainId.toDouble())
+        putString("target", plan.target)
+        putString("calldata", plan.calldata)
+        putString("value", plan.value)
+        putMap("proof", formattedGroth16ProofMap(plan.proof))
+    }
 
     private fun formattedGroth16ProofMap(proof: FfiFormattedGroth16Proof) =
         Arguments.createMap().apply {

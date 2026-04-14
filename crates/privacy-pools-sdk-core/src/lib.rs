@@ -127,8 +127,16 @@ pub struct FormattedGroth16Proof {
     pub pub_signals: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionKind {
+    Withdraw,
+    Relay,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransactionPlan {
+    pub kind: TransactionKind,
     pub chain_id: u64,
     pub target: Address,
     pub calldata: Bytes,

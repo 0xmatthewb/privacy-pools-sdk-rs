@@ -52,6 +52,15 @@ type FormattedGroth16Proof = {
   pub_signals: string[];
 };
 
+type TransactionPlan = {
+  kind: "withdraw" | "relay";
+  chain_id: number;
+  target: string;
+  calldata: string;
+  value: string;
+  proof: FormattedGroth16Proof;
+};
+
 type ArtifactVerification = {
   version: string;
   circuit: string;
@@ -180,6 +189,19 @@ export type NativePrivacyPoolsSdkModule = {
   buildWithdrawalCircuitInput(
     request: WithdrawalWitnessRequest,
   ): Promise<WithdrawalCircuitInput>;
+  planWithdrawalTransaction(
+    chainId: number,
+    poolAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+  ): Promise<TransactionPlan>;
+  planRelayTransaction(
+    chainId: number,
+    entrypointAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+    scope: string,
+  ): Promise<TransactionPlan>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
   isCurrentStateRoot(expectedRoot: string, currentRoot: string): Promise<boolean>;
@@ -293,6 +315,34 @@ export const buildWithdrawalCircuitInput = (
   request: WithdrawalWitnessRequest,
 ): Promise<WithdrawalCircuitInput> =>
   requireNativeModule().buildWithdrawalCircuitInput(request);
+
+export const planWithdrawalTransaction = (
+  chainId: number,
+  poolAddress: string,
+  withdrawal: Withdrawal,
+  proof: ProofBundle,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planWithdrawalTransaction(
+    chainId,
+    poolAddress,
+    withdrawal,
+    proof,
+  );
+
+export const planRelayTransaction = (
+  chainId: number,
+  entrypointAddress: string,
+  withdrawal: Withdrawal,
+  proof: ProofBundle,
+  scope: string,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planRelayTransaction(
+    chainId,
+    entrypointAddress,
+    withdrawal,
+    proof,
+    scope,
+  );
 
 export const planPoolStateRootRead = (poolAddress: string): Promise<RootRead> =>
   requireNativeModule().planPoolStateRootRead(poolAddress);

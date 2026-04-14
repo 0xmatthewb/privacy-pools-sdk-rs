@@ -47,11 +47,13 @@ Implemented now:
 - typed withdraw witness requests and normalized circuit-input serialization for
   the default Rust proving backend
 - verified-zkey proving request preparation for the `withdraw` circuit
+- offline withdraw and relay transaction planners with typed calldata output
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
-  typed withdraw circuit inputs, root-read planning, proof formatting, and
-  artifact verification/resolution
+  typed withdraw circuit inputs, transaction planning, root-read planning,
+  proof formatting, and artifact verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
-  implementation, including typed withdraw-circuit input helpers
+  implementation, including typed withdraw-circuit input and transaction
+  planning helpers
 - CI expanded to include clippy, tests, cargo-deny, cargo-audit, and RN package
   smoke packaging
 

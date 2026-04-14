@@ -184,6 +184,52 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(planWithdrawalTransaction:poolAddress:withdrawal:proof:resolver:rejecter:)
+    func planWithdrawalTransaction(
+        chainId: NSNumber,
+        poolAddress: String,
+        withdrawal: [String: Any],
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.withdrawalTransactionPlan(
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                withdrawal: try withdrawalRecord(from: withdrawal),
+                proof: try proofBundleRecord(from: proof)
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(planRelayTransaction:entrypointAddress:withdrawal:proof:scope:resolver:rejecter:)
+    func planRelayTransaction(
+        chainId: NSNumber,
+        entrypointAddress: String,
+        withdrawal: [String: Any],
+        proof: [String: Any],
+        scope: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.relayTransactionPlan(
+                chainId: chainId.uint64Value,
+                entrypointAddress: entrypointAddress,
+                withdrawal: try withdrawalRecord(from: withdrawal),
+                proof: try proofBundleRecord(from: proof),
+                scope: scope
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planPoolStateRootRead:resolver:rejecter:)
     func planPoolStateRootRead(
         poolAddress: String,
@@ -522,6 +568,17 @@ final class PrivacyPoolsSdk: NSObject {
             "p_b": proof.pB,
             "p_c": proof.pC,
             "pub_signals": proof.pubSignals,
+        ]
+    }
+
+    private func transactionPlanMap(_ plan: FfiTransactionPlan) -> [String: Any] {
+        [
+            "kind": plan.kind,
+            "chain_id": NSNumber(value: plan.chainId),
+            "target": plan.target,
+            "calldata": plan.calldata,
+            "value": plan.value,
+            "proof": formattedGroth16ProofMap(plan.proof),
         ]
     }
 

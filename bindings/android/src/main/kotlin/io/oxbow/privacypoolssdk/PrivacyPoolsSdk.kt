@@ -17,6 +17,8 @@ import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
 import io.oxbow.privacypoolssdk.isCurrentStateRoot as ffiIsCurrentStateRoot
 import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
+import io.oxbow.privacypoolssdk.planRelayTransaction as ffiPlanRelayTransaction
+import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTransaction
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
 
@@ -75,6 +77,24 @@ object PrivacyPoolsSdk {
     fun withdrawalCircuitInput(
         request: FfiWithdrawalWitnessRequest,
     ): FfiWithdrawalCircuitInput = ffiBuildWithdrawalCircuitInput(request)
+
+    @Throws(FfiException::class)
+    fun withdrawalTransactionPlan(
+        chainId: ULong,
+        poolAddress: String,
+        withdrawal: FfiWithdrawal,
+        proof: FfiProofBundle,
+    ): FfiTransactionPlan = ffiPlanWithdrawalTransaction(chainId, poolAddress, withdrawal, proof)
+
+    @Throws(FfiException::class)
+    fun relayTransactionPlan(
+        chainId: ULong,
+        entrypointAddress: String,
+        withdrawal: FfiWithdrawal,
+        proof: FfiProofBundle,
+        scope: String,
+    ): FfiTransactionPlan =
+        ffiPlanRelayTransaction(chainId, entrypointAddress, withdrawal, proof, scope)
 
     @Throws(FfiException::class)
     fun poolStateRootRead(poolAddress: String): FfiRootRead =

@@ -86,6 +86,36 @@ public enum PrivacyPoolsSdkClient {
         try buildWithdrawalCircuitInput(request: request)
     }
 
+    public static func withdrawalTransactionPlan(
+        chainId: UInt64,
+        poolAddress: String,
+        withdrawal: FfiWithdrawal,
+        proof: FfiProofBundle,
+    ) throws -> FfiTransactionPlan {
+        try planWithdrawalTransaction(
+            chainId: chainId,
+            poolAddress: poolAddress,
+            withdrawal: withdrawal,
+            proof: proof
+        )
+    }
+
+    public static func relayTransactionPlan(
+        chainId: UInt64,
+        entrypointAddress: String,
+        withdrawal: FfiWithdrawal,
+        proof: FfiProofBundle,
+        scope: String,
+    ) throws -> FfiTransactionPlan {
+        try planRelayTransaction(
+            chainId: chainId,
+            entrypointAddress: entrypointAddress,
+            withdrawal: withdrawal,
+            proof: proof,
+            scope: scope
+        )
+    }
+
     public static func poolStateRootRead(
         poolAddress: String,
     ) throws -> FfiRootRead {

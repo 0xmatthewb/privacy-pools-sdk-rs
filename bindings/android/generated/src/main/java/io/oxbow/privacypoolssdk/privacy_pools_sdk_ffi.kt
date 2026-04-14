@@ -669,6 +669,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes(
@@ -687,147 +691,151 @@ internal object UniffiLib {
 
     }
     external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_circuit_merkle_witness(`proof`: RustBuffer.ByValue,`depth`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(`withdrawal`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus,
-    ): Byte
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_version(uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_is_current_state_root(`expectedRoot`: RustBuffer.ByValue,`currentRoot`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): Byte
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u8(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u8(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Byte
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i8(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i8(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Byte
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u16(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u16(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Short
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i16(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i16(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Short
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Int
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Int
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Long
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Long
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_f32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f32(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Float
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_f64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f64(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Double
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_rust_buffer(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): RustBuffer.ByValue
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_void(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_free_void(`handle`: Long,
-    ): Unit
-    external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
-    ): Unit
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(`withdrawal`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name(uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_version(uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_is_current_state_root(`expectedRoot`: RustBuffer.ByValue,`currentRoot`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_asp_root_read(`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poolAddress`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun ffi_privacy_pools_sdk_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun ffi_privacy_pools_sdk_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u8(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u8(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i8(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i8(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u16(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u16(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Short
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i16(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i16(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Short
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Int
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Int
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_u64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_u64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Long
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_i64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_i64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Long
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_f32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f32(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Float
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_f64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_f64(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Double
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_rust_buffer(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun ffi_privacy_pools_sdk_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_cancel_void(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_free_void(`handle`: Long,
+): Unit
+external fun ffi_privacy_pools_sdk_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus,
+): Unit
 
 
 }
@@ -892,6 +900,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read() != 23733.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction() != 11025.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682.toShort()) {
@@ -1875,6 +1889,64 @@ public object FfiConverterTypeFfiSnarkJsProof: FfiConverterRustBuffer<FfiSnarkJs
 
 
 
+data class FfiTransactionPlan (
+    var `kind`: kotlin.String
+    ,
+    var `chainId`: kotlin.ULong
+    ,
+    var `target`: kotlin.String
+    ,
+    var `calldata`: kotlin.String
+    ,
+    var `value`: kotlin.String
+    ,
+    var `proof`: FfiFormattedGroth16Proof
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiTransactionPlan: FfiConverterRustBuffer<FfiTransactionPlan> {
+    override fun read(buf: ByteBuffer): FfiTransactionPlan {
+        return FfiTransactionPlan(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeFfiFormattedGroth16Proof.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiTransactionPlan) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterULong.allocationSize(value.`chainId`) +
+            FfiConverterString.allocationSize(value.`target`) +
+            FfiConverterString.allocationSize(value.`calldata`) +
+            FfiConverterString.allocationSize(value.`value`) +
+            FfiConverterTypeFfiFormattedGroth16Proof.allocationSize(value.`proof`)
+    )
+
+    override fun write(value: FfiTransactionPlan, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterULong.write(value.`chainId`, buf)
+            FfiConverterString.write(value.`target`, buf)
+            FfiConverterString.write(value.`calldata`, buf)
+            FfiConverterString.write(value.`value`, buf)
+            FfiConverterTypeFfiFormattedGroth16Proof.write(value.`proof`, buf)
+    }
+}
+
+
+
 data class FfiWithdrawal (
     var `processooor`: kotlin.String
     ,
@@ -2594,6 +2666,28 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(
 
         FfiConverterString.lower(`poolAddress`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `planRelayTransaction`(`chainId`: kotlin.ULong, `entrypointAddress`: kotlin.String, `withdrawal`: FfiWithdrawal, `proof`: FfiProofBundle, `scope`: kotlin.String): FfiTransactionPlan {
+            return FfiConverterTypeFfiTransactionPlan.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`entrypointAddress`),FfiConverterTypeFfiWithdrawal.lower(`withdrawal`),FfiConverterTypeFfiProofBundle.lower(`proof`),FfiConverterString.lower(`scope`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `planWithdrawalTransaction`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `withdrawal`: FfiWithdrawal, `proof`: FfiProofBundle): FfiTransactionPlan {
+            return FfiConverterTypeFfiTransactionPlan.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterTypeFfiWithdrawal.lower(`withdrawal`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
 }
     )
     }

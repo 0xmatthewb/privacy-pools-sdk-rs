@@ -1500,6 +1500,76 @@ public func FfiConverterTypeFfiSnarkJsProof_lower(_ value: FfiSnarkJsProof) -> R
 }
 
 
+public struct FfiTransactionPlan: Equatable, Hashable {
+    public var kind: String
+    public var chainId: UInt64
+    public var target: String
+    public var calldata: String
+    public var value: String
+    public var proof: FfiFormattedGroth16Proof
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: String, chainId: UInt64, target: String, calldata: String, value: String, proof: FfiFormattedGroth16Proof) {
+        self.kind = kind
+        self.chainId = chainId
+        self.target = target
+        self.calldata = calldata
+        self.value = value
+        self.proof = proof
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiTransactionPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiTransactionPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiTransactionPlan {
+        return
+            try FfiTransactionPlan(
+                kind: FfiConverterString.read(from: &buf),
+                chainId: FfiConverterUInt64.read(from: &buf),
+                target: FfiConverterString.read(from: &buf),
+                calldata: FfiConverterString.read(from: &buf),
+                value: FfiConverterString.read(from: &buf),
+                proof: FfiConverterTypeFfiFormattedGroth16Proof.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiTransactionPlan, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterUInt64.write(value.chainId, into: &buf)
+        FfiConverterString.write(value.target, into: &buf)
+        FfiConverterString.write(value.calldata, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+        FfiConverterTypeFfiFormattedGroth16Proof.write(value.proof, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTransactionPlan_lift(_ buf: RustBuffer) throws -> FfiTransactionPlan {
+    return try FfiConverterTypeFfiTransactionPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiTransactionPlan_lower(_ value: FfiTransactionPlan) -> RustBuffer {
+    return FfiConverterTypeFfiTransactionPlan.lower(value)
+}
+
+
 public struct FfiWithdrawal: Equatable, Hashable {
     public var processooor: String
     public var data: Data
@@ -2132,6 +2202,27 @@ public func planPoolStateRootRead(poolAddress: String)throws  -> FfiRootRead  {
     )
 })
 }
+public func planRelayTransaction(chainId: UInt64, entrypointAddress: String, withdrawal: FfiWithdrawal, proof: FfiProofBundle, scope: String)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(entrypointAddress),
+        FfiConverterTypeFfiWithdrawal_lower(withdrawal),
+        FfiConverterTypeFfiProofBundle_lower(proof),
+        FfiConverterString.lower(scope),$0
+    )
+})
+}
+public func planWithdrawalTransaction(chainId: UInt64, poolAddress: String, withdrawal: FfiWithdrawal, proof: FfiProofBundle)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterTypeFfiWithdrawal_lower(withdrawal),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
 public func resolveVerifiedArtifactBundle(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> FfiResolvedArtifactBundle  {
     return try  FfiConverterTypeFfiResolvedArtifactBundle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
@@ -2216,6 +2307,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read() != 23733) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction() != 11025) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {

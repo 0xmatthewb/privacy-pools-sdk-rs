@@ -55,6 +55,21 @@ RCT_EXTERN_METHOD(buildWithdrawalCircuitInput:(NSDictionary *)request
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(planWithdrawalTransaction:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  withdrawal:(NSDictionary *)withdrawal
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(planRelayTransaction:(nonnull NSNumber *)chainId
+                  entrypointAddress:(NSString *)entrypointAddress
+                  withdrawal:(NSDictionary *)withdrawal
+                  proof:(NSDictionary *)proof
+                  scope:(NSString *)scope
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(planPoolStateRootRead:(NSString *)poolAddress
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
