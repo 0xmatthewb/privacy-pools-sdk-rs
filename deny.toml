@@ -1,10 +1,23 @@
 [advisories]
 version = 2
 yanked = "deny"
+unmaintained = "workspace"
+ignore = [
+    # Transitive through circom-prover/ark-relations; no semver-safe workspace fix yet.
+    "RUSTSEC-2025-0055",
+]
 
 [licenses]
 version = 2
-allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+]
 
 [bans]
 multiple-versions = "allow"
