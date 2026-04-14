@@ -1,8 +1,8 @@
 use alloy_primitives::{Address, B256, U256};
 use privacy_pools_sdk_core::{FieldElement, MasterKeys, Scope};
 use privacy_pools_sdk_crypto::{
-    CryptoError, generate_deposit_secrets, generate_master_keys, generate_withdrawal_secrets,
-    get_commitment, hash_nullifier, hash_precommitment,
+    CryptoError, generate_deposit_secrets, generate_legacy_master_keys, generate_master_keys,
+    generate_withdrawal_secrets, get_commitment, hash_nullifier, hash_precommitment,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -122,6 +122,42 @@ pub struct RecoveredAccountState {
     pub legacy_scopes: Vec<RecoveredScope>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpendableScope {
+    pub scope: Scope,
+    pub commitments: Vec<RecoveredCommitment>,
+}
+
+impl RecoveredPoolAccount {
+    pub fn current_commitment(&self) -> &RecoveredCommitment {
+        self.children.last().unwrap_or(&self.deposit)
+    }
+
+    pub fn is_spendable(&self) -> bool {
+        !self.is_migrated && self.ragequit.is_none() && !self.current_commitment().value.is_zero()
+    }
+}
+
+impl RecoveredScope {
+    pub fn spendable_commitments(&self) -> Vec<RecoveredCommitment> {
+        self.accounts
+            .iter()
+            .filter(|account| account.is_spendable())
+            .map(|account| account.current_commitment().clone())
+            .collect()
+    }
+}
+
+impl RecoveredAccountState {
+    pub fn safe_spendable_commitments(&self) -> Vec<SpendableScope> {
+        scopes_to_spendable_commitments(&self.safe_scopes)
+    }
+
+    pub fn legacy_spendable_commitments(&self) -> Vec<SpendableScope> {
+        scopes_to_spendable_commitments(&self.legacy_scopes)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum RecoveryError {
     #[error("ambiguous recovery state detected")]
@@ -132,11 +168,6 @@ pub enum RecoveryError {
     UnorderedEventStream,
     #[error("duplicate pool scope in recovery input: {scope}")]
     DuplicateScope { scope: Scope },
-    #[error("duplicate deposit event for scope {scope} and precommitment {precommitment_hash}")]
-    DuplicateDepositEvent {
-        scope: Scope,
-        precommitment_hash: FieldElement,
-    },
     #[error(
         "duplicate withdrawal event for scope {scope} and spent nullifier {spent_nullifier_hash}"
     )]
@@ -202,7 +233,7 @@ pub fn derive_recovery_keyset(
     let safe = generate_master_keys(mnemonic)?;
     let legacy = match policy.compatibility_mode {
         CompatibilityMode::Strict => None,
-        CompatibilityMode::Legacy => Some(generate_master_keys(mnemonic)?),
+        CompatibilityMode::Legacy => Some(generate_legacy_master_keys(mnemonic)?),
     };
 
     Ok(RecoveryKeyset { safe, legacy })
@@ -228,7 +259,7 @@ pub fn recover_account_state_with_keyset(
     let mut legacy_book = RecoveryBook::default();
 
     for pool in pools {
-        let deposits = normalize_deposit_events(pool.scope, &pool.deposit_events)?;
+        let deposits = normalize_deposit_events(&pool.deposit_events)?;
         let withdrawals = normalize_withdrawal_events(pool.scope, &pool.withdrawal_events)?;
         let ragequits = normalize_ragequit_events(pool.scope, &pool.ragequit_events)?;
 
@@ -304,6 +335,19 @@ fn validate_event_stream(events: &[PoolEvent]) -> Result<(), RecoveryError> {
     Ok(())
 }
 
+fn scopes_to_spendable_commitments(scopes: &[RecoveredScope]) -> Vec<SpendableScope> {
+    scopes
+        .iter()
+        .filter_map(|scope| {
+            let commitments = scope.spendable_commitments();
+            (!commitments.is_empty()).then_some(SpendableScope {
+                scope: scope.scope,
+                commitments,
+            })
+        })
+        .collect()
+}
+
 fn validate_pool_inputs(pools: &[PoolRecoveryInput]) -> Result<(), RecoveryError> {
     let mut scopes = Vec::with_capacity(pools.len());
     for pool in pools {
@@ -315,30 +359,22 @@ fn validate_pool_inputs(pools: &[PoolRecoveryInput]) -> Result<(), RecoveryError
     Ok(())
 }
 
-fn normalize_deposit_events(
-    scope: Scope,
-    events: &[DepositEvent],
-) -> Result<Vec<DepositEvent>, RecoveryError> {
+fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>, RecoveryError> {
     let mut normalized: Vec<DepositEvent> = Vec::new();
     for event in events {
         if let Some(existing) = normalized
             .iter_mut()
             .find(|candidate| candidate.precommitment_hash == event.precommitment_hash)
         {
+            // Match the shipped TS SDK's deposit canonicalization:
+            // keep the earliest block for a precommitment and otherwise retain
+            // the first event we saw for that block.
             if existing == event {
                 continue;
             }
 
             if event.block_number < existing.block_number {
                 *existing = event.clone();
-                continue;
-            }
-
-            if event.block_number == existing.block_number {
-                return Err(RecoveryError::DuplicateDepositEvent {
-                    scope,
-                    precommitment_hash: event.precommitment_hash,
-                });
             }
 
             continue;
@@ -762,9 +798,9 @@ impl RecoveryBook {
 mod tests {
     use super::*;
     use alloy_primitives::address;
+    use std::str::FromStr;
 
     const TEST_MNEMONIC: &str = "test test test test test test test test test test test junk";
-    const ALT_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     fn tx_hash(seed: u64) -> B256 {
         B256::from(U256::from(seed))
@@ -817,10 +853,10 @@ mod tests {
         }
     }
 
-    fn derived_keyset(mnemonic: &str, legacy: Option<&str>) -> RecoveryKeyset {
+    fn derived_keyset(mnemonic: &str, include_legacy: bool) -> RecoveryKeyset {
         RecoveryKeyset {
             safe: generate_master_keys(mnemonic).unwrap(),
-            legacy: legacy.map(|phrase| generate_master_keys(phrase).unwrap()),
+            legacy: include_legacy.then(|| generate_legacy_master_keys(mnemonic).unwrap()),
         }
     }
 
@@ -905,7 +941,7 @@ mod tests {
 
     #[test]
     fn reconstructs_safe_deposit_and_withdrawal_chain() {
-        let keyset = derived_keyset(TEST_MNEMONIC, None);
+        let keyset = derived_keyset(TEST_MNEMONIC, false);
         let scope = U256::from(123_u64);
         let label = U256::from(777_u64);
         let deposit_value = U256::from(1_000_u64);
@@ -958,12 +994,17 @@ mod tests {
             recovered.safe_scopes[0].accounts[0].children[0].hash,
             withdrawal_child.hash
         );
+        assert_eq!(recovered.safe_spendable_commitments().len(), 1);
+        assert_eq!(
+            recovered.safe_spendable_commitments()[0].commitments[0].hash,
+            withdrawal_child.hash
+        );
     }
 
     #[test]
     fn discovers_zero_value_migrations_from_legacy_replay() {
         let safe_keys = generate_master_keys(TEST_MNEMONIC).unwrap();
-        let legacy_keys = generate_master_keys(ALT_MNEMONIC).unwrap();
+        let legacy_keys = generate_legacy_master_keys(TEST_MNEMONIC).unwrap();
         let keyset = RecoveryKeyset {
             safe: safe_keys.clone(),
             legacy: Some(legacy_keys.clone()),
@@ -1031,7 +1072,7 @@ mod tests {
     #[test]
     fn starts_safe_deposit_scan_after_migrated_slots() {
         let safe_keys = generate_master_keys(TEST_MNEMONIC).unwrap();
-        let legacy_keys = generate_master_keys(ALT_MNEMONIC).unwrap();
+        let legacy_keys = generate_legacy_master_keys(TEST_MNEMONIC).unwrap();
         let keyset = RecoveryKeyset {
             safe: safe_keys.clone(),
             legacy: Some(legacy_keys.clone()),
@@ -1116,8 +1157,170 @@ mod tests {
     }
 
     #[test]
+    fn mirrors_ts_spendable_commitment_filtering() {
+        let keyset = derived_keyset(TEST_MNEMONIC, true);
+        let scope = U256::from(456_u64);
+        let migrated_label = U256::from(100_u64);
+        let active_label = U256::from(200_u64);
+        let ragequit_label = U256::from(300_u64);
+
+        let (legacy_nullifier, legacy_secret) =
+            generate_deposit_secrets(keyset.legacy.as_ref().unwrap(), scope, U256::ZERO).unwrap();
+        let migrated_legacy_deposit = get_commitment(
+            U256::from(900_u64),
+            migrated_label,
+            legacy_nullifier,
+            legacy_secret,
+        )
+        .unwrap();
+        let (safe_migration_nullifier, safe_migration_secret) =
+            generate_withdrawal_secrets(&keyset.safe, migrated_label, U256::ZERO).unwrap();
+        let migrated_safe_commitment = get_commitment(
+            U256::from(900_u64),
+            migrated_label,
+            safe_migration_nullifier,
+            safe_migration_secret,
+        )
+        .unwrap();
+
+        let (active_nullifier, active_secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::from(1_u64)).unwrap();
+        let active_deposit = get_commitment(
+            U256::from(500_u64),
+            active_label,
+            active_nullifier,
+            active_secret,
+        )
+        .unwrap();
+
+        let (ragequit_nullifier, ragequit_secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::from(2_u64)).unwrap();
+        let ragequit_deposit = get_commitment(
+            U256::from(250_u64),
+            ragequit_label,
+            ragequit_nullifier,
+            ragequit_secret,
+        )
+        .unwrap();
+
+        let recovered = recover_account_state_with_keyset(
+            &keyset,
+            &[PoolRecoveryInput {
+                scope,
+                deposit_events: vec![
+                    deposit_event(
+                        migrated_legacy_deposit.hash,
+                        migrated_label,
+                        U256::from(900_u64),
+                        migrated_legacy_deposit.preimage.precommitment.hash,
+                        10,
+                        1,
+                    ),
+                    deposit_event(
+                        active_deposit.hash,
+                        active_label,
+                        U256::from(500_u64),
+                        active_deposit.preimage.precommitment.hash,
+                        30,
+                        3,
+                    ),
+                    deposit_event(
+                        ragequit_deposit.hash,
+                        ragequit_label,
+                        U256::from(250_u64),
+                        ragequit_deposit.preimage.precommitment.hash,
+                        40,
+                        4,
+                    ),
+                ],
+                withdrawal_events: vec![withdrawal_event(
+                    U256::ZERO,
+                    hash_nullifier(legacy_nullifier).unwrap(),
+                    migrated_safe_commitment.hash,
+                    20,
+                    2,
+                )],
+                ragequit_events: vec![RagequitEvent {
+                    commitment_hash: ragequit_deposit.hash,
+                    label: ragequit_label,
+                    value: U256::from(250_u64),
+                    block_number: 50,
+                    transaction_hash: tx_hash(5),
+                }],
+            }],
+            RecoveryPolicy {
+                compatibility_mode: CompatibilityMode::Legacy,
+                fail_closed: true,
+            },
+        )
+        .unwrap();
+
+        let safe_spendable = recovered.safe_spendable_commitments();
+        assert_eq!(safe_spendable.len(), 1);
+        assert_eq!(safe_spendable[0].scope, scope);
+        assert_eq!(safe_spendable[0].commitments.len(), 2);
+        assert_eq!(
+            safe_spendable[0].commitments[0].hash,
+            migrated_safe_commitment.hash
+        );
+        assert_eq!(safe_spendable[0].commitments[1].hash, active_deposit.hash);
+        assert!(recovered.legacy_spendable_commitments().is_empty());
+    }
+
+    #[test]
+    fn keeps_earliest_deposit_for_duplicate_precommitments() {
+        let keyset = derived_keyset(TEST_MNEMONIC, false);
+        let scope = U256::from(654_u64);
+        let label = U256::from(321_u64);
+        let value = U256::from(111_u64);
+        let (nullifier, secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
+        let deposit = get_commitment(value, label, nullifier, secret).unwrap();
+
+        let earlier = deposit_event(
+            deposit.hash,
+            label,
+            value,
+            deposit.preimage.precommitment.hash,
+            10,
+            1,
+        );
+        let later = deposit_event(
+            deposit.hash,
+            label,
+            value,
+            deposit.preimage.precommitment.hash,
+            20,
+            2,
+        );
+
+        let recovered = recover_account_state_with_keyset(
+            &keyset,
+            &[recovery_input(
+                scope,
+                vec![later.clone(), earlier.clone()],
+                Vec::new(),
+            )],
+            RecoveryPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(recovered.safe_scopes[0].accounts.len(), 1);
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].deposit.block_number,
+            earlier.block_number
+        );
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0]
+                .deposit
+                .transaction_hash,
+            earlier.transaction_hash
+        );
+    }
+
+    #[test]
     fn rejects_duplicate_scope_inputs() {
-        let keyset = derived_keyset(TEST_MNEMONIC, None);
+        let keyset = derived_keyset(TEST_MNEMONIC, false);
         let scope = U256::from(123_u64);
         let input = recovery_input(scope, Vec::new(), Vec::new());
 
@@ -1134,7 +1337,7 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_withdrawal_events() {
-        let keyset = derived_keyset(TEST_MNEMONIC, None);
+        let keyset = derived_keyset(TEST_MNEMONIC, false);
         let scope = U256::from(123_u64);
         let spent = U256::from(77_u64);
         let input = PoolRecoveryInput {
@@ -1167,13 +1370,22 @@ mod tests {
         )
         .unwrap();
 
+        let legacy = keyset.legacy.unwrap();
+        assert_ne!(keyset.safe.master_nullifier, legacy.master_nullifier);
+        assert_ne!(keyset.safe.master_secret, legacy.master_secret);
         assert_eq!(
-            keyset.safe.master_nullifier,
-            keyset.legacy.clone().unwrap().master_nullifier
+            legacy.master_nullifier,
+            U256::from_str(
+                "16629217087516280053769625512741000936965671973118241282486996830438009025879"
+            )
+            .unwrap()
         );
         assert_eq!(
-            keyset.safe.master_secret,
-            keyset.legacy.unwrap().master_secret
+            legacy.master_secret,
+            U256::from_str(
+                "9843793310547505184827673578253843418217689387365691544946232242162772441433"
+            )
+            .unwrap()
         );
     }
 }

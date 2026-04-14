@@ -31,6 +31,8 @@ pub enum CryptoError {
     Poseidon(#[from] PoseidonError),
     #[error(transparent)]
     Signer(#[from] LocalSignerError),
+    #[error("failed to emulate legacy javascript number conversion")]
+    LegacySeedConversion,
 }
 
 pub fn poseidon_hash(inputs: &[FieldElement]) -> Result<FieldElement, CryptoError> {
@@ -44,10 +46,13 @@ pub fn generate_master_keys(mnemonic: &str) -> Result<MasterKeys, CryptoError> {
     let key1 = derive_account_private_key(mnemonic, 0)?;
     let key2 = derive_account_private_key(mnemonic, 1)?;
 
-    Ok(MasterKeys {
-        master_nullifier: poseidon_hash(&[key1])?,
-        master_secret: poseidon_hash(&[key2])?,
-    })
+    master_keys_from_seeds(key1, key2)
+}
+
+pub fn generate_legacy_master_keys(mnemonic: &str) -> Result<MasterKeys, CryptoError> {
+    let key1 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 0)?)?;
+    let key2 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 1)?)?;
+    master_keys_from_seeds(key1, key2)
 }
 
 pub fn generate_deposit_secrets(
@@ -140,6 +145,21 @@ fn derive_account_private_key(mnemonic: &str, account_index: u32) -> Result<U256
     Ok(U256::from_be_slice(signer.to_bytes().as_slice()))
 }
 
+fn master_keys_from_seeds(key1: U256, key2: U256) -> Result<MasterKeys, CryptoError> {
+    Ok(MasterKeys {
+        master_nullifier: poseidon_hash(&[key1])?,
+        master_secret: poseidon_hash(&[key2])?,
+    })
+}
+
+fn legacy_seed_from_private_key(private_key: U256) -> Result<U256, CryptoError> {
+    let as_number = private_key
+        .to_string()
+        .parse::<f64>()
+        .map_err(|_| CryptoError::LegacySeedConversion)?;
+    U256::from_str(&format!("{as_number:.0}")).map_err(|_| CryptoError::LegacySeedConversion)
+}
+
 pub fn u256_to_fr(value: U256) -> Fr {
     Fr::from_le_bytes_mod_order(&value.to_le_bytes::<32>())
 }
@@ -171,6 +191,13 @@ mod tests {
             "../../../fixtures/vectors/crypto-compatibility.json"
         ))
         .expect("valid crypto fixture")
+    }
+
+    fn legacy_vector() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/legacy-crypto-compatibility.json"
+        ))
+        .expect("valid legacy crypto fixture")
     }
 
     #[test]
@@ -255,5 +282,24 @@ mod tests {
 
         let context = calculate_context(&withdrawal, U256::from(123)).unwrap();
         assert_eq!(context, fixture["context"].as_str().unwrap());
+    }
+
+    #[test]
+    fn matches_legacy_account_derivation_vector() {
+        let fixture = legacy_vector();
+        let mnemonic = fixture["mnemonic"].as_str().unwrap();
+        let safe_keys = generate_master_keys(mnemonic).unwrap();
+        let legacy_keys = generate_legacy_master_keys(mnemonic).unwrap();
+
+        assert_eq!(
+            legacy_keys.master_nullifier,
+            U256::from_str(fixture["keys"]["masterNullifier"].as_str().unwrap()).unwrap()
+        );
+        assert_eq!(
+            legacy_keys.master_secret,
+            U256::from_str(fixture["keys"]["masterSecret"].as_str().unwrap()).unwrap()
+        );
+        assert_ne!(legacy_keys.master_nullifier, safe_keys.master_nullifier);
+        assert_ne!(legacy_keys.master_secret, safe_keys.master_secret);
     }
 }

@@ -763,8 +763,8 @@ mod tests {
             "test test test test test test test test test test test junk",
         )
         .unwrap();
-        let legacy = crypto::generate_master_keys(
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        let legacy = crypto::generate_legacy_master_keys(
+            "test test test test test test test test test test test junk",
         )
         .unwrap();
         let keyset = RecoveryKeyset {
@@ -823,6 +823,7 @@ mod tests {
             migrated_commitment.hash
         );
         assert!(recovered.legacy_scopes[0].accounts[0].is_migrated);
+        assert_eq!(recovered.safe_spendable_commitments().len(), 1);
     }
 
     #[test]
