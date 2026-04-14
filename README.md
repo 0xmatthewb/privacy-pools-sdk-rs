@@ -79,10 +79,18 @@ Implemented now:
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
-- CI expanded to include clippy, tests, cargo-deny, cargo-audit, and RN package
-  smoke packaging
+- CI expanded to include clippy, tests, cargo-deny, cargo-audit, RN package
+  smoke packaging, and platform-split native release packaging smoke for iOS
+  and Android
+- CLI benchmark entrypoint for the Rust withdraw proving path, driven by the
+  checked-in compatibility fixtures and real verified artifact bundles
+
+Benchmarking:
+
+- see `docs/benchmarking.md` for the `privacy-pools-sdk-cli benchmark-withdraw`
+  workflow
 
 Next milestone:
 
-- publishable React Native release builds with staged native binaries and
-  mobile smoke builds
+- mobile-device benchmark runs and release-channel hardening for alpha/beta/rc
+  promotion

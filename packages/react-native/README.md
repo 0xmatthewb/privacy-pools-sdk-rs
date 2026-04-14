@@ -17,3 +17,8 @@ Current package status:
 - validated signed-transaction submission is delegated to native Rust-backed bindings
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging
+- `npm run prepare:package-release:ios` stages the publishable iOS package surface, including the XCFramework
+- `npm run prepare:package-release:android` stages the publishable Android package surface, including JNI libraries
+
+Release packaging is validated per platform in CI. The iOS and Android release
+paths stay split so each runner only builds the native artifacts it can support.

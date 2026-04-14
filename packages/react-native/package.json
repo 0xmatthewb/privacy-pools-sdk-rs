@@ -14,7 +14,9 @@
   "types": "./src/index.ts",
   "scripts": {
     "prepare:package": "cargo run -p xtask -- react-native-package",
-    "prepare:package-release": "cargo run -p xtask -- react-native-package --release --with-native"
+    "prepare:package-release": "cargo run -p xtask -- react-native-package --release --with-native",
+    "prepare:package-release:ios": "cargo run -p xtask -- react-native-package --release --with-ios-native",
+    "prepare:package-release:android": "cargo run -p xtask -- react-native-package --release --with-android-native"
   },
   "files": [
     "src",
