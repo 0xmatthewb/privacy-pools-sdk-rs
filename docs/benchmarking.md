@@ -15,11 +15,14 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
 
 What it measures:
 
+- artifact resolution time for the verified withdraw bundle
+- cold first-proof latency for the first end-to-end Rust SDK iteration
 - typed withdraw circuit-input preparation from the reference compatibility
   fixtures
 - compiled witness generation through the Rust witness adapter
 - end-to-end withdraw proof generation through the Rust SDK
 - local proof verification through the Rust SDK
+- best-effort peak resident memory on supported host platforms
 - optional structured JSON benchmark report for device-to-device comparisons
 
 Notes:
@@ -35,3 +38,5 @@ Notes:
 - `--report-json` writes machine-readable timing summaries and per-iteration
   samples, which is the preferred format for future mobile-device benchmark
   collection.
+- Peak resident memory is currently a best-effort host metric from the OS; it
+  may be unavailable on unsupported platforms.

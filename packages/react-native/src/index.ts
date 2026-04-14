@@ -257,6 +257,15 @@ type AsyncJobStatus = {
   cancel_requested: boolean;
 };
 
+type JobProgressCallback = (status: AsyncJobStatus) => void;
+
+type WaitForJobOptions = {
+  intervalMs?: number;
+  onProgress?: JobProgressCallback;
+  signal?: AbortSignal;
+  removeOnComplete?: boolean;
+};
+
 export type NativePrivacyPoolsSdkModule = {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
@@ -575,6 +584,65 @@ export const cancelJob = (jobId: string): Promise<boolean> =>
 export const removeJob = (jobId: string): Promise<boolean> =>
   requireNativeModule().removeJob(jobId);
 
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const abortError = (): Error => {
+  const error = new Error("job observation aborted");
+  error.name = "AbortError";
+  return error;
+};
+
+const waitForJob = async <T>(
+  handle: AsyncJobHandle,
+  getResult: (jobId: string) => Promise<T | null>,
+  options: WaitForJobOptions = {},
+): Promise<T> => {
+  const intervalMs = options.intervalMs ?? 250;
+  if (intervalMs <= 0) {
+    throw new Error("intervalMs must be positive");
+  }
+
+  while (true) {
+    if (options.signal?.aborted) {
+      await cancelJob(handle.job_id);
+      throw abortError();
+    }
+
+    const status = await pollJobStatus(handle.job_id);
+    options.onProgress?.(status);
+
+    if (status.state === "completed") {
+      const result = await getResult(handle.job_id);
+      if (options.removeOnComplete ?? false) {
+        await removeJob(handle.job_id);
+      }
+      if (result == null) {
+        throw new Error(`completed ${handle.kind} job returned no result`);
+      }
+      return result;
+    }
+
+    if (status.state === "failed") {
+      throw new Error(status.error ?? `${handle.kind} job failed`);
+    }
+
+    if (status.state === "cancelled") {
+      throw new Error(`${handle.kind} job was cancelled`);
+    }
+
+    await delay(intervalMs);
+  }
+};
+
+export const waitForProveWithdrawalJob = (
+  handle: AsyncJobHandle,
+  options?: WaitForJobOptions,
+): Promise<ProvingResult> =>
+  waitForJob(handle, getProveWithdrawalJobResult, options);
+
 export const prepareWithdrawalExecution = (
   backendProfile: "stable" | "fast",
   manifestJson: string,
@@ -621,6 +689,12 @@ export const getPrepareWithdrawalExecutionJobResult = (
   jobId: string,
 ): Promise<PreparedTransactionExecution | null> =>
   requireNativeModule().getPrepareWithdrawalExecutionJobResult(jobId);
+
+export const waitForPrepareWithdrawalExecutionJob = (
+  handle: AsyncJobHandle,
+  options?: WaitForJobOptions,
+): Promise<PreparedTransactionExecution> =>
+  waitForJob(handle, getPrepareWithdrawalExecutionJobResult, options);
 
 export const prepareRelayExecution = (
   backendProfile: "stable" | "fast",
@@ -672,6 +746,12 @@ export const getPrepareRelayExecutionJobResult = (
   jobId: string,
 ): Promise<PreparedTransactionExecution | null> =>
   requireNativeModule().getPrepareRelayExecutionJobResult(jobId);
+
+export const waitForPrepareRelayExecutionJob = (
+  handle: AsyncJobHandle,
+  options?: WaitForJobOptions,
+): Promise<PreparedTransactionExecution> =>
+  waitForJob(handle, getPrepareRelayExecutionJobResult, options);
 
 export const registerLocalMnemonicSigner = (
   handle: string,

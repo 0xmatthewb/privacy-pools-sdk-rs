@@ -1,6 +1,8 @@
 import Foundation
 
 public enum PrivacyPoolsSdkClient {
+    private static let defaultJobPollIntervalNanoseconds: UInt64 = 250_000_000
+
     public static func version() -> String {
         getVersion()
     }
@@ -144,6 +146,26 @@ public enum PrivacyPoolsSdkClient {
         try removeJob(jobId: jobId)
     }
 
+    public static func awaitWithdrawalProofJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalNanoseconds: UInt64 = defaultJobPollIntervalNanoseconds,
+        onProgress: ((FfiAsyncJobStatus) -> Void)? = nil
+    ) async throws -> FfiProvingResult {
+        try await awaitBackgroundJob(
+            handle: handle,
+            pollIntervalNanoseconds: pollIntervalNanoseconds,
+            onProgress: onProgress
+        )
+        guard let result = try withdrawalProofJobResult(jobId: handle.jobId) else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkClient",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "completed prove_withdrawal job returned no result"]
+            )
+        }
+        return result
+    }
+
     public static func prepareWithdrawalExecution(
         backendProfile: String,
         manifestJson: String,
@@ -192,6 +214,26 @@ public enum PrivacyPoolsSdkClient {
         jobId: String
     ) throws -> FfiPreparedTransactionExecution? {
         try PrivacyPoolsSdk.getPrepareWithdrawalExecutionJobResult(jobId: jobId)
+    }
+
+    public static func awaitWithdrawalExecutionJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalNanoseconds: UInt64 = defaultJobPollIntervalNanoseconds,
+        onProgress: ((FfiAsyncJobStatus) -> Void)? = nil
+    ) async throws -> FfiPreparedTransactionExecution {
+        try await awaitBackgroundJob(
+            handle: handle,
+            pollIntervalNanoseconds: pollIntervalNanoseconds,
+            onProgress: onProgress
+        )
+        guard let result = try withdrawalExecutionJobResult(jobId: handle.jobId) else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkClient",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "completed prepare_withdrawal_execution job returned no result"]
+            )
+        }
+        return result
     }
 
     public static func prepareRelayExecution(
@@ -246,6 +288,26 @@ public enum PrivacyPoolsSdkClient {
         jobId: String
     ) throws -> FfiPreparedTransactionExecution? {
         try PrivacyPoolsSdk.getPrepareRelayExecutionJobResult(jobId: jobId)
+    }
+
+    public static func awaitRelayExecutionJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalNanoseconds: UInt64 = defaultJobPollIntervalNanoseconds,
+        onProgress: ((FfiAsyncJobStatus) -> Void)? = nil
+    ) async throws -> FfiPreparedTransactionExecution {
+        try await awaitBackgroundJob(
+            handle: handle,
+            pollIntervalNanoseconds: pollIntervalNanoseconds,
+            onProgress: onProgress
+        )
+        guard let result = try relayExecutionJobResult(jobId: handle.jobId) else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkClient",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "completed prepare_relay_execution job returned no result"]
+            )
+        }
+        return result
     }
 
     public static func registerLocalMnemonicSigner(
@@ -437,5 +499,37 @@ public enum PrivacyPoolsSdkClient {
         policy: FfiRecoveryPolicy,
     ) throws -> FfiRecoveryCheckpoint {
         try checkpointRecovery(events: events, policy: policy)
+    }
+
+    private static func awaitBackgroundJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalNanoseconds: UInt64,
+        onProgress: ((FfiAsyncJobStatus) -> Void)?
+    ) async throws -> FfiAsyncJobStatus {
+        precondition(pollIntervalNanoseconds > 0, "pollIntervalNanoseconds must be positive")
+
+        while true {
+            let status = try jobStatus(jobId: handle.jobId)
+            onProgress?(status)
+
+            switch status.state {
+            case "completed":
+                return status
+            case "failed":
+                throw NSError(
+                    domain: "PrivacyPoolsSdkClient",
+                    code: 10,
+                    userInfo: [NSLocalizedDescriptionKey: status.error ?? "background job \(handle.jobId) failed"]
+                )
+            case "cancelled":
+                throw NSError(
+                    domain: "PrivacyPoolsSdkClient",
+                    code: 11,
+                    userInfo: [NSLocalizedDescriptionKey: "background job \(handle.jobId) was cancelled"]
+                )
+            default:
+                try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+            }
+        }
     }
 }

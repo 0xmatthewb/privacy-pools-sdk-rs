@@ -80,7 +80,8 @@ Implemented now:
   into a lightweight sample app and typechecks the public package surface
 - additive mobile job APIs for long-running withdraw proof generation and
   prepared withdraw/relay execution, with Rust-owned status polling,
-  best-effort cancellation, typed result retrieval, and explicit job cleanup
+  callback-style progress helpers in the wrapper layers, best-effort
+  cancellation, typed result retrieval, and explicit job cleanup
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
@@ -89,7 +90,9 @@ Implemented now:
   packaging smoke for iOS and Android
 - CLI benchmark entrypoint for the Rust withdraw proving path, driven by the
   checked-in compatibility fixtures and real verified artifact bundles, with
-  structured JSON report output for device comparisons
+  artifact-resolution timing, cold first-proof latency, verify timing,
+  best-effort peak memory, and structured JSON report output for device
+  comparisons
 - manual release workflow with channel validation and packaged React Native
   release artifacts for alpha/beta/rc/stable promotion
 

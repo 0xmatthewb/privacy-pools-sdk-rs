@@ -16,6 +16,7 @@ use std::{
     time::SystemTime,
     time::{Duration, Instant},
 };
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, get_current_pid};
 
 #[derive(Debug, Clone)]
 struct BenchmarkArgs {
@@ -60,6 +61,13 @@ struct BenchmarkReport {
     artifact_version: String,
     manifest_path: String,
     artifacts_root: String,
+    artifact_resolution_ms: f64,
+    first_input_preparation_ms: f64,
+    first_witness_generation_ms: f64,
+    first_proof_generation_ms: f64,
+    first_verification_ms: f64,
+    first_prove_and_verify_ms: f64,
+    peak_resident_memory_bytes: Option<u64>,
     iterations: usize,
     warmup: usize,
     input_preparation: BenchmarkSummary,
@@ -181,6 +189,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     });
     let request = reference_withdrawal_request(&sdk)?;
 
+    let artifact_resolution_start = Instant::now();
     let bundle = sdk
         .resolve_verified_artifact_bundle(&manifest, &args.artifacts_root, "withdraw")
         .with_context(|| {
@@ -189,6 +198,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
                 args.artifacts_root.display()
             )
         })?;
+    let artifact_resolution = artifact_resolution_start.elapsed();
     let zkey_path = bundle
         .artifact(ArtifactKind::Zkey)
         .context("withdraw bundle is missing the zkey descriptor")?;
@@ -198,9 +208,26 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     println!("artifact version: {}", bundle.version);
     println!("artifact root: {}", args.artifacts_root.display());
     println!("zkey path: {}", zkey_path.path.display());
+    println!("artifact resolution: {:?}", artifact_resolution);
     println!("iterations: {}", args.iterations);
     println!("warmup: {}", args.warmup);
     println!();
+
+    let first_iteration = run_iteration(
+        &sdk,
+        &manifest,
+        &args.artifacts_root,
+        args.backend,
+        &request,
+    )
+    .context("first proof iteration failed")?;
+
+    println!(
+        "first proof latency: prove {:?}, verify {:?}, prove+verify {:?}",
+        first_iteration.proof_generation,
+        first_iteration.verification,
+        first_iteration.prove_and_verify
+    );
 
     for index in 0..args.warmup {
         let _ = run_iteration(
@@ -254,8 +281,19 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
         "prove + verify",
         metrics.iter().map(|value| value.prove_and_verify),
     );
+    if let Some(memory_bytes) = peak_resident_memory_bytes() {
+        println!("{:>18}: {} bytes", "peak rss", memory_bytes);
+    }
     if let Some(report_path) = &args.report_json {
-        write_report(report_path, &args, &bundle.version, &metrics)?;
+        write_report(
+            report_path,
+            &args,
+            &bundle.version,
+            artifact_resolution,
+            first_iteration,
+            peak_resident_memory_bytes(),
+            &metrics,
+        )?;
         println!();
         println!("wrote benchmark report to {}", report_path.display());
     }
@@ -426,10 +464,24 @@ fn duration_ms(duration: Duration) -> f64 {
     duration.as_secs_f64() * 1_000.0
 }
 
+fn peak_resident_memory_bytes() -> Option<u64> {
+    let pid = get_current_pid().ok()?;
+    let mut system = System::new();
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        true,
+        ProcessRefreshKind::nothing().with_memory(),
+    );
+    system.process(pid).map(|process| process.memory())
+}
+
 fn write_report(
     report_path: &Path,
     args: &BenchmarkArgs,
     artifact_version: &str,
+    artifact_resolution: Duration,
+    first_iteration: BenchmarkIteration,
+    peak_resident_memory_bytes: Option<u64>,
     metrics: &[BenchmarkIteration],
 ) -> Result<()> {
     let report = BenchmarkReport {
@@ -441,6 +493,13 @@ fn write_report(
         artifact_version: artifact_version.to_owned(),
         manifest_path: args.manifest.display().to_string(),
         artifacts_root: args.artifacts_root.display().to_string(),
+        artifact_resolution_ms: duration_ms(artifact_resolution),
+        first_input_preparation_ms: duration_ms(first_iteration.input_preparation),
+        first_witness_generation_ms: duration_ms(first_iteration.witness_generation),
+        first_proof_generation_ms: duration_ms(first_iteration.proof_generation),
+        first_verification_ms: duration_ms(first_iteration.verification),
+        first_prove_and_verify_ms: duration_ms(first_iteration.prove_and_verify),
+        peak_resident_memory_bytes,
         iterations: args.iterations,
         warmup: args.warmup,
         input_preparation: summarize_durations(

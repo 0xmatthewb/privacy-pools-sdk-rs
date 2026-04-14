@@ -13,3 +13,4 @@ alloy-primitives = { workspace = true, features = ["serde"] }
 privacy-pools-sdk = { path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true
+sysinfo = "0.38.4"

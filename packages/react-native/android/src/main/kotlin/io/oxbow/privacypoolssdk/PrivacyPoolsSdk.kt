@@ -44,6 +44,8 @@ import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
 import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
 
 object PrivacyPoolsSdk {
+    private const val DefaultJobPollIntervalMs: Long = 250
+
     fun version(): String = ffiGetVersion()
 
     @Throws(FfiException::class)
@@ -139,6 +141,17 @@ object PrivacyPoolsSdk {
     @Throws(FfiException::class)
     fun removeJob(jobId: String): Boolean = ffiRemoveJob(jobId)
 
+    @Throws(FfiException::class, IllegalStateException::class, InterruptedException::class)
+    fun awaitProveWithdrawalJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalMs: Long = DefaultJobPollIntervalMs,
+        onProgress: ((FfiAsyncJobStatus) -> Unit)? = null,
+    ): FfiProvingResult {
+        awaitBackgroundJob(handle, pollIntervalMs, onProgress)
+        return getProveWithdrawalJobResult(handle.jobId)
+            ?: throw IllegalStateException("completed prove_withdrawal job returned no result")
+    }
+
     @Throws(FfiException::class)
     fun prepareWithdrawalExecution(
         backendProfile: String,
@@ -187,6 +200,19 @@ object PrivacyPoolsSdk {
     fun getPrepareWithdrawalExecutionJobResult(
         jobId: String,
     ): FfiPreparedTransactionExecution? = ffiGetPrepareWithdrawalExecutionJobResult(jobId)
+
+    @Throws(FfiException::class, IllegalStateException::class, InterruptedException::class)
+    fun awaitPrepareWithdrawalExecutionJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalMs: Long = DefaultJobPollIntervalMs,
+        onProgress: ((FfiAsyncJobStatus) -> Unit)? = null,
+    ): FfiPreparedTransactionExecution {
+        awaitBackgroundJob(handle, pollIntervalMs, onProgress)
+        return getPrepareWithdrawalExecutionJobResult(handle.jobId)
+            ?: throw IllegalStateException(
+                "completed prepare_withdrawal_execution job returned no result",
+            )
+    }
 
     @Throws(FfiException::class)
     fun prepareRelayExecution(
@@ -240,6 +266,19 @@ object PrivacyPoolsSdk {
     fun getPrepareRelayExecutionJobResult(
         jobId: String,
     ): FfiPreparedTransactionExecution? = ffiGetPrepareRelayExecutionJobResult(jobId)
+
+    @Throws(FfiException::class, IllegalStateException::class, InterruptedException::class)
+    fun awaitPrepareRelayExecutionJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalMs: Long = DefaultJobPollIntervalMs,
+        onProgress: ((FfiAsyncJobStatus) -> Unit)? = null,
+    ): FfiPreparedTransactionExecution {
+        awaitBackgroundJob(handle, pollIntervalMs, onProgress)
+        return getPrepareRelayExecutionJobResult(handle.jobId)
+            ?: throw IllegalStateException(
+                "completed prepare_relay_execution job returned no result",
+            )
+    }
 
     @Throws(FfiException::class)
     fun registerLocalMnemonicSigner(
@@ -358,4 +397,30 @@ object PrivacyPoolsSdk {
         events: List<FfiPoolEvent>,
         policy: FfiRecoveryPolicy,
     ): FfiRecoveryCheckpoint = ffiCheckpointRecovery(events, policy)
+
+    @Throws(FfiException::class, IllegalStateException::class, InterruptedException::class)
+    private fun awaitBackgroundJob(
+        handle: FfiAsyncJobHandle,
+        pollIntervalMs: Long,
+        onProgress: ((FfiAsyncJobStatus) -> Unit)?,
+    ): FfiAsyncJobStatus {
+        require(pollIntervalMs > 0) { "pollIntervalMs must be positive" }
+
+        while (true) {
+            val status = pollJobStatus(handle.jobId)
+            onProgress?.invoke(status)
+
+            when (status.state) {
+                "completed" -> return status
+                "failed" -> throw IllegalStateException(
+                    status.error ?: "background job ${handle.jobId} failed",
+                )
+                "cancelled" -> throw IllegalStateException(
+                    "background job ${handle.jobId} was cancelled",
+                )
+            }
+
+            Thread.sleep(pollIntervalMs)
+        }
+    }
 }
