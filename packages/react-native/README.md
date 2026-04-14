@@ -11,5 +11,6 @@ Current package status:
 - no protocol logic is implemented in JavaScript
 - classic iOS/Android bridge modules are scaffolded against the generated Swift/Kotlin bindings
 - withdraw proof generation and local proof verification are delegated to native Rust-backed bindings
+- prepared withdraw/relay execution preflight is delegated to native Rust-backed bindings
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging

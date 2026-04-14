@@ -114,6 +114,52 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func prepareWithdrawalExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: UInt64,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ) throws -> FfiPreparedTransactionExecution {
+        try PrivacyPoolsSdk.prepareWithdrawalExecution(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request,
+            chainId: chainId,
+            poolAddress: poolAddress,
+            rpcUrl: rpcUrl,
+            policy: policy
+        )
+    }
+
+    public static func prepareRelayExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: UInt64,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ) throws -> FfiPreparedTransactionExecution {
+        try PrivacyPoolsSdk.prepareRelayExecution(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request,
+            chainId: chainId,
+            entrypointAddress: entrypointAddress,
+            poolAddress: poolAddress,
+            rpcUrl: rpcUrl,
+            policy: policy
+        )
+    }
+
     public static func withdrawalTransactionPlan(
         chainId: UInt64,
         poolAddress: String,

@@ -227,6 +227,68 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(prepareWithdrawalExecution:manifestJson:artifactsRoot:request:chainId:poolAddress:rpcUrl:policy:resolver:rejecter:)
+    func prepareWithdrawalExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        chainId: NSNumber,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let prepared = try PrivacyPoolsSdkClient.prepareWithdrawalExecution(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request),
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                rpcUrl: rpcUrl,
+                policy: try executionPolicyRecord(from: policy)
+            )
+            resolve(preparedExecutionMap(prepared))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(prepareRelayExecution:manifestJson:artifactsRoot:request:chainId:entrypointAddress:poolAddress:rpcUrl:policy:resolver:rejecter:)
+    func prepareRelayExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        chainId: NSNumber,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let prepared = try PrivacyPoolsSdkClient.prepareRelayExecution(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request),
+                chainId: chainId.uint64Value,
+                entrypointAddress: entrypointAddress,
+                poolAddress: poolAddress,
+                rpcUrl: rpcUrl,
+                policy: try executionPolicyRecord(from: policy)
+            )
+            resolve(preparedExecutionMap(prepared))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planWithdrawalTransaction:poolAddress:withdrawal:proof:resolver:rejecter:)
     func planWithdrawalTransaction(
         chainId: NSNumber,
@@ -612,6 +674,54 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func preparedExecutionMap(_ prepared: FfiPreparedTransactionExecution) -> [String: Any] {
+        [
+            "proving": provingResultMap(prepared.proving),
+            "transaction": transactionPlanMap(prepared.transaction),
+            "preflight": executionPreflightMap(prepared.preflight),
+        ]
+    }
+
+    private func executionPreflightMap(_ report: FfiExecutionPreflightReport) -> [String: Any] {
+        [
+            "kind": report.kind,
+            "caller": report.caller,
+            "target": report.target,
+            "expected_chain_id": NSNumber(value: report.expectedChainId),
+            "actual_chain_id": NSNumber(value: report.actualChainId),
+            "chain_id_matches": report.chainIdMatches,
+            "simulated": report.simulated,
+            "estimated_gas": NSNumber(value: report.estimatedGas),
+            "code_hash_checks": report.codeHashChecks.map(codeHashCheckMap),
+            "root_checks": report.rootChecks.map(rootCheckMap),
+        ]
+    }
+
+    private func codeHashCheckMap(_ check: FfiCodeHashCheck) -> [String: Any] {
+        var map: [String: Any] = [
+            "address": check.address,
+            "actual_code_hash": check.actualCodeHash,
+        ]
+        if let expected = check.expectedCodeHash {
+            map["expected_code_hash"] = expected
+        }
+        if let matchesExpected = check.matchesExpected {
+            map["matches_expected"] = matchesExpected
+        }
+        return map
+    }
+
+    private func rootCheckMap(_ check: FfiRootCheck) -> [String: Any] {
+        [
+            "kind": check.kind,
+            "contract_address": check.contractAddress,
+            "pool_address": check.poolAddress,
+            "expected_root": check.expectedRoot,
+            "actual_root": check.actualRoot,
+            "matches": check.matches,
+        ]
+    }
+
     private func formattedGroth16ProofMap(_ proof: FfiFormattedGroth16Proof) -> [String: Any] {
         [
             "p_a": proof.pA,
@@ -753,6 +863,26 @@ final class PrivacyPoolsSdk: NSObject {
         return FfiRecoveryPolicy(
             compatibilityMode: compatibilityMode,
             failClosed: failClosed
+        )
+    }
+
+    private func executionPolicyRecord(from value: [String: Any]) throws -> FfiExecutionPolicy {
+        guard
+            let expectedChainId = value["expected_chain_id"] as? NSNumber,
+            let caller = value["caller"] as? String
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid execution policy payload"]
+            )
+        }
+
+        return FfiExecutionPolicy(
+            expectedChainId: expectedChainId.uint64Value,
+            caller: caller,
+            expectedPoolCodeHash: value["expected_pool_code_hash"] as? String,
+            expectedEntrypointCodeHash: value["expected_entrypoint_code_hash"] as? String
         )
     }
 

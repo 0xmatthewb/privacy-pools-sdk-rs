@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, B256, Bytes, U256};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
@@ -127,7 +127,7 @@ pub struct FormattedGroth16Proof {
     pub pub_signals: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionKind {
     Withdraw,
@@ -149,7 +149,7 @@ pub struct ArtifactVersion {
     pub version: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootReadKind {
     PoolState,
@@ -162,6 +162,61 @@ pub struct RootRead {
     pub contract_address: Address,
     pub pool_address: Address,
     pub call_data: Bytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPolicy {
+    pub expected_chain_id: u64,
+    pub caller: Address,
+    pub expected_pool_code_hash: Option<B256>,
+    pub expected_entrypoint_code_hash: Option<B256>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeHashCheck {
+    pub address: Address,
+    pub expected_code_hash: Option<B256>,
+    pub actual_code_hash: B256,
+    pub matches_expected: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RootCheck {
+    pub kind: RootReadKind,
+    pub contract_address: Address,
+    pub pool_address: Address,
+    pub expected_root: U256,
+    pub actual_root: U256,
+    pub matches: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionPreflightReport {
+    pub kind: TransactionKind,
+    pub caller: Address,
+    pub target: Address,
+    pub expected_chain_id: u64,
+    pub actual_chain_id: u64,
+    pub chain_id_matches: bool,
+    pub simulated: bool,
+    pub estimated_gas: u64,
+    pub code_hash_checks: Vec<CodeHashCheck>,
+    pub root_checks: Vec<RootCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WithdrawalExecutionConfig {
+    pub chain_id: u64,
+    pub pool_address: Address,
+    pub policy: ExecutionPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelayExecutionConfig {
+    pub chain_id: u64,
+    pub entrypoint_address: Address,
+    pub pool_address: Address,
+    pub policy: ExecutionPolicy,
 }
 
 #[derive(Debug, Error)]

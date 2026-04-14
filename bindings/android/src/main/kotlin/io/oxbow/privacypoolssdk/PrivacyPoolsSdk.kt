@@ -19,6 +19,8 @@ import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
 import io.oxbow.privacypoolssdk.planRelayTransaction as ffiPlanRelayTransaction
 import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTransaction
+import io.oxbow.privacypoolssdk.prepareRelayExecution as ffiPrepareRelayExecution
+import io.oxbow.privacypoolssdk.prepareWithdrawalExecution as ffiPrepareWithdrawalExecution
 import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
@@ -97,6 +99,52 @@ object PrivacyPoolsSdk {
         proof: FfiProofBundle,
     ): Boolean =
         ffiVerifyWithdrawalProof(backendProfile, manifestJson, artifactsRoot, proof)
+
+    @Throws(FfiException::class)
+    fun prepareWithdrawalExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: ULong,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ): FfiPreparedTransactionExecution =
+        ffiPrepareWithdrawalExecution(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            poolAddress,
+            rpcUrl,
+            policy,
+        )
+
+    @Throws(FfiException::class)
+    fun prepareRelayExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: ULong,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ): FfiPreparedTransactionExecution =
+        ffiPrepareRelayExecution(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            entrypointAddress,
+            poolAddress,
+            rpcUrl,
+            policy,
+        )
 
     @Throws(FfiException::class)
     fun withdrawalTransactionPlan(

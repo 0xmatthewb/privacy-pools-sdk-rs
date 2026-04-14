@@ -50,13 +50,19 @@ Implemented now:
 - compiled `rust-witness + arkworks` withdraw proving path owned by the Rust
   SDK, including local proof verification hooks
 - offline withdraw and relay transaction planners with typed calldata output
+- provider-backed withdraw and relay execution preflight built on top of the
+  typed plans, including live chain-id checks, code-hash checks, root
+  freshness checks, and `eth_call`/gas-estimate simulation before execution
+- high-level prepared execution flows that compose proof generation, local
+  proof verification, transaction planning, and provider-backed preflight into
+  one Rust-owned safety boundary
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
   typed withdraw circuit inputs, withdraw proof generation/verification,
-  transaction planning, root-read planning, proof formatting, and artifact
-  verification/resolution
+  prepared execution flows, transaction planning, root-read planning, proof
+  formatting, and artifact verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
   implementation, including typed withdraw-circuit input, withdraw proof
-  generation/verification, and transaction planning helpers
+  generation/verification, prepared execution helpers, and transaction planning
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
@@ -65,6 +71,7 @@ Implemented now:
 
 Next milestone:
 
-- provider-backed transaction simulation, signing, and broadcast flows
+- signer-backed transaction submission and receipt handling on top of the new
+  preflight layer
 - publishable React Native release builds with staged native binaries and
   mobile smoke builds

@@ -66,6 +66,48 @@ type TransactionPlan = {
   proof: FormattedGroth16Proof;
 };
 
+type ExecutionPolicy = {
+  expected_chain_id: number;
+  caller: string;
+  expected_pool_code_hash?: string | null;
+  expected_entrypoint_code_hash?: string | null;
+};
+
+type CodeHashCheck = {
+  address: string;
+  expected_code_hash?: string | null;
+  actual_code_hash: string;
+  matches_expected?: boolean | null;
+};
+
+type RootCheck = {
+  kind: string;
+  contract_address: string;
+  pool_address: string;
+  expected_root: string;
+  actual_root: string;
+  matches: boolean;
+};
+
+type ExecutionPreflightReport = {
+  kind: "withdraw" | "relay";
+  caller: string;
+  target: string;
+  expected_chain_id: number;
+  actual_chain_id: number;
+  chain_id_matches: boolean;
+  simulated: boolean;
+  estimated_gas: number;
+  code_hash_checks: CodeHashCheck[];
+  root_checks: RootCheck[];
+};
+
+type PreparedTransactionExecution = {
+  proving: ProvingResult;
+  transaction: TransactionPlan;
+  preflight: ExecutionPreflightReport;
+};
+
 type ArtifactVerification = {
   version: string;
   circuit: string;
@@ -206,6 +248,27 @@ export type NativePrivacyPoolsSdkModule = {
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
+  prepareWithdrawalExecution(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+    chainId: number,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+  ): Promise<PreparedTransactionExecution>;
+  prepareRelayExecution(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+    chainId: number,
+    entrypointAddress: string,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+  ): Promise<PreparedTransactionExecution>;
   planWithdrawalTransaction(
     chainId: number,
     poolAddress: string,
@@ -357,6 +420,50 @@ export const verifyWithdrawalProof = (
     manifestJson,
     artifactsRoot,
     proof,
+  );
+
+export const prepareWithdrawalExecution = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): Promise<PreparedTransactionExecution> =>
+  requireNativeModule().prepareWithdrawalExecution(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+  );
+
+export const prepareRelayExecution = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  entrypointAddress: string,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): Promise<PreparedTransactionExecution> =>
+  requireNativeModule().prepareRelayExecution(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+    chainId,
+    entrypointAddress,
+    poolAddress,
+    rpcUrl,
+    policy,
   );
 
 export const planWithdrawalTransaction = (

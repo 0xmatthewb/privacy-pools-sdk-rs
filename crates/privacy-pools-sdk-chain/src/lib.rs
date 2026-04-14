@@ -1,10 +1,16 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_network::Ethereum;
+use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
+use alloy_provider::{Provider, RootProvider};
+use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
 use alloy_sol_types::{SolCall, sol};
+use async_trait::async_trait;
 use privacy_pools_sdk_core::{
-    FormattedGroth16Proof, ProofBundle, RootRead, RootReadKind, TransactionKind, TransactionPlan,
-    Withdrawal, field_to_hex_32, parse_decimal_field,
+    CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FormattedGroth16Proof, ProofBundle,
+    RootCheck, RootRead, RootReadKind, TransactionKind, TransactionPlan, Withdrawal,
+    field_to_hex_32, parse_decimal_field,
 };
 use thiserror::Error;
+use url::Url;
 
 sol! {
     struct WithdrawalAbi {
@@ -36,6 +42,102 @@ pub enum ChainError {
     Core(#[from] privacy_pools_sdk_core::CoreError),
     #[error("withdraw proof must contain exactly 8 public signals, got {0}")]
     InvalidWithdrawPublicSignals(usize),
+    #[error("invalid rpc url: {0}")]
+    InvalidRpcUrl(String),
+    #[error("invalid root response length: expected at least 32 bytes, got {0}")]
+    InvalidRootResponse(usize),
+    #[error("planned transaction kind mismatch: expected {expected:?}, got {actual:?}")]
+    UnexpectedTransactionKind {
+        expected: TransactionKind,
+        actual: TransactionKind,
+    },
+    #[error("planned transaction target mismatch: expected {expected}, got {actual}")]
+    UnexpectedTransactionTarget { expected: Address, actual: Address },
+    #[error("planned transaction chain id mismatch: expected {expected}, got {actual}")]
+    PlannedChainIdMismatch { expected: u64, actual: u64 },
+    #[error("live chain id mismatch: expected {expected}, got {actual}")]
+    ChainIdMismatch { expected: u64, actual: u64 },
+    #[error("contract code hash mismatch at {address}: expected {expected}, got {actual}")]
+    CodeHashMismatch {
+        address: Address,
+        expected: B256,
+        actual: B256,
+    },
+    #[error("state root mismatch: expected {expected}, got {actual}")]
+    StateRootMismatch { expected: U256, actual: U256 },
+    #[error("asp root mismatch: expected {expected}, got {actual}")]
+    AspRootMismatch { expected: U256, actual: U256 },
+    #[error("rpc request failed: {0}")]
+    Transport(String),
+}
+
+#[async_trait]
+pub trait ExecutionClient: Send + Sync {
+    async fn chain_id(&self) -> Result<u64, ChainError>;
+    async fn code_hash(&self, address: Address) -> Result<B256, ChainError>;
+    async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError>;
+    async fn simulate_transaction(
+        &self,
+        caller: Address,
+        plan: &TransactionPlan,
+    ) -> Result<u64, ChainError>;
+}
+
+pub struct HttpExecutionClient {
+    provider: RootProvider<Ethereum>,
+}
+
+impl HttpExecutionClient {
+    pub fn new(rpc_url: &str) -> Result<Self, ChainError> {
+        let url = Url::parse(rpc_url).map_err(|_| ChainError::InvalidRpcUrl(rpc_url.to_owned()))?;
+        Ok(Self {
+            provider: RootProvider::<Ethereum>::new_http(url),
+        })
+    }
+}
+
+#[async_trait]
+impl ExecutionClient for HttpExecutionClient {
+    async fn chain_id(&self) -> Result<u64, ChainError> {
+        self.provider
+            .get_chain_id()
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
+
+    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+        let code = self
+            .provider
+            .get_code_at(address)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        Ok(keccak256(code))
+    }
+
+    async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError> {
+        let output = self
+            .provider
+            .call(root_read_request(read))
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        decode_root_response(&output)
+    }
+
+    async fn simulate_transaction(
+        &self,
+        caller: Address,
+        plan: &TransactionPlan,
+    ) -> Result<u64, ChainError> {
+        let request = simulation_request(plan, caller);
+        self.provider
+            .call(request.clone())
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))?;
+        self.provider
+            .estimate_gas(request)
+            .await
+            .map_err(|error| ChainError::Transport(error.to_string()))
+    }
 }
 
 pub fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof, ChainError> {
@@ -140,6 +242,211 @@ pub fn plan_relay_transaction(
     })
 }
 
+pub async fn preflight_withdrawal<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    pool_address: Address,
+    expected_state_root: U256,
+    policy: &ExecutionPolicy,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    preflight_transaction(
+        client,
+        plan,
+        TransactionKind::Withdraw,
+        pool_address,
+        policy,
+        vec![(
+            state_root_read(pool_address),
+            expected_state_root,
+            ChainError::StateRootMismatch {
+                expected: expected_state_root,
+                actual: expected_state_root,
+            },
+        )],
+        vec![(pool_address, policy.expected_pool_code_hash)],
+    )
+    .await
+}
+
+pub async fn preflight_relay<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    entrypoint_address: Address,
+    pool_address: Address,
+    expected_state_root: U256,
+    expected_asp_root: U256,
+    policy: &ExecutionPolicy,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    preflight_transaction(
+        client,
+        plan,
+        TransactionKind::Relay,
+        entrypoint_address,
+        policy,
+        vec![
+            (
+                state_root_read(pool_address),
+                expected_state_root,
+                ChainError::StateRootMismatch {
+                    expected: expected_state_root,
+                    actual: expected_state_root,
+                },
+            ),
+            (
+                asp_root_read(entrypoint_address, pool_address),
+                expected_asp_root,
+                ChainError::AspRootMismatch {
+                    expected: expected_asp_root,
+                    actual: expected_asp_root,
+                },
+            ),
+        ],
+        vec![
+            (pool_address, policy.expected_pool_code_hash),
+            (entrypoint_address, policy.expected_entrypoint_code_hash),
+        ],
+    )
+    .await
+}
+
+async fn preflight_transaction<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    expected_kind: TransactionKind,
+    expected_target: Address,
+    policy: &ExecutionPolicy,
+    root_reads: Vec<(RootRead, U256, ChainError)>,
+    code_expectations: Vec<(Address, Option<B256>)>,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    validate_plan(
+        plan,
+        expected_kind,
+        expected_target,
+        policy.expected_chain_id,
+    )?;
+
+    let actual_chain_id = client.chain_id().await?;
+    if actual_chain_id != policy.expected_chain_id {
+        return Err(ChainError::ChainIdMismatch {
+            expected: policy.expected_chain_id,
+            actual: actual_chain_id,
+        });
+    }
+
+    let mut code_hash_checks = Vec::with_capacity(code_expectations.len());
+    for (address, expected_code_hash) in code_expectations {
+        let actual_code_hash = client.code_hash(address).await?;
+        let matches_expected = expected_code_hash.map(|expected| expected == actual_code_hash);
+
+        if let Some(false) = matches_expected {
+            return Err(ChainError::CodeHashMismatch {
+                address,
+                expected: expected_code_hash.expect("checked some above"),
+                actual: actual_code_hash,
+            });
+        }
+
+        code_hash_checks.push(CodeHashCheck {
+            address,
+            expected_code_hash,
+            actual_code_hash,
+            matches_expected,
+        });
+    }
+
+    let mut root_checks = Vec::with_capacity(root_reads.len());
+    for (read, expected_root, mismatch_error) in root_reads {
+        let actual_root = client.read_root(&read).await?;
+        if actual_root != expected_root {
+            return Err(match mismatch_error {
+                ChainError::StateRootMismatch { .. } => ChainError::StateRootMismatch {
+                    expected: expected_root,
+                    actual: actual_root,
+                },
+                ChainError::AspRootMismatch { .. } => ChainError::AspRootMismatch {
+                    expected: expected_root,
+                    actual: actual_root,
+                },
+                other => other,
+            });
+        }
+
+        root_checks.push(RootCheck {
+            kind: read.kind,
+            contract_address: read.contract_address,
+            pool_address: read.pool_address,
+            expected_root,
+            actual_root,
+            matches: true,
+        });
+    }
+
+    let estimated_gas = client.simulate_transaction(policy.caller, plan).await?;
+
+    Ok(ExecutionPreflightReport {
+        kind: plan.kind,
+        caller: policy.caller,
+        target: plan.target,
+        expected_chain_id: policy.expected_chain_id,
+        actual_chain_id,
+        chain_id_matches: true,
+        simulated: true,
+        estimated_gas,
+        code_hash_checks,
+        root_checks,
+    })
+}
+
+fn validate_plan(
+    plan: &TransactionPlan,
+    expected_kind: TransactionKind,
+    expected_target: Address,
+    expected_chain_id: u64,
+) -> Result<(), ChainError> {
+    if plan.kind != expected_kind {
+        return Err(ChainError::UnexpectedTransactionKind {
+            expected: expected_kind,
+            actual: plan.kind,
+        });
+    }
+    if plan.target != expected_target {
+        return Err(ChainError::UnexpectedTransactionTarget {
+            expected: expected_target,
+            actual: plan.target,
+        });
+    }
+    if plan.chain_id != expected_chain_id {
+        return Err(ChainError::PlannedChainIdMismatch {
+            expected: expected_chain_id,
+            actual: plan.chain_id,
+        });
+    }
+    Ok(())
+}
+
+fn root_read_request(read: &RootRead) -> TransactionRequest {
+    TransactionRequest::default()
+        .to(read.contract_address)
+        .input(TransactionInput::both(read.call_data.clone()))
+}
+
+fn simulation_request(plan: &TransactionPlan, caller: Address) -> TransactionRequest {
+    let mut request = TransactionRequest::default()
+        .from(caller)
+        .to(plan.target)
+        .value(plan.value)
+        .input(TransactionInput::both(plan.calldata.clone()));
+    request.chain_id = Some(plan.chain_id);
+    request
+}
+
+fn decode_root_response(output: &Bytes) -> Result<U256, ChainError> {
+    if output.len() < 32 {
+        return Err(ChainError::InvalidRootResponse(output.len()));
+    }
+    Ok(U256::from_be_slice(&output[output.len() - 32..]))
+}
+
 fn withdrawal_abi(withdrawal: &Withdrawal) -> WithdrawalAbi {
     WithdrawalAbi {
         processooor: withdrawal.processooor,
@@ -183,8 +490,50 @@ fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi, ChainErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::{address, bytes};
+    use alloy_primitives::{address, b256, bytes};
     use serde_json::Value;
+
+    #[derive(Debug, Clone)]
+    struct MockExecutionClient {
+        chain_id: u64,
+        code_hashes: std::collections::HashMap<Address, B256>,
+        roots: std::collections::HashMap<(RootReadKind, Address), U256>,
+        estimated_gas: u64,
+    }
+
+    #[async_trait]
+    impl ExecutionClient for MockExecutionClient {
+        async fn chain_id(&self) -> Result<u64, ChainError> {
+            Ok(self.chain_id)
+        }
+
+        async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+            self.code_hashes
+                .get(&address)
+                .copied()
+                .ok_or_else(|| ChainError::Transport(format!("missing code hash for {address}")))
+        }
+
+        async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError> {
+            self.roots
+                .get(&(read.kind, read.contract_address))
+                .copied()
+                .ok_or_else(|| {
+                    ChainError::Transport(format!(
+                        "missing root for {:?} at {}",
+                        read.kind, read.contract_address
+                    ))
+                })
+        }
+
+        async fn simulate_transaction(
+            &self,
+            _caller: Address,
+            _plan: &TransactionPlan,
+        ) -> Result<u64, ChainError> {
+            Ok(self.estimated_gas)
+        }
+    }
 
     #[test]
     fn uses_current_root_for_pool_state_reads() {
@@ -342,6 +691,118 @@ mod tests {
                 &proof,
             ),
             Err(ChainError::InvalidWithdrawPublicSignals(6))
+        ));
+    }
+
+    #[tokio::test]
+    async fn preflights_withdrawals_against_live_roots_and_code_hashes() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let state_root = U256::from(123_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([(
+                pool,
+                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            )]),
+            roots: std::collections::HashMap::from([((RootReadKind::PoolState, pool), state_root)]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: None,
+        };
+
+        let report = preflight_withdrawal(&client, &plan, pool, state_root, &policy)
+            .await
+            .unwrap();
+
+        assert_eq!(report.kind, TransactionKind::Withdraw);
+        assert!(report.chain_id_matches);
+        assert!(report.simulated);
+        assert_eq!(report.estimated_gas, 420_000);
+        assert_eq!(report.code_hash_checks.len(), 1);
+        assert_eq!(report.root_checks.len(), 1);
+        assert!(report.root_checks[0].matches);
+    }
+
+    #[tokio::test]
+    async fn rejects_stale_state_roots_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([(
+                pool,
+                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            )]),
+            roots: std::collections::HashMap::from([(
+                (RootReadKind::PoolState, pool),
+                U256::from(555_u64),
+            )]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: None,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), &policy).await,
+            Err(ChainError::StateRootMismatch { expected, actual })
+                if expected == U256::from(123_u64) && actual == U256::from(555_u64)
         ));
     }
 }

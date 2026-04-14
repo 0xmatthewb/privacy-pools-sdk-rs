@@ -15,4 +15,5 @@ hex.workspace = true
 privacy-pools-sdk = { path = "../privacy-pools-sdk" }
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 uniffi.workspace = true

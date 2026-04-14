@@ -10,11 +10,15 @@ import com.facebook.react.bridge.ReadableMap
 import io.oxbow.privacypoolssdk.FfiArtifactVerification
 import io.oxbow.privacypoolssdk.FfiArtifactStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
+import io.oxbow.privacypoolssdk.FfiCodeHashCheck
 import io.oxbow.privacypoolssdk.FfiCommitment
+import io.oxbow.privacypoolssdk.FfiExecutionPolicy
+import io.oxbow.privacypoolssdk.FfiExecutionPreflightReport
 import io.oxbow.privacypoolssdk.FfiException
 import io.oxbow.privacypoolssdk.FfiFormattedGroth16Proof
 import io.oxbow.privacypoolssdk.FfiMasterKeys
 import io.oxbow.privacypoolssdk.FfiMerkleProof
+import io.oxbow.privacypoolssdk.FfiPreparedTransactionExecution
 import io.oxbow.privacypoolssdk.FfiPoolEvent
 import io.oxbow.privacypoolssdk.FfiProofBundle
 import io.oxbow.privacypoolssdk.FfiProvingResult
@@ -22,6 +26,7 @@ import io.oxbow.privacypoolssdk.FfiRecoveryCheckpoint
 import io.oxbow.privacypoolssdk.FfiRecoveryPolicy
 import io.oxbow.privacypoolssdk.FfiResolvedArtifact
 import io.oxbow.privacypoolssdk.FfiResolvedArtifactBundle
+import io.oxbow.privacypoolssdk.FfiRootCheck
 import io.oxbow.privacypoolssdk.FfiRootRead
 import io.oxbow.privacypoolssdk.FfiSecrets
 import io.oxbow.privacypoolssdk.FfiSnarkJsProof
@@ -223,6 +228,76 @@ class PrivacyPoolsSdkModule(
                     manifestJson,
                     artifactsRoot,
                     proofBundleRecord(proof),
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun prepareWithdrawalExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        chainId: Double,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                preparedExecutionMap(
+                    NativeSdk.prepareWithdrawalExecution(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                        chainId.toLong().toULong(),
+                        poolAddress,
+                        rpcUrl,
+                        executionPolicyRecord(policy),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun prepareRelayExecution(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        chainId: Double,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                preparedExecutionMap(
+                    NativeSdk.prepareRelayExecution(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                        chainId.toLong().toULong(),
+                        entrypointAddress,
+                        poolAddress,
+                        rpcUrl,
+                        executionPolicyRecord(policy),
+                    )
                 )
             )
         } catch (error: FfiException) {
@@ -557,6 +632,48 @@ class PrivacyPoolsSdkModule(
         putMap("proof", proofBundleMap(result.proof))
     }
 
+    private fun preparedExecutionMap(prepared: FfiPreparedTransactionExecution) =
+        Arguments.createMap().apply {
+            putMap("proving", provingResultMap(prepared.proving))
+            putMap("transaction", transactionPlanMap(prepared.transaction))
+            putMap("preflight", executionPreflightMap(prepared.preflight))
+        }
+
+    private fun executionPreflightMap(report: FfiExecutionPreflightReport) =
+        Arguments.createMap().apply {
+            putString("kind", report.kind)
+            putString("caller", report.caller)
+            putString("target", report.target)
+            putDouble("expected_chain_id", report.expectedChainId.toDouble())
+            putDouble("actual_chain_id", report.actualChainId.toDouble())
+            putBoolean("chain_id_matches", report.chainIdMatches)
+            putBoolean("simulated", report.simulated)
+            putDouble("estimated_gas", report.estimatedGas.toDouble())
+            putArray(
+                "code_hash_checks",
+                Arguments.fromList(report.codeHashChecks.map(::codeHashCheckMap)),
+            )
+            putArray("root_checks", Arguments.fromList(report.rootChecks.map(::rootCheckMap)))
+        }
+
+    private fun codeHashCheckMap(check: FfiCodeHashCheck) = Arguments.createMap().apply {
+        putString("address", check.address)
+        check.expectedCodeHash?.let { putString("expected_code_hash", it) }
+        putString("actual_code_hash", check.actualCodeHash)
+        if (check.matchesExpected != null) {
+            putBoolean("matches_expected", check.matchesExpected)
+        }
+    }
+
+    private fun rootCheckMap(check: FfiRootCheck) = Arguments.createMap().apply {
+        putString("kind", check.kind)
+        putString("contract_address", check.contractAddress)
+        putString("pool_address", check.poolAddress)
+        putString("expected_root", check.expectedRoot)
+        putString("actual_root", check.actualRoot)
+        putBoolean("matches", check.matches)
+    }
+
     private fun proofBundleMap(bundle: FfiProofBundle) = Arguments.createMap().apply {
         putMap("proof", snarkJsProofMap(bundle.proof))
         putArray("public_signals", Arguments.fromList(bundle.publicSignals))
@@ -661,6 +778,24 @@ class PrivacyPoolsSdkModule(
             putDouble("latest_block", checkpoint.latestBlock.toDouble())
             putDouble("commitments_seen", checkpoint.commitmentsSeen.toDouble())
         }
+
+    private fun executionPolicyRecord(policy: ReadableMap): FfiExecutionPolicy =
+        FfiExecutionPolicy(
+            expectedChainId = policy.getDouble("expected_chain_id").toLong().toULong(),
+            caller = policy.getString("caller") ?: error("missing caller"),
+            expectedPoolCodeHash =
+                if (policy.hasKey("expected_pool_code_hash") && !policy.isNull("expected_pool_code_hash")) {
+                    policy.getString("expected_pool_code_hash")
+                } else {
+                    null
+                },
+            expectedEntrypointCodeHash =
+                if (policy.hasKey("expected_entrypoint_code_hash") && !policy.isNull("expected_entrypoint_code_hash")) {
+                    policy.getString("expected_entrypoint_code_hash")
+                } else {
+                    null
+                },
+        )
 
     private fun recoveryPolicyRecord(policy: ReadableMap): FfiRecoveryPolicy {
         val compatibilityMode =

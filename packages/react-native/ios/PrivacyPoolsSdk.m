@@ -69,6 +69,29 @@ RCT_EXTERN_METHOD(verifyWithdrawalProof:(NSString *)backendProfile
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(prepareWithdrawalExecution:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  chainId:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  rpcUrl:(NSString *)rpcUrl
+                  policy:(NSDictionary *)policy
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(prepareRelayExecution:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  chainId:(nonnull NSNumber *)chainId
+                  entrypointAddress:(NSString *)entrypointAddress
+                  poolAddress:(NSString *)poolAddress
+                  rpcUrl:(NSString *)rpcUrl
+                  policy:(NSDictionary *)policy
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(planWithdrawalTransaction:(nonnull NSNumber *)chainId
                   poolAddress:(NSString *)poolAddress
                   withdrawal:(NSDictionary *)withdrawal

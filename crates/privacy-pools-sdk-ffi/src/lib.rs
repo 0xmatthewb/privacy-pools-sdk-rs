@@ -1,16 +1,17 @@
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use privacy_pools_sdk::{
-    PrivacyPoolsSdk,
+    PreparedTransactionExecution, PrivacyPoolsSdk,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
-        CircuitMerkleWitness, Commitment, FormattedGroth16Proof, MasterKeys, MerkleProof,
-        ProofBundle, RootReadKind, SnarkJsProof, TransactionPlan, Withdrawal,
-        WithdrawalCircuitInput, WithdrawalWitnessRequest,
+        CircuitMerkleWitness, CodeHashCheck, Commitment, ExecutionPolicy, ExecutionPreflightReport,
+        FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle, RootCheck, RootReadKind,
+        SnarkJsProof, TransactionPlan, Withdrawal, WithdrawalCircuitInput,
+        WithdrawalWitnessRequest,
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
-use std::{path::PathBuf, str::FromStr};
+use std::{future::Future, path::PathBuf, str::FromStr};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -18,6 +19,8 @@ pub enum FfiError {
     InvalidAddress(String),
     #[error("invalid field element: {0}")]
     InvalidField(String),
+    #[error("invalid hash: {0}")]
+    InvalidHash(String),
     #[error("invalid proof shape: {0}")]
     InvalidProofShape(String),
     #[error("invalid artifact kind: {0}")]
@@ -96,6 +99,53 @@ pub struct FfiTransactionPlan {
     pub calldata: String,
     pub value: String,
     pub proof: FfiFormattedGroth16Proof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiExecutionPolicy {
+    pub expected_chain_id: u64,
+    pub caller: String,
+    pub expected_pool_code_hash: Option<String>,
+    pub expected_entrypoint_code_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiCodeHashCheck {
+    pub address: String,
+    pub expected_code_hash: Option<String>,
+    pub actual_code_hash: String,
+    pub matches_expected: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiRootCheck {
+    pub kind: String,
+    pub contract_address: String,
+    pub pool_address: String,
+    pub expected_root: String,
+    pub actual_root: String,
+    pub matches: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiExecutionPreflightReport {
+    pub kind: String,
+    pub caller: String,
+    pub target: String,
+    pub expected_chain_id: u64,
+    pub actual_chain_id: u64,
+    pub chain_id_matches: bool,
+    pub simulated: bool,
+    pub estimated_gas: u64,
+    pub code_hash_checks: Vec<FfiCodeHashCheck>,
+    pub root_checks: Vec<FfiRootCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiPreparedTransactionExecution {
+    pub proving: FfiProvingResult,
+    pub transaction: FfiTransactionPlan,
+    pub preflight: FfiExecutionPreflightReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -222,6 +272,10 @@ fn parse_field(value: &str) -> Result<U256, FfiError> {
     U256::from_str(value).map_err(|_| FfiError::InvalidField(value.to_owned()))
 }
 
+fn parse_hash(value: &str) -> Result<B256, FfiError> {
+    B256::from_str(value).map_err(|_| FfiError::InvalidHash(value.to_owned()))
+}
+
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind, FfiError> {
     match value {
         "wasm" => Ok(ArtifactKind::Wasm),
@@ -310,6 +364,24 @@ fn prover_backend_label(kind: ProverBackend) -> String {
 
 fn field_label(value: U256) -> String {
     value.to_string()
+}
+
+fn hash_label(value: B256) -> String {
+    value.to_string()
+}
+
+fn block_on_sdk<F, T>(future: F) -> Result<T, FfiError>
+where
+    F: Future<Output = Result<T, privacy_pools_sdk::SdkError>>,
+{
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    runtime
+        .block_on(future)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
 }
 
 fn to_ffi_secrets(
@@ -407,6 +479,76 @@ fn to_ffi_transaction_plan(plan: TransactionPlan) -> FfiTransactionPlan {
         calldata: format!("0x{}", hex::encode(plan.calldata)),
         value: field_label(plan.value),
         proof: to_ffi_formatted_groth16_proof(plan.proof),
+    }
+}
+
+fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
+    Ok(ExecutionPolicy {
+        expected_chain_id: policy.expected_chain_id,
+        caller: parse_address(&policy.caller)?,
+        expected_pool_code_hash: policy
+            .expected_pool_code_hash
+            .as_deref()
+            .map(parse_hash)
+            .transpose()?,
+        expected_entrypoint_code_hash: policy
+            .expected_entrypoint_code_hash
+            .as_deref()
+            .map(parse_hash)
+            .transpose()?,
+    })
+}
+
+fn to_ffi_code_hash_check(check: CodeHashCheck) -> FfiCodeHashCheck {
+    FfiCodeHashCheck {
+        address: check.address.to_string(),
+        expected_code_hash: check.expected_code_hash.map(hash_label),
+        actual_code_hash: hash_label(check.actual_code_hash),
+        matches_expected: check.matches_expected,
+    }
+}
+
+fn to_ffi_root_check(check: RootCheck) -> FfiRootCheck {
+    FfiRootCheck {
+        kind: root_read_kind_label(check.kind),
+        contract_address: check.contract_address.to_string(),
+        pool_address: check.pool_address.to_string(),
+        expected_root: field_label(check.expected_root),
+        actual_root: field_label(check.actual_root),
+        matches: check.matches,
+    }
+}
+
+fn to_ffi_execution_preflight(report: ExecutionPreflightReport) -> FfiExecutionPreflightReport {
+    FfiExecutionPreflightReport {
+        kind: transaction_kind_label(report.kind),
+        caller: report.caller.to_string(),
+        target: report.target.to_string(),
+        expected_chain_id: report.expected_chain_id,
+        actual_chain_id: report.actual_chain_id,
+        chain_id_matches: report.chain_id_matches,
+        simulated: report.simulated,
+        estimated_gas: report.estimated_gas,
+        code_hash_checks: report
+            .code_hash_checks
+            .into_iter()
+            .map(to_ffi_code_hash_check)
+            .collect(),
+        root_checks: report
+            .root_checks
+            .into_iter()
+            .map(to_ffi_root_check)
+            .collect(),
+    }
+}
+
+fn to_ffi_prepared_execution(
+    prepared: PreparedTransactionExecution,
+) -> FfiPreparedTransactionExecution {
+    FfiPreparedTransactionExecution {
+        proving: to_ffi_proving_result(prepared.proving),
+        transaction: to_ffi_transaction_plan(prepared.transaction),
+        preflight: to_ffi_execution_preflight(prepared.preflight),
     }
 }
 
@@ -761,6 +903,74 @@ pub fn verify_withdrawal_proof(
             &from_ffi_proof_bundle(proof)?,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_withdrawal_execution(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+    chain_id: u64,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+) -> Result<FfiPreparedTransactionExecution, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_prepared_execution(block_on_sdk(
+        sdk().prepare_withdrawal_execution_with_client(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_withdrawal_witness_request(request)?,
+            &privacy_pools_sdk::core::WithdrawalExecutionConfig {
+                chain_id,
+                pool_address: parse_address(&pool_address)?,
+                policy: from_ffi_execution_policy(policy)?,
+            },
+            &client,
+        ),
+    )?))
+}
+
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_relay_execution(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+    chain_id: u64,
+    entrypoint_address: String,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+) -> Result<FfiPreparedTransactionExecution, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_prepared_execution(block_on_sdk(
+        sdk().prepare_relay_execution_with_client(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_withdrawal_witness_request(request)?,
+            &privacy_pools_sdk::core::RelayExecutionConfig {
+                chain_id,
+                entrypoint_address: parse_address(&entrypoint_address)?,
+                pool_address: parse_address(&pool_address)?,
+                policy: from_ffi_execution_policy(policy)?,
+            },
+            &client,
+        ),
+    )?))
 }
 
 #[uniffi::export]

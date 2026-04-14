@@ -673,6 +673,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_relay_execution(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
@@ -731,6 +735,10 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_pool_state_root_read(`poo
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_relay_execution(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_execution(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -914,6 +922,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_relay_execution() != 18665.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution() != 63214.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178.toShort()) {
@@ -1309,6 +1323,54 @@ public object FfiConverterTypeFfiCircuitMerkleWitness: FfiConverterRustBuffer<Ff
 
 
 
+data class FfiCodeHashCheck (
+    var `address`: kotlin.String
+    ,
+    var `expectedCodeHash`: kotlin.String?
+    ,
+    var `actualCodeHash`: kotlin.String
+    ,
+    var `matchesExpected`: kotlin.Boolean?
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiCodeHashCheck: FfiConverterRustBuffer<FfiCodeHashCheck> {
+    override fun read(buf: ByteBuffer): FfiCodeHashCheck {
+        return FfiCodeHashCheck(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiCodeHashCheck) = (
+            FfiConverterString.allocationSize(value.`address`) +
+            FfiConverterOptionalString.allocationSize(value.`expectedCodeHash`) +
+            FfiConverterString.allocationSize(value.`actualCodeHash`) +
+            FfiConverterOptionalBoolean.allocationSize(value.`matchesExpected`)
+    )
+
+    override fun write(value: FfiCodeHashCheck, buf: ByteBuffer) {
+            FfiConverterString.write(value.`address`, buf)
+            FfiConverterOptionalString.write(value.`expectedCodeHash`, buf)
+            FfiConverterString.write(value.`actualCodeHash`, buf)
+            FfiConverterOptionalBoolean.write(value.`matchesExpected`, buf)
+    }
+}
+
+
+
 data class FfiCommitment (
     var `hash`: kotlin.String
     ,
@@ -1367,6 +1429,132 @@ public object FfiConverterTypeFfiCommitment: FfiConverterRustBuffer<FfiCommitmen
             FfiConverterString.write(value.`label`, buf)
             FfiConverterString.write(value.`nullifier`, buf)
             FfiConverterString.write(value.`secret`, buf)
+    }
+}
+
+
+
+data class FfiExecutionPolicy (
+    var `expectedChainId`: kotlin.ULong
+    ,
+    var `caller`: kotlin.String
+    ,
+    var `expectedPoolCodeHash`: kotlin.String?
+    ,
+    var `expectedEntrypointCodeHash`: kotlin.String?
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExecutionPolicy> {
+    override fun read(buf: ByteBuffer): FfiExecutionPolicy {
+        return FfiExecutionPolicy(
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiExecutionPolicy) = (
+            FfiConverterULong.allocationSize(value.`expectedChainId`) +
+            FfiConverterString.allocationSize(value.`caller`) +
+            FfiConverterOptionalString.allocationSize(value.`expectedPoolCodeHash`) +
+            FfiConverterOptionalString.allocationSize(value.`expectedEntrypointCodeHash`)
+    )
+
+    override fun write(value: FfiExecutionPolicy, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`expectedChainId`, buf)
+            FfiConverterString.write(value.`caller`, buf)
+            FfiConverterOptionalString.write(value.`expectedPoolCodeHash`, buf)
+            FfiConverterOptionalString.write(value.`expectedEntrypointCodeHash`, buf)
+    }
+}
+
+
+
+data class FfiExecutionPreflightReport (
+    var `kind`: kotlin.String
+    ,
+    var `caller`: kotlin.String
+    ,
+    var `target`: kotlin.String
+    ,
+    var `expectedChainId`: kotlin.ULong
+    ,
+    var `actualChainId`: kotlin.ULong
+    ,
+    var `chainIdMatches`: kotlin.Boolean
+    ,
+    var `simulated`: kotlin.Boolean
+    ,
+    var `estimatedGas`: kotlin.ULong
+    ,
+    var `codeHashChecks`: List<FfiCodeHashCheck>
+    ,
+    var `rootChecks`: List<FfiRootCheck>
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffer<FfiExecutionPreflightReport> {
+    override fun read(buf: ByteBuffer): FfiExecutionPreflightReport {
+        return FfiExecutionPreflightReport(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterSequenceTypeFfiCodeHashCheck.read(buf),
+            FfiConverterSequenceTypeFfiRootCheck.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiExecutionPreflightReport) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`caller`) +
+            FfiConverterString.allocationSize(value.`target`) +
+            FfiConverterULong.allocationSize(value.`expectedChainId`) +
+            FfiConverterULong.allocationSize(value.`actualChainId`) +
+            FfiConverterBoolean.allocationSize(value.`chainIdMatches`) +
+            FfiConverterBoolean.allocationSize(value.`simulated`) +
+            FfiConverterULong.allocationSize(value.`estimatedGas`) +
+            FfiConverterSequenceTypeFfiCodeHashCheck.allocationSize(value.`codeHashChecks`) +
+            FfiConverterSequenceTypeFfiRootCheck.allocationSize(value.`rootChecks`)
+    )
+
+    override fun write(value: FfiExecutionPreflightReport, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterString.write(value.`caller`, buf)
+            FfiConverterString.write(value.`target`, buf)
+            FfiConverterULong.write(value.`expectedChainId`, buf)
+            FfiConverterULong.write(value.`actualChainId`, buf)
+            FfiConverterBoolean.write(value.`chainIdMatches`, buf)
+            FfiConverterBoolean.write(value.`simulated`, buf)
+            FfiConverterULong.write(value.`estimatedGas`, buf)
+            FfiConverterSequenceTypeFfiCodeHashCheck.write(value.`codeHashChecks`, buf)
+            FfiConverterSequenceTypeFfiRootCheck.write(value.`rootChecks`, buf)
     }
 }
 
@@ -1554,6 +1742,49 @@ public object FfiConverterTypeFfiPoolEvent: FfiConverterRustBuffer<FfiPoolEvent>
             FfiConverterULong.write(value.`logIndex`, buf)
             FfiConverterString.write(value.`poolAddress`, buf)
             FfiConverterString.write(value.`commitmentHash`, buf)
+    }
+}
+
+
+
+data class FfiPreparedTransactionExecution (
+    var `proving`: FfiProvingResult
+    ,
+    var `transaction`: FfiTransactionPlan
+    ,
+    var `preflight`: FfiExecutionPreflightReport
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiPreparedTransactionExecution: FfiConverterRustBuffer<FfiPreparedTransactionExecution> {
+    override fun read(buf: ByteBuffer): FfiPreparedTransactionExecution {
+        return FfiPreparedTransactionExecution(
+            FfiConverterTypeFfiProvingResult.read(buf),
+            FfiConverterTypeFfiTransactionPlan.read(buf),
+            FfiConverterTypeFfiExecutionPreflightReport.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiPreparedTransactionExecution) = (
+            FfiConverterTypeFfiProvingResult.allocationSize(value.`proving`) +
+            FfiConverterTypeFfiTransactionPlan.allocationSize(value.`transaction`) +
+            FfiConverterTypeFfiExecutionPreflightReport.allocationSize(value.`preflight`)
+    )
+
+    override fun write(value: FfiPreparedTransactionExecution, buf: ByteBuffer) {
+            FfiConverterTypeFfiProvingResult.write(value.`proving`, buf)
+            FfiConverterTypeFfiTransactionPlan.write(value.`transaction`, buf)
+            FfiConverterTypeFfiExecutionPreflightReport.write(value.`preflight`, buf)
     }
 }
 
@@ -1797,6 +2028,64 @@ public object FfiConverterTypeFfiResolvedArtifactBundle: FfiConverterRustBuffer<
             FfiConverterString.write(value.`version`, buf)
             FfiConverterString.write(value.`circuit`, buf)
             FfiConverterSequenceTypeFfiResolvedArtifact.write(value.`artifacts`, buf)
+    }
+}
+
+
+
+data class FfiRootCheck (
+    var `kind`: kotlin.String
+    ,
+    var `contractAddress`: kotlin.String
+    ,
+    var `poolAddress`: kotlin.String
+    ,
+    var `expectedRoot`: kotlin.String
+    ,
+    var `actualRoot`: kotlin.String
+    ,
+    var `matches`: kotlin.Boolean
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiRootCheck: FfiConverterRustBuffer<FfiRootCheck> {
+    override fun read(buf: ByteBuffer): FfiRootCheck {
+        return FfiRootCheck(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiRootCheck) = (
+            FfiConverterString.allocationSize(value.`kind`) +
+            FfiConverterString.allocationSize(value.`contractAddress`) +
+            FfiConverterString.allocationSize(value.`poolAddress`) +
+            FfiConverterString.allocationSize(value.`expectedRoot`) +
+            FfiConverterString.allocationSize(value.`actualRoot`) +
+            FfiConverterBoolean.allocationSize(value.`matches`)
+    )
+
+    override fun write(value: FfiRootCheck, buf: ByteBuffer) {
+            FfiConverterString.write(value.`kind`, buf)
+            FfiConverterString.write(value.`contractAddress`, buf)
+            FfiConverterString.write(value.`poolAddress`, buf)
+            FfiConverterString.write(value.`expectedRoot`, buf)
+            FfiConverterString.write(value.`actualRoot`, buf)
+            FfiConverterBoolean.write(value.`matches`, buf)
     }
 }
 
@@ -2233,6 +2522,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class InvalidHash(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class InvalidProofShape(
 
         val v1: kotlin.String
@@ -2298,19 +2595,22 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             2 -> FfiException.InvalidField(
                 FfiConverterString.read(buf),
                 )
-            3 -> FfiException.InvalidProofShape(
+            3 -> FfiException.InvalidHash(
                 FfiConverterString.read(buf),
                 )
-            4 -> FfiException.InvalidArtifactKind(
+            4 -> FfiException.InvalidProofShape(
                 FfiConverterString.read(buf),
                 )
-            5 -> FfiException.InvalidCompatibilityMode(
+            5 -> FfiException.InvalidArtifactKind(
                 FfiConverterString.read(buf),
                 )
-            6 -> FfiException.InvalidManifest(
+            6 -> FfiException.InvalidCompatibilityMode(
                 FfiConverterString.read(buf),
                 )
-            7 -> FfiException.OperationFailed(
+            7 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            8 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -2325,6 +2625,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidField -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidHash -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -2369,34 +2674,103 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidProofShape -> {
+            is FfiException.InvalidHash -> {
                 buf.putInt(3)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidArtifactKind -> {
+            is FfiException.InvalidProofShape -> {
                 buf.putInt(4)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidCompatibilityMode -> {
+            is FfiException.InvalidArtifactKind -> {
                 buf.putInt(5)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.InvalidCompatibilityMode -> {
                 buf.putInt(6)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(7)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(8)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalBoolean: FfiConverterRustBuffer<kotlin.Boolean?> {
+    override fun read(buf: ByteBuffer): kotlin.Boolean? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterBoolean.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Boolean?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterBoolean.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Boolean?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterBoolean.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
+    override fun read(buf: ByteBuffer): kotlin.String? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterString.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.String?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterString.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.String?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterString.write(value, buf)
+        }
+    }
 }
 
 
@@ -2461,6 +2835,34 @@ public object FfiConverterSequenceTypeFfiArtifactStatus: FfiConverterRustBuffer<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiCodeHashCheck: FfiConverterRustBuffer<List<FfiCodeHashCheck>> {
+    override fun read(buf: ByteBuffer): List<FfiCodeHashCheck> {
+        val len = buf.getInt()
+        return List<FfiCodeHashCheck>(len) {
+            FfiConverterTypeFfiCodeHashCheck.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiCodeHashCheck>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiCodeHashCheck.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiCodeHashCheck>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiCodeHashCheck.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeFfiPoolEvent: FfiConverterRustBuffer<List<FfiPoolEvent>> {
     override fun read(buf: ByteBuffer): List<FfiPoolEvent> {
         val len = buf.getInt()
@@ -2507,6 +2909,34 @@ public object FfiConverterSequenceTypeFfiResolvedArtifact: FfiConverterRustBuffe
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiResolvedArtifact.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeFfiRootCheck: FfiConverterRustBuffer<List<FfiRootCheck>> {
+    override fun read(buf: ByteBuffer): List<FfiRootCheck> {
+        val len = buf.getInt()
+        return List<FfiRootCheck>(len) {
+            FfiConverterTypeFfiRootCheck.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiRootCheck>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiRootCheck.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiRootCheck>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiRootCheck.write(it, buf)
         }
     }
 }
@@ -2740,6 +3170,28 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(
 
         FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterTypeFfiWithdrawal.lower(`withdrawal`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `prepareRelayExecution`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `request`: FfiWithdrawalWitnessRequest, `chainId`: kotlin.ULong, `entrypointAddress`: kotlin.String, `poolAddress`: kotlin.String, `rpcUrl`: kotlin.String, `policy`: FfiExecutionPolicy): FfiPreparedTransactionExecution {
+            return FfiConverterTypeFfiPreparedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prepare_relay_execution(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiWithdrawalWitnessRequest.lower(`request`),FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`entrypointAddress`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiExecutionPolicy.lower(`policy`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `prepareWithdrawalExecution`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `request`: FfiWithdrawalWitnessRequest, `chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `rpcUrl`: kotlin.String, `policy`: FfiExecutionPolicy): FfiPreparedTransactionExecution {
+            return FfiConverterTypeFfiPreparedTransactionExecution.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_execution(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiWithdrawalWitnessRequest.lower(`request`),FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiExecutionPolicy.lower(`policy`),_status)
 }
     )
     }

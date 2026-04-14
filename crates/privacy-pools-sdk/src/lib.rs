@@ -12,6 +12,13 @@ use privacy_pools_sdk_prover::{BackendPolicy, BackendProfile, NativeProofEngine,
 use std::path::Path;
 use thiserror::Error;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedTransactionExecution {
+    pub proving: prover::ProvingResult,
+    pub transaction: core::TransactionPlan,
+    pub preflight: core::ExecutionPreflightReport,
+}
+
 #[derive(Debug, Error)]
 pub enum SdkError {
     #[error(transparent)]
@@ -22,6 +29,10 @@ pub enum SdkError {
     Artifact(#[from] artifacts::ArtifactError),
     #[error(transparent)]
     Prover(#[from] prover::ProverError),
+    #[error(transparent)]
+    Chain(#[from] chain::ChainError),
+    #[error("local proof verification failed")]
+    ProofRejected,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -273,6 +284,81 @@ impl PrivacyPoolsSdk {
         self.proving_engine(profile)?
             .verify(proof, zkey_path)
             .map_err(Into::into)
+    }
+
+    pub async fn prepare_withdrawal_execution_with_client<C: chain::ExecutionClient>(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::WithdrawalWitnessRequest,
+        config: &core::WithdrawalExecutionConfig,
+        client: &C,
+    ) -> Result<PreparedTransactionExecution, SdkError> {
+        let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
+            return Err(SdkError::ProofRejected);
+        }
+
+        let transaction = self.plan_withdrawal_transaction(
+            config.chain_id,
+            config.pool_address,
+            &request.withdrawal,
+            &proving.proof,
+        )?;
+        let preflight = chain::preflight_withdrawal(
+            client,
+            &transaction,
+            config.pool_address,
+            request.state_witness.root,
+            &config.policy,
+        )
+        .await?;
+
+        Ok(PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        })
+    }
+
+    pub async fn prepare_relay_execution_with_client<C: chain::ExecutionClient>(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::WithdrawalWitnessRequest,
+        config: &core::RelayExecutionConfig,
+        client: &C,
+    ) -> Result<PreparedTransactionExecution, SdkError> {
+        let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
+            return Err(SdkError::ProofRejected);
+        }
+
+        let transaction = self.plan_relay_transaction(
+            config.chain_id,
+            config.entrypoint_address,
+            &request.withdrawal,
+            &proving.proof,
+            request.scope,
+        )?;
+        let preflight = chain::preflight_relay(
+            client,
+            &transaction,
+            config.entrypoint_address,
+            config.pool_address,
+            request.state_witness.root,
+            request.asp_witness.root,
+            &config.policy,
+        )
+        .await?;
+
+        Ok(PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        })
     }
 
     pub fn checkpoint_recovery(

@@ -8,8 +8,16 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+async-trait.workspace = true
+alloy-network.workspace = true
+alloy-provider.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-rpc-types-eth.workspace = true
 alloy-sol-types.workspace = true
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 serde_json.workspace = true
 thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
