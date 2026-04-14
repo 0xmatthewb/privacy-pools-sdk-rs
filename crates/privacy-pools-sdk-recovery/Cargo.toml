@@ -10,5 +10,6 @@ publish = false
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
 serde.workspace = true
 thiserror.workspace = true

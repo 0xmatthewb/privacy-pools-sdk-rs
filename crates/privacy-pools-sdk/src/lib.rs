@@ -569,6 +569,32 @@ impl PrivacyPoolsSdk {
     ) -> Result<recovery::RecoveryCheckpoint, recovery::RecoveryError> {
         recovery::checkpoint(events, policy)
     }
+
+    pub fn derive_recovery_keyset(
+        &self,
+        mnemonic: &str,
+        policy: recovery::RecoveryPolicy,
+    ) -> Result<recovery::RecoveryKeyset, recovery::RecoveryError> {
+        recovery::derive_recovery_keyset(mnemonic, policy)
+    }
+
+    pub fn recover_account_state(
+        &self,
+        mnemonic: &str,
+        pools: &[recovery::PoolRecoveryInput],
+        policy: recovery::RecoveryPolicy,
+    ) -> Result<recovery::RecoveredAccountState, recovery::RecoveryError> {
+        recovery::recover_account_state(mnemonic, pools, policy)
+    }
+
+    pub fn recover_account_state_with_keyset(
+        &self,
+        keyset: &recovery::RecoveryKeyset,
+        pools: &[recovery::PoolRecoveryInput],
+        policy: recovery::RecoveryPolicy,
+    ) -> Result<recovery::RecoveredAccountState, recovery::RecoveryError> {
+        recovery::recover_account_state_with_keyset(keyset, pools, policy)
+    }
 }
 
 fn validate_witness_shape(
@@ -630,6 +656,10 @@ mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
     use async_trait::async_trait;
+    use privacy_pools_sdk_recovery::{
+        CompatibilityMode, DepositEvent, PoolRecoveryInput, RecoveryKeyset, RecoveryPolicy,
+        WithdrawalEvent,
+    };
     use privacy_pools_sdk_signer::SignerAdapter;
     use serde_json::Value;
     use std::collections::HashMap;
@@ -724,6 +754,75 @@ mod tests {
     fn exposes_expected_default_backend() {
         let sdk = PrivacyPoolsSdk::default();
         assert_eq!(sdk.stable_backend_name().unwrap(), "Arkworks");
+    }
+
+    #[test]
+    fn sdk_exposes_recovery_replay_from_keysets() {
+        let sdk = PrivacyPoolsSdk::default();
+        let safe = crypto::generate_master_keys(
+            "test test test test test test test test test test test junk",
+        )
+        .unwrap();
+        let legacy = crypto::generate_master_keys(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        )
+        .unwrap();
+        let keyset = RecoveryKeyset {
+            safe: safe.clone(),
+            legacy: Some(legacy.clone()),
+        };
+        let scope = U256::from(123_u64);
+        let label = U256::from(777_u64);
+        let value = U256::from(1_000_u64);
+        let (legacy_nullifier, legacy_secret) =
+            crypto::generate_deposit_secrets(&legacy, scope, U256::ZERO).unwrap();
+        let legacy_deposit =
+            crypto::get_commitment(value, label, legacy_nullifier, legacy_secret).unwrap();
+        let (safe_nullifier, safe_secret) =
+            crypto::generate_withdrawal_secrets(&safe, label, U256::ZERO).unwrap();
+        let migrated_commitment =
+            crypto::get_commitment(value, label, safe_nullifier, safe_secret).unwrap();
+
+        let recovered = sdk
+            .recover_account_state_with_keyset(
+                &keyset,
+                &[PoolRecoveryInput {
+                    scope,
+                    deposit_events: vec![DepositEvent {
+                        commitment_hash: legacy_deposit.hash,
+                        label,
+                        value,
+                        precommitment_hash: legacy_deposit.preimage.precommitment.hash,
+                        block_number: 10,
+                        transaction_hash: b256!(
+                            "0000000000000000000000000000000000000000000000000000000000000001"
+                        ),
+                    }],
+                    withdrawal_events: vec![WithdrawalEvent {
+                        withdrawn_value: U256::ZERO,
+                        spent_nullifier_hash: crypto::hash_nullifier(legacy_nullifier).unwrap(),
+                        new_commitment_hash: migrated_commitment.hash,
+                        block_number: 20,
+                        transaction_hash: b256!(
+                            "0000000000000000000000000000000000000000000000000000000000000002"
+                        ),
+                    }],
+                    ragequit_events: Vec::new(),
+                }],
+                RecoveryPolicy {
+                    compatibility_mode: CompatibilityMode::Legacy,
+                    fail_closed: true,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(recovered.safe_scopes.len(), 1);
+        assert_eq!(recovered.legacy_scopes.len(), 1);
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].deposit.hash,
+            migrated_commitment.hash
+        );
+        assert!(recovered.legacy_scopes[0].accounts[0].is_migrated);
     }
 
     #[test]
