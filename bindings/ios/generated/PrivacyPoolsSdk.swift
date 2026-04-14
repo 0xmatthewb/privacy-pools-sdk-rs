@@ -668,6 +668,130 @@ public func FfiConverterTypeFfiArtifactVerification_lower(_ value: FfiArtifactVe
 }
 
 
+public struct FfiAsyncJobHandle: Equatable, Hashable {
+    public var jobId: String
+    public var kind: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(jobId: String, kind: String) {
+        self.jobId = jobId
+        self.kind = kind
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiAsyncJobHandle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAsyncJobHandle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAsyncJobHandle {
+        return
+            try FfiAsyncJobHandle(
+                jobId: FfiConverterString.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAsyncJobHandle, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.jobId, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAsyncJobHandle_lift(_ buf: RustBuffer) throws -> FfiAsyncJobHandle {
+    return try FfiConverterTypeFfiAsyncJobHandle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAsyncJobHandle_lower(_ value: FfiAsyncJobHandle) -> RustBuffer {
+    return FfiConverterTypeFfiAsyncJobHandle.lower(value)
+}
+
+
+public struct FfiAsyncJobStatus: Equatable, Hashable {
+    public var jobId: String
+    public var kind: String
+    public var state: String
+    public var stage: String?
+    public var error: String?
+    public var cancelRequested: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(jobId: String, kind: String, state: String, stage: String?, error: String?, cancelRequested: Bool) {
+        self.jobId = jobId
+        self.kind = kind
+        self.state = state
+        self.stage = stage
+        self.error = error
+        self.cancelRequested = cancelRequested
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiAsyncJobStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAsyncJobStatus: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAsyncJobStatus {
+        return
+            try FfiAsyncJobStatus(
+                jobId: FfiConverterString.read(from: &buf),
+                kind: FfiConverterString.read(from: &buf),
+                state: FfiConverterString.read(from: &buf),
+                stage: FfiConverterOptionString.read(from: &buf),
+                error: FfiConverterOptionString.read(from: &buf),
+                cancelRequested: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAsyncJobStatus, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.jobId, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterString.write(value.state, into: &buf)
+        FfiConverterOptionString.write(value.stage, into: &buf)
+        FfiConverterOptionString.write(value.error, into: &buf)
+        FfiConverterBool.write(value.cancelRequested, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAsyncJobStatus_lift(_ buf: RustBuffer) throws -> FfiAsyncJobStatus {
+    return try FfiConverterTypeFfiAsyncJobStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAsyncJobStatus_lower(_ value: FfiAsyncJobStatus) -> RustBuffer {
+    return FfiConverterTypeFfiAsyncJobStatus.lower(value)
+}
+
+
 public struct FfiCircuitMerkleWitness: Equatable, Hashable {
     public var root: String
     public var leaf: String
@@ -2576,6 +2700,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case SignerNotFound(String
     )
+    case JobNotFound(String
+    )
     case SignerRequiresExternalSigning(String
     )
     case InvalidManifest(String
@@ -2632,13 +2758,16 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 7: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .SignerRequiresExternalSigning(
+        case 8: return .JobNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 9: return .InvalidManifest(
+        case 9: return .SignerRequiresExternalSigning(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .OperationFailed(
+        case 10: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 11: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -2688,18 +2817,23 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerRequiresExternalSigning(v1):
+        case let .JobNotFound(v1):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerRequiresExternalSigning(v1):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .InvalidManifest(v1):
             writeInt(&buf, Int32(10))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
 
         }
@@ -2788,6 +2922,54 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiPreparedTransactionExecution: FfiConverterRustBuffer {
+    typealias SwiftType = FfiPreparedTransactionExecution?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiPreparedTransactionExecution.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiPreparedTransactionExecution.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiProvingResult: FfiConverterRustBuffer {
+    typealias SwiftType = FfiProvingResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiProvingResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiProvingResult.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -2990,6 +3172,13 @@ public func calculateWithdrawalContext(withdrawal: FfiWithdrawal, scope: String)
     )
 })
 }
+public func cancelJob(jobId: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_cancel_job(
+        FfiConverterString.lower(jobId),$0
+    )
+})
+}
 public func checkpointRecovery(events: [FfiPoolEvent], policy: FfiRecoveryPolicy)throws  -> FfiRecoveryCheckpoint  {
     return try  FfiConverterTypeFfiRecoveryCheckpoint_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(
@@ -3082,6 +3271,27 @@ public func getCommitment(value: String, label: String, nullifier: String, secre
     )
 })
 }
+public func getPrepareRelayExecutionJobResult(jobId: String)throws  -> FfiPreparedTransactionExecution?  {
+    return try  FfiConverterOptionTypeFfiPreparedTransactionExecution.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_prepare_relay_execution_job_result(
+        FfiConverterString.lower(jobId),$0
+    )
+})
+}
+public func getPrepareWithdrawalExecutionJobResult(jobId: String)throws  -> FfiPreparedTransactionExecution?  {
+    return try  FfiConverterOptionTypeFfiPreparedTransactionExecution.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_prepare_withdrawal_execution_job_result(
+        FfiConverterString.lower(jobId),$0
+    )
+})
+}
+public func getProveWithdrawalJobResult(jobId: String)throws  -> FfiProvingResult?  {
+    return try  FfiConverterOptionTypeFfiProvingResult.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_prove_withdrawal_job_result(
+        FfiConverterString.lower(jobId),$0
+    )
+})
+}
 public func getStableBackendName()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_get_stable_backend_name($0
@@ -3135,6 +3345,13 @@ public func planWithdrawalTransaction(chainId: UInt64, poolAddress: String, with
         FfiConverterString.lower(poolAddress),
         FfiConverterTypeFfiWithdrawal_lower(withdrawal),
         FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
+public func pollJobStatus(jobId: String)throws  -> FfiAsyncJobStatus  {
+    return try  FfiConverterTypeFfiAsyncJobStatus_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_poll_job_status(
+        FfiConverterString.lower(jobId),$0
     )
 })
 }
@@ -3202,12 +3419,58 @@ public func registerMobileSecureStorageSigner(handle: String, address: String)th
     )
 })
 }
+public func removeJob(jobId: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_remove_job(
+        FfiConverterString.lower(jobId),$0
+    )
+})
+}
 public func resolveVerifiedArtifactBundle(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> FfiResolvedArtifactBundle  {
     return try  FfiConverterTypeFfiResolvedArtifactBundle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
         FfiConverterString.lower(manifestJson),
         FfiConverterString.lower(artifactsRoot),
         FfiConverterString.lower(circuit),$0
+    )
+})
+}
+public func startPrepareRelayExecutionJob(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiWithdrawalWitnessRequest, chainId: UInt64, entrypointAddress: String, poolAddress: String, rpcUrl: String, policy: FfiExecutionPolicy)throws  -> FfiAsyncJobHandle  {
+    return try  FfiConverterTypeFfiAsyncJobHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_start_prepare_relay_execution_job(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(entrypointAddress),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiExecutionPolicy_lower(policy),$0
+    )
+})
+}
+public func startPrepareWithdrawalExecutionJob(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiWithdrawalWitnessRequest, chainId: UInt64, poolAddress: String, rpcUrl: String, policy: FfiExecutionPolicy)throws  -> FfiAsyncJobHandle  {
+    return try  FfiConverterTypeFfiAsyncJobHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_start_prepare_withdrawal_execution_job(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiExecutionPolicy_lower(policy),$0
+    )
+})
+}
+public func startProveWithdrawalJob(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiWithdrawalWitnessRequest)throws  -> FfiAsyncJobHandle  {
+    return try  FfiConverterTypeFfiAsyncJobHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_start_prove_withdrawal_job(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),$0
     )
 })
 }
@@ -3281,6 +3544,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_cancel_job() != 51075) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3314,6 +3580,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_prepare_relay_execution_job_result() != 62627) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_prepare_withdrawal_execution_job_result() != 34893) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_prove_withdrawal_job_result() != 6663) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_stable_backend_name() != 11272) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3335,6 +3610,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_poll_job_status() != 4651) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_relay_execution() != 18665) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3353,7 +3631,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_job() != 24803) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_start_prepare_relay_execution_job() != 41165) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_start_prepare_withdrawal_execution_job() != 31606) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_start_prove_withdrawal_job() != 45768) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897) {

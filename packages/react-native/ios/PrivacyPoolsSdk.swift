@@ -206,6 +206,28 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(startProveWithdrawalJob:manifestJson:artifactsRoot:request:resolver:rejecter:)
+    func startProveWithdrawalJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.startWithdrawalProofJob(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(asyncJobHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(verifyWithdrawalProof:manifestJson:artifactsRoot:proof:resolver:rejecter:)
     func verifyWithdrawalProof(
         backendProfile: String,
@@ -222,6 +244,58 @@ final class PrivacyPoolsSdk: NSObject {
                 artifactsRoot: artifactsRoot,
                 proof: try proofBundleRecord(from: proof)
             ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(pollJobStatus:resolver:rejecter:)
+    func pollJobStatus(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(asyncJobStatusMap(try PrivacyPoolsSdkClient.jobStatus(jobId: jobId)))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(getProveWithdrawalJobResult:resolver:rejecter:)
+    func getProveWithdrawalJobResult(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.withdrawalProofJobResult(jobId: jobId).map(provingResultMap))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(cancelJob:resolver:rejecter:)
+    func cancelJob(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.cancelBackgroundJob(jobId: jobId))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(removeJob:resolver:rejecter:)
+    func removeJob(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.removeBackgroundJob(jobId: jobId))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -257,6 +331,49 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(startPrepareWithdrawalExecutionJob:manifestJson:artifactsRoot:request:chainId:poolAddress:rpcUrl:policy:resolver:rejecter:)
+    func startPrepareWithdrawalExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        chainId: NSNumber,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.startWithdrawalExecutionJob(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request),
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                rpcUrl: rpcUrl,
+                policy: try executionPolicyRecord(from: policy)
+            )
+            resolve(asyncJobHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(getPrepareWithdrawalExecutionJobResult:resolver:rejecter:)
+    func getPrepareWithdrawalExecutionJobResult(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.withdrawalExecutionJobResult(jobId: jobId).map(preparedExecutionMap))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(prepareRelayExecution:manifestJson:artifactsRoot:request:chainId:entrypointAddress:poolAddress:rpcUrl:policy:resolver:rejecter:)
     func prepareRelayExecution(
         backendProfile: String,
@@ -284,6 +401,51 @@ final class PrivacyPoolsSdk: NSObject {
                 policy: try executionPolicyRecord(from: policy)
             )
             resolve(preparedExecutionMap(prepared))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(startPrepareRelayExecutionJob:manifestJson:artifactsRoot:request:chainId:entrypointAddress:poolAddress:rpcUrl:policy:resolver:rejecter:)
+    func startPrepareRelayExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        chainId: NSNumber,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.startRelayExecutionJob(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request),
+                chainId: chainId.uint64Value,
+                entrypointAddress: entrypointAddress,
+                poolAddress: poolAddress,
+                rpcUrl: rpcUrl,
+                policy: try executionPolicyRecord(from: policy)
+            )
+            resolve(asyncJobHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(getPrepareRelayExecutionJobResult:resolver:rejecter:)
+    func getPrepareRelayExecutionJobResult(
+        jobId: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.relayExecutionJobResult(jobId: jobId).map(preparedExecutionMap))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -819,6 +981,29 @@ final class PrivacyPoolsSdk: NSObject {
             "backend": result.backend,
             "proof": proofBundleMap(result.proof),
         ]
+    }
+
+    private func asyncJobHandleMap(_ handle: FfiAsyncJobHandle) -> [String: Any] {
+        [
+            "job_id": handle.jobId,
+            "kind": handle.kind,
+        ]
+    }
+
+    private func asyncJobStatusMap(_ status: FfiAsyncJobStatus) -> [String: Any] {
+        var map: [String: Any] = [
+            "job_id": status.jobId,
+            "kind": status.kind,
+            "state": status.state,
+            "cancel_requested": status.cancelRequested,
+        ]
+        if let stage = status.stage {
+            map["stage"] = stage
+        }
+        if let error = status.error {
+            map["error"] = error
+        }
+        return map
     }
 
     private func preparedExecutionMap(_ prepared: FfiPreparedTransactionExecution) -> [String: Any] {

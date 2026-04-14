@@ -9,6 +9,8 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import io.oxbow.privacypoolssdk.FfiArtifactVerification
 import io.oxbow.privacypoolssdk.FfiArtifactStatus
+import io.oxbow.privacypoolssdk.FfiAsyncJobHandle
+import io.oxbow.privacypoolssdk.FfiAsyncJobStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
 import io.oxbow.privacypoolssdk.FfiCodeHashCheck
 import io.oxbow.privacypoolssdk.FfiCommitment
@@ -219,6 +221,32 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun startProveWithdrawalJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                asyncJobHandleMap(
+                    NativeSdk.startProveWithdrawalJob(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun verifyWithdrawalProof(
         backendProfile: String,
         manifestJson: String,
@@ -235,6 +263,50 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun pollJobStatus(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(asyncJobStatusMap(NativeSdk.pollJobStatus(jobId)))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun getProveWithdrawalJobResult(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.getProveWithdrawalJobResult(jobId)?.let(::provingResultMap))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun cancelJob(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.cancelJob(jobId))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun removeJob(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.removeJob(jobId))
         } catch (error: FfiException) {
             promise.reject("ffi_error", error.message, error)
         } catch (error: Exception) {
@@ -277,6 +349,53 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun startPrepareWithdrawalExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        chainId: Double,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                asyncJobHandleMap(
+                    NativeSdk.startPrepareWithdrawalExecutionJob(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                        chainId.toLong().toULong(),
+                        poolAddress,
+                        rpcUrl,
+                        executionPolicyRecord(policy),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun getPrepareWithdrawalExecutionJobResult(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(
+                NativeSdk.getPrepareWithdrawalExecutionJobResult(jobId)?.let(::preparedExecutionMap)
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun prepareRelayExecution(
         backendProfile: String,
         manifestJson: String,
@@ -304,6 +423,55 @@ class PrivacyPoolsSdkModule(
                         executionPolicyRecord(policy),
                     )
                 )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun startPrepareRelayExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        chainId: Double,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                asyncJobHandleMap(
+                    NativeSdk.startPrepareRelayExecutionJob(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                        chainId.toLong().toULong(),
+                        entrypointAddress,
+                        poolAddress,
+                        rpcUrl,
+                        executionPolicyRecord(policy),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun getPrepareRelayExecutionJobResult(jobId: String, promise: Promise) {
+        try {
+            promise.resolve(
+                NativeSdk.getPrepareRelayExecutionJobResult(jobId)?.let(::preparedExecutionMap)
             )
         } catch (error: FfiException) {
             promise.reject("ffi_error", error.message, error)
@@ -796,6 +964,20 @@ class PrivacyPoolsSdkModule(
     private fun provingResultMap(result: FfiProvingResult) = Arguments.createMap().apply {
         putString("backend", result.backend)
         putMap("proof", proofBundleMap(result.proof))
+    }
+
+    private fun asyncJobHandleMap(handle: FfiAsyncJobHandle) = Arguments.createMap().apply {
+        putString("job_id", handle.jobId)
+        putString("kind", handle.kind)
+    }
+
+    private fun asyncJobStatusMap(status: FfiAsyncJobStatus) = Arguments.createMap().apply {
+        putString("job_id", status.jobId)
+        putString("kind", status.kind)
+        putString("state", status.state)
+        status.stage?.let { putString("stage", it) }
+        status.error?.let { putString("error", it) }
+        putBoolean("cancel_requested", status.cancelRequested)
     }
 
     private fun preparedExecutionMap(prepared: FfiPreparedTransactionExecution) =

@@ -100,6 +100,20 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func startWithdrawalProofJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> FfiAsyncJobHandle {
+        try startProveWithdrawalJob(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request
+        )
+    }
+
     public static func verifyWithdrawal(
         backendProfile: String,
         manifestJson: String,
@@ -112,6 +126,22 @@ public enum PrivacyPoolsSdkClient {
             artifactsRoot: artifactsRoot,
             proof: proof
         )
+    }
+
+    public static func jobStatus(jobId: String) throws -> FfiAsyncJobStatus {
+        try pollJobStatus(jobId: jobId)
+    }
+
+    public static func withdrawalProofJobResult(jobId: String) throws -> FfiProvingResult? {
+        try getProveWithdrawalJobResult(jobId: jobId)
+    }
+
+    public static func cancelBackgroundJob(jobId: String) throws -> Bool {
+        try cancelJob(jobId: jobId)
+    }
+
+    public static func removeBackgroundJob(jobId: String) throws -> Bool {
+        try removeJob(jobId: jobId)
     }
 
     public static func prepareWithdrawalExecution(
@@ -136,6 +166,34 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func startWithdrawalExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: UInt64,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ) throws -> FfiAsyncJobHandle {
+        try PrivacyPoolsSdk.startPrepareWithdrawalExecutionJob(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request,
+            chainId: chainId,
+            poolAddress: poolAddress,
+            rpcUrl: rpcUrl,
+            policy: policy
+        )
+    }
+
+    public static func withdrawalExecutionJobResult(
+        jobId: String
+    ) throws -> FfiPreparedTransactionExecution? {
+        try PrivacyPoolsSdk.getPrepareWithdrawalExecutionJobResult(jobId: jobId)
+    }
+
     public static func prepareRelayExecution(
         backendProfile: String,
         manifestJson: String,
@@ -158,6 +216,36 @@ public enum PrivacyPoolsSdkClient {
             rpcUrl: rpcUrl,
             policy: policy
         )
+    }
+
+    public static func startRelayExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: UInt64,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ) throws -> FfiAsyncJobHandle {
+        try PrivacyPoolsSdk.startPrepareRelayExecutionJob(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request,
+            chainId: chainId,
+            entrypointAddress: entrypointAddress,
+            poolAddress: poolAddress,
+            rpcUrl: rpcUrl,
+            policy: policy
+        )
+    }
+
+    public static func relayExecutionJobResult(
+        jobId: String
+    ) throws -> FfiPreparedTransactionExecution? {
+        try PrivacyPoolsSdk.getPrepareRelayExecutionJobResult(jobId: jobId)
     }
 
     public static func registerLocalMnemonicSigner(

@@ -3,6 +3,7 @@ package io.oxbow.privacypoolssdk
 import io.oxbow.privacypoolssdk.buildCircuitMerkleWitness as ffiBuildCircuitMerkleWitness
 import io.oxbow.privacypoolssdk.buildWithdrawalCircuitInput as ffiBuildWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.calculateWithdrawalContext as ffiCalculateWithdrawalContext
+import io.oxbow.privacypoolssdk.cancelJob as ffiCancelJob
 import io.oxbow.privacypoolssdk.checkpointRecovery as ffiCheckpointRecovery
 import io.oxbow.privacypoolssdk.deriveMasterKeys as ffiDeriveMasterKeys
 import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
@@ -14,6 +15,9 @@ import io.oxbow.privacypoolssdk.formatGroth16ProofBundle as ffiFormatGroth16Proo
 import io.oxbow.privacypoolssdk.generateMerkleProof as ffiGenerateMerkleProof
 import io.oxbow.privacypoolssdk.getArtifactStatuses as ffiGetArtifactStatuses
 import io.oxbow.privacypoolssdk.getCommitment as ffiGetCommitment
+import io.oxbow.privacypoolssdk.getPrepareRelayExecutionJobResult as ffiGetPrepareRelayExecutionJobResult
+import io.oxbow.privacypoolssdk.getPrepareWithdrawalExecutionJobResult as ffiGetPrepareWithdrawalExecutionJobResult
+import io.oxbow.privacypoolssdk.getProveWithdrawalJobResult as ffiGetProveWithdrawalJobResult
 import io.oxbow.privacypoolssdk.getStableBackendName as ffiGetStableBackendName
 import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
 import io.oxbow.privacypoolssdk.isCurrentStateRoot as ffiIsCurrentStateRoot
@@ -21,6 +25,7 @@ import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
 import io.oxbow.privacypoolssdk.planRelayTransaction as ffiPlanRelayTransaction
 import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTransaction
+import io.oxbow.privacypoolssdk.pollJobStatus as ffiPollJobStatus
 import io.oxbow.privacypoolssdk.prepareRelayExecution as ffiPrepareRelayExecution
 import io.oxbow.privacypoolssdk.prepareWithdrawalExecution as ffiPrepareWithdrawalExecution
 import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
@@ -28,6 +33,10 @@ import io.oxbow.privacypoolssdk.registerHostProvidedSigner as ffiRegisterHostPro
 import io.oxbow.privacypoolssdk.registerLocalMnemonicSigner as ffiRegisterLocalMnemonicSigner
 import io.oxbow.privacypoolssdk.registerMobileSecureStorageSigner as ffiRegisterMobileSecureStorageSigner
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
+import io.oxbow.privacypoolssdk.removeJob as ffiRemoveJob
+import io.oxbow.privacypoolssdk.startPrepareRelayExecutionJob as ffiStartPrepareRelayExecutionJob
+import io.oxbow.privacypoolssdk.startPrepareWithdrawalExecutionJob as ffiStartPrepareWithdrawalExecutionJob
+import io.oxbow.privacypoolssdk.startProveWithdrawalJob as ffiStartProveWithdrawalJob
 import io.oxbow.privacypoolssdk.submitPreparedTransaction as ffiSubmitPreparedTransaction
 import io.oxbow.privacypoolssdk.submitSignedTransaction as ffiSubmitSignedTransaction
 import io.oxbow.privacypoolssdk.unregisterSigner as ffiUnregisterSigner
@@ -100,6 +109,15 @@ object PrivacyPoolsSdk {
         ffiProveWithdrawal(backendProfile, manifestJson, artifactsRoot, request)
 
     @Throws(FfiException::class)
+    fun startProveWithdrawalJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+    ): FfiAsyncJobHandle =
+        ffiStartProveWithdrawalJob(backendProfile, manifestJson, artifactsRoot, request)
+
+    @Throws(FfiException::class)
     fun verifyWithdrawalProof(
         backendProfile: String,
         manifestJson: String,
@@ -107,6 +125,19 @@ object PrivacyPoolsSdk {
         proof: FfiProofBundle,
     ): Boolean =
         ffiVerifyWithdrawalProof(backendProfile, manifestJson, artifactsRoot, proof)
+
+    @Throws(FfiException::class)
+    fun pollJobStatus(jobId: String): FfiAsyncJobStatus = ffiPollJobStatus(jobId)
+
+    @Throws(FfiException::class)
+    fun getProveWithdrawalJobResult(jobId: String): FfiProvingResult? =
+        ffiGetProveWithdrawalJobResult(jobId)
+
+    @Throws(FfiException::class)
+    fun cancelJob(jobId: String): Boolean = ffiCancelJob(jobId)
+
+    @Throws(FfiException::class)
+    fun removeJob(jobId: String): Boolean = ffiRemoveJob(jobId)
 
     @Throws(FfiException::class)
     fun prepareWithdrawalExecution(
@@ -131,6 +162,33 @@ object PrivacyPoolsSdk {
         )
 
     @Throws(FfiException::class)
+    fun startPrepareWithdrawalExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: ULong,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ): FfiAsyncJobHandle =
+        ffiStartPrepareWithdrawalExecutionJob(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            poolAddress,
+            rpcUrl,
+            policy,
+        )
+
+    @Throws(FfiException::class)
+    fun getPrepareWithdrawalExecutionJobResult(
+        jobId: String,
+    ): FfiPreparedTransactionExecution? = ffiGetPrepareWithdrawalExecutionJobResult(jobId)
+
+    @Throws(FfiException::class)
     fun prepareRelayExecution(
         backendProfile: String,
         manifestJson: String,
@@ -153,6 +211,35 @@ object PrivacyPoolsSdk {
             rpcUrl,
             policy,
         )
+
+    @Throws(FfiException::class)
+    fun startPrepareRelayExecutionJob(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+        chainId: ULong,
+        entrypointAddress: String,
+        poolAddress: String,
+        rpcUrl: String,
+        policy: FfiExecutionPolicy,
+    ): FfiAsyncJobHandle =
+        ffiStartPrepareRelayExecutionJob(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            entrypointAddress,
+            poolAddress,
+            rpcUrl,
+            policy,
+        )
+
+    @Throws(FfiException::class)
+    fun getPrepareRelayExecutionJobResult(
+        jobId: String,
+    ): FfiPreparedTransactionExecution? = ffiGetPrepareRelayExecutionJobResult(jobId)
 
     @Throws(FfiException::class)
     fun registerLocalMnemonicSigner(

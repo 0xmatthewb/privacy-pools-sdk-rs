@@ -18,7 +18,10 @@ use std::{
     future::Future,
     path::PathBuf,
     str::FromStr,
-    sync::{LazyLock, RwLock},
+    sync::{
+        Arc, LazyLock, Mutex, RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -37,6 +40,8 @@ pub enum FfiError {
     InvalidCompatibilityMode(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
+    #[error("job handle not found: {0}")]
+    JobNotFound(String),
     #[error("signer handle requires external signing: {0}")]
     SignerRequiresExternalSigning(String),
     #[error("artifact manifest parse failed: {0}")]
@@ -319,6 +324,22 @@ pub struct FfiRecoveryCheckpoint {
     pub commitments_seen: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiAsyncJobHandle {
+    pub job_id: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiAsyncJobStatus {
+    pub job_id: String,
+    pub kind: String,
+    pub state: String,
+    pub stage: Option<String>,
+    pub error: Option<String>,
+    pub cancel_requested: bool,
+}
+
 fn sdk() -> PrivacyPoolsSdk {
     PrivacyPoolsSdk::default()
 }
@@ -327,6 +348,55 @@ fn sdk() -> PrivacyPoolsSdk {
 enum RegisteredSigner {
     LocalMnemonic(LocalMnemonicSigner),
     External(ExternalSigner),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackgroundJobKind {
+    ProveWithdrawal,
+    PrepareWithdrawalExecution,
+    PrepareRelayExecution,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackgroundJobState {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone)]
+enum BackgroundJobResult {
+    Proving(Box<FfiProvingResult>),
+    PreparedExecution(Box<FfiPreparedTransactionExecution>),
+}
+
+#[derive(Debug)]
+struct BackgroundJobEntry {
+    kind: BackgroundJobKind,
+    state: BackgroundJobState,
+    stage: Option<String>,
+    error: Option<String>,
+    cancel_requested: bool,
+    result: Option<BackgroundJobResult>,
+}
+
+#[derive(Debug, Clone)]
+struct PrepareWithdrawalJobConfig {
+    chain_id: u64,
+    pool_address: Address,
+    rpc_url: String,
+    policy: ExecutionPolicy,
+}
+
+#[derive(Debug, Clone)]
+struct PrepareRelayJobConfig {
+    chain_id: u64,
+    entrypoint_address: Address,
+    pool_address: Address,
+    rpc_url: String,
+    policy: ExecutionPolicy,
 }
 
 impl RegisteredSigner {
@@ -359,6 +429,9 @@ impl RegisteredSigner {
 }
 
 static SIGNER_REGISTRY: LazyLock<RwLock<HashMap<String, RegisteredSigner>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static JOB_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
+static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<Mutex<BackgroundJobEntry>>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 fn parse_address(value: &str) -> Result<Address, FfiError> {
@@ -467,6 +540,24 @@ fn signer_kind_label(kind: SignerKind) -> String {
     }
 }
 
+fn background_job_kind_label(kind: BackgroundJobKind) -> String {
+    match kind {
+        BackgroundJobKind::ProveWithdrawal => "prove_withdrawal".to_owned(),
+        BackgroundJobKind::PrepareWithdrawalExecution => "prepare_withdrawal_execution".to_owned(),
+        BackgroundJobKind::PrepareRelayExecution => "prepare_relay_execution".to_owned(),
+    }
+}
+
+fn background_job_state_label(state: BackgroundJobState) -> String {
+    match state {
+        BackgroundJobState::Queued => "queued".to_owned(),
+        BackgroundJobState::Running => "running".to_owned(),
+        BackgroundJobState::Completed => "completed".to_owned(),
+        BackgroundJobState::Failed => "failed".to_owned(),
+        BackgroundJobState::Cancelled => "cancelled".to_owned(),
+    }
+}
+
 fn field_label(value: U256) -> String {
     value.to_string()
 }
@@ -475,14 +566,18 @@ fn hash_label(value: B256) -> String {
     value.to_string()
 }
 
+fn build_runtime() -> Result<tokio::runtime::Runtime, FfiError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
 fn block_on_sdk<F, T>(future: F) -> Result<T, FfiError>
 where
     F: Future<Output = Result<T, privacy_pools_sdk::SdkError>>,
 {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let runtime = build_runtime()?;
 
     runtime
         .block_on(future)
@@ -513,6 +608,216 @@ fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
         .get(handle)
         .cloned()
         .ok_or_else(|| FfiError::SignerNotFound(handle.to_owned()))
+}
+
+fn register_job(
+    kind: BackgroundJobKind,
+) -> Result<(FfiAsyncJobHandle, Arc<Mutex<BackgroundJobEntry>>), FfiError> {
+    let job_id = format!("job-{}", JOB_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let entry = Arc::new(Mutex::new(BackgroundJobEntry {
+        kind,
+        state: BackgroundJobState::Queued,
+        stage: None,
+        error: None,
+        cancel_requested: false,
+        result: None,
+    }));
+    let handle = FfiAsyncJobHandle {
+        job_id: job_id.clone(),
+        kind: background_job_kind_label(kind),
+    };
+    let mut registry = JOB_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry.insert(job_id, Arc::clone(&entry));
+    Ok((handle, entry))
+}
+
+fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> {
+    let registry = JOB_REGISTRY
+        .read()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry
+        .get(job_id)
+        .cloned()
+        .ok_or_else(|| FfiError::JobNotFound(job_id.to_owned()))
+}
+
+fn set_job_stage(entry: &Arc<Mutex<BackgroundJobEntry>>, stage: impl Into<String>) {
+    if let Ok(mut entry) = entry.lock() {
+        entry.state = BackgroundJobState::Running;
+        entry.stage = Some(stage.into());
+        entry.error = None;
+    }
+}
+
+fn job_cancel_requested(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+    entry
+        .lock()
+        .map(|entry| entry.cancel_requested)
+        .unwrap_or(false)
+}
+
+fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<(), FfiError> {
+    if job_cancel_requested(entry) {
+        Err(FfiError::OperationFailed("job cancelled".to_owned()))
+    } else {
+        Ok(())
+    }
+}
+
+fn complete_job(entry: &Arc<Mutex<BackgroundJobEntry>>, result: BackgroundJobResult) {
+    if let Ok(mut entry) = entry.lock() {
+        if entry.cancel_requested {
+            entry.state = BackgroundJobState::Cancelled;
+            entry.stage = None;
+            entry.result = None;
+            entry.error = None;
+            return;
+        }
+
+        entry.state = BackgroundJobState::Completed;
+        entry.stage = None;
+        entry.error = None;
+        entry.result = Some(result);
+    }
+}
+
+fn fail_job(entry: &Arc<Mutex<BackgroundJobEntry>>, error: impl Into<String>) {
+    if let Ok(mut entry) = entry.lock() {
+        if entry.cancel_requested {
+            entry.state = BackgroundJobState::Cancelled;
+            entry.stage = None;
+            entry.error = None;
+            entry.result = None;
+            return;
+        }
+
+        entry.state = BackgroundJobState::Failed;
+        entry.stage = None;
+        entry.error = Some(error.into());
+        entry.result = None;
+    }
+}
+
+fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+    if let Ok(mut entry) = entry.lock() {
+        if matches!(
+            entry.state,
+            BackgroundJobState::Completed
+                | BackgroundJobState::Failed
+                | BackgroundJobState::Cancelled
+        ) {
+            return false;
+        }
+
+        entry.cancel_requested = true;
+        if matches!(entry.state, BackgroundJobState::Queued) {
+            entry.state = BackgroundJobState::Cancelled;
+            entry.stage = None;
+            entry.error = None;
+            entry.result = None;
+        }
+        return true;
+    }
+
+    false
+}
+
+fn remove_job_entry(job_id: &str) -> Result<bool, FfiError> {
+    let mut registry = JOB_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    Ok(registry.remove(job_id).is_some())
+}
+
+fn poll_job(job_id: &str) -> Result<FfiAsyncJobStatus, FfiError> {
+    let entry = lookup_job(job_id)?;
+    let entry = entry
+        .lock()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    Ok(FfiAsyncJobStatus {
+        job_id: job_id.to_owned(),
+        kind: background_job_kind_label(entry.kind),
+        state: background_job_state_label(entry.state),
+        stage: entry.stage.clone(),
+        error: entry.error.clone(),
+        cancel_requested: entry.cancel_requested,
+    })
+}
+
+fn spawn_background_job<F>(
+    kind: BackgroundJobKind,
+    worker: F,
+) -> Result<FfiAsyncJobHandle, FfiError>
+where
+    F: FnOnce(Arc<Mutex<BackgroundJobEntry>>) -> Result<BackgroundJobResult, FfiError>
+        + Send
+        + 'static,
+{
+    let (handle, entry) = register_job(kind)?;
+    std::thread::spawn({
+        let entry = Arc::clone(&entry);
+        move || {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if job_cancel_requested(&entry) {
+                    return Err(FfiError::OperationFailed("job cancelled".to_owned()));
+                }
+
+                worker(Arc::clone(&entry))
+            }));
+
+            match outcome {
+                Ok(Ok(result)) => complete_job(&entry, result),
+                Ok(Err(error)) => fail_job(&entry, error.to_string()),
+                Err(_) => fail_job(&entry, "background job panicked"),
+            }
+        }
+    });
+
+    Ok(handle)
+}
+
+fn proving_job_result(job_id: &str) -> Result<Option<FfiProvingResult>, FfiError> {
+    let entry = lookup_job(job_id)?;
+    let entry = entry
+        .lock()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    if entry.kind != BackgroundJobKind::ProveWithdrawal {
+        return Err(FfiError::OperationFailed(format!(
+            "job {job_id} is {}, not prove_withdrawal",
+            background_job_kind_label(entry.kind)
+        )));
+    }
+
+    Ok(match &entry.result {
+        Some(BackgroundJobResult::Proving(result)) => Some((**result).clone()),
+        _ => None,
+    })
+}
+
+fn prepared_execution_job_result(
+    job_id: &str,
+    expected_kind: BackgroundJobKind,
+) -> Result<Option<FfiPreparedTransactionExecution>, FfiError> {
+    let entry = lookup_job(job_id)?;
+    let entry = entry
+        .lock()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    if entry.kind != expected_kind {
+        return Err(FfiError::OperationFailed(format!(
+            "job {job_id} is {}, not {}",
+            background_job_kind_label(entry.kind),
+            background_job_kind_label(expected_kind)
+        )));
+    }
+
+    Ok(match &entry.result {
+        Some(BackgroundJobResult::PreparedExecution(result)) => Some((**result).clone()),
+        _ => None,
+    })
 }
 
 fn finalize_for_signer_handle(
@@ -1136,6 +1441,174 @@ fn from_ffi_pool_events(events: Vec<FfiPoolEvent>) -> Result<Vec<PoolEvent>, Ffi
         .collect()
 }
 
+fn prove_withdrawal_background(
+    entry: Arc<Mutex<BackgroundJobEntry>>,
+    profile: BackendProfile,
+    manifest: ArtifactManifest,
+    artifacts_root: PathBuf,
+    request: WithdrawalWitnessRequest,
+) -> Result<BackgroundJobResult, FfiError> {
+    set_job_stage(&entry, "preparing_request");
+    ensure_job_not_cancelled(&entry)?;
+    let proving_request = sdk()
+        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "proving");
+    ensure_job_not_cancelled(&entry)?;
+    let result = sdk()
+        .proving_engine(profile)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .prove_with_compiled_witness(&proving_request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    ensure_job_not_cancelled(&entry)?;
+    Ok(BackgroundJobResult::Proving(Box::new(
+        to_ffi_proving_result(result),
+    )))
+}
+
+fn prepare_withdrawal_execution_background(
+    entry: Arc<Mutex<BackgroundJobEntry>>,
+    profile: BackendProfile,
+    manifest: ArtifactManifest,
+    artifacts_root: PathBuf,
+    request: WithdrawalWitnessRequest,
+    config: PrepareWithdrawalJobConfig,
+) -> Result<BackgroundJobResult, FfiError> {
+    set_job_stage(&entry, "preparing_request");
+    ensure_job_not_cancelled(&entry)?;
+    let proving_request = sdk()
+        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "proving");
+    ensure_job_not_cancelled(&entry)?;
+    let proving = sdk()
+        .proving_engine(profile)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .prove_with_compiled_witness(&proving_request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "verifying");
+    ensure_job_not_cancelled(&entry)?;
+    if !sdk()
+        .verify_withdrawal_proof(profile, &manifest, &artifacts_root, &proving.proof)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+    {
+        return Err(FfiError::OperationFailed(
+            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
+        ));
+    }
+
+    set_job_stage(&entry, "planning");
+    ensure_job_not_cancelled(&entry)?;
+    let transaction = sdk()
+        .plan_withdrawal_transaction(
+            config.chain_id,
+            config.pool_address,
+            &request.withdrawal,
+            &proving.proof,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "preflight");
+    ensure_job_not_cancelled(&entry)?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let runtime = build_runtime()?;
+    let preflight = runtime
+        .block_on(privacy_pools_sdk::chain::preflight_withdrawal(
+            &client,
+            &transaction,
+            config.pool_address,
+            request.state_witness.root,
+            &config.policy,
+        ))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    ensure_job_not_cancelled(&entry)?;
+    Ok(BackgroundJobResult::PreparedExecution(Box::new(
+        to_ffi_prepared_execution(PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        }),
+    )))
+}
+
+fn prepare_relay_execution_background(
+    entry: Arc<Mutex<BackgroundJobEntry>>,
+    profile: BackendProfile,
+    manifest: ArtifactManifest,
+    artifacts_root: PathBuf,
+    request: WithdrawalWitnessRequest,
+    config: PrepareRelayJobConfig,
+) -> Result<BackgroundJobResult, FfiError> {
+    set_job_stage(&entry, "preparing_request");
+    ensure_job_not_cancelled(&entry)?;
+    let proving_request = sdk()
+        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "proving");
+    ensure_job_not_cancelled(&entry)?;
+    let proving = sdk()
+        .proving_engine(profile)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .prove_with_compiled_witness(&proving_request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "verifying");
+    ensure_job_not_cancelled(&entry)?;
+    if !sdk()
+        .verify_withdrawal_proof(profile, &manifest, &artifacts_root, &proving.proof)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+    {
+        return Err(FfiError::OperationFailed(
+            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
+        ));
+    }
+
+    set_job_stage(&entry, "planning");
+    ensure_job_not_cancelled(&entry)?;
+    let transaction = sdk()
+        .plan_relay_transaction(
+            config.chain_id,
+            config.entrypoint_address,
+            &request.withdrawal,
+            &proving.proof,
+            request.scope,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "preflight");
+    ensure_job_not_cancelled(&entry)?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let runtime = build_runtime()?;
+    let preflight = runtime
+        .block_on(privacy_pools_sdk::chain::preflight_relay(
+            &client,
+            &transaction,
+            config.entrypoint_address,
+            config.pool_address,
+            request.state_witness.root,
+            request.asp_witness.root,
+            &config.policy,
+        ))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    ensure_job_not_cancelled(&entry)?;
+    Ok(BackgroundJobResult::PreparedExecution(Box::new(
+        to_ffi_prepared_execution(PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        }),
+    )))
+}
+
 uniffi::setup_scaffolding!();
 
 #[uniffi::export]
@@ -1270,6 +1743,24 @@ pub fn build_withdrawal_circuit_input(
 }
 
 #[uniffi::export]
+pub fn start_prove_withdrawal_job(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<FfiAsyncJobHandle, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let profile = parse_backend_profile(&backend_profile)?;
+    let request = from_ffi_withdrawal_witness_request(request)?;
+    let artifacts_root = PathBuf::from(artifacts_root);
+
+    spawn_background_job(BackgroundJobKind::ProveWithdrawal, move |entry| {
+        prove_withdrawal_background(entry, profile, manifest, artifacts_root, request)
+    })
+}
+
+#[uniffi::export]
 pub fn prove_withdrawal(
     backend_profile: String,
     manifest_json: String,
@@ -1291,6 +1782,29 @@ pub fn prove_withdrawal(
 }
 
 #[uniffi::export]
+pub fn poll_job_status(job_id: String) -> Result<FfiAsyncJobStatus, FfiError> {
+    poll_job(&job_id)
+}
+
+#[uniffi::export]
+pub fn get_prove_withdrawal_job_result(
+    job_id: String,
+) -> Result<Option<FfiProvingResult>, FfiError> {
+    proving_job_result(&job_id)
+}
+
+#[uniffi::export]
+pub fn cancel_job(job_id: String) -> Result<bool, FfiError> {
+    let entry = lookup_job(&job_id)?;
+    Ok(cancel_job_entry(&entry))
+}
+
+#[uniffi::export]
+pub fn remove_job(job_id: String) -> Result<bool, FfiError> {
+    remove_job_entry(&job_id)
+}
+
+#[uniffi::export]
 pub fn verify_withdrawal_proof(
     backend_profile: String,
     manifest_json: String,
@@ -1308,6 +1822,54 @@ pub fn verify_withdrawal_proof(
             &from_ffi_proof_bundle(proof)?,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn start_prepare_withdrawal_execution_job(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+    chain_id: u64,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+) -> Result<FfiAsyncJobHandle, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let profile = parse_backend_profile(&backend_profile)?;
+    let request = from_ffi_withdrawal_witness_request(request)?;
+    let pool_address = parse_address(&pool_address)?;
+    let policy = from_ffi_execution_policy(policy)?;
+    let artifacts_root = PathBuf::from(artifacts_root);
+    let config = PrepareWithdrawalJobConfig {
+        chain_id,
+        pool_address,
+        rpc_url,
+        policy,
+    };
+
+    spawn_background_job(
+        BackgroundJobKind::PrepareWithdrawalExecution,
+        move |entry| {
+            prepare_withdrawal_execution_background(
+                entry,
+                profile,
+                manifest,
+                artifacts_root,
+                request,
+                config,
+            )
+        },
+    )
+}
+
+#[uniffi::export]
+pub fn get_prepare_withdrawal_execution_job_result(
+    job_id: String,
+) -> Result<Option<FfiPreparedTransactionExecution>, FfiError> {
+    prepared_execution_job_result(&job_id, BackgroundJobKind::PrepareWithdrawalExecution)
 }
 
 #[uniffi::export]
@@ -1341,6 +1903,54 @@ pub fn prepare_withdrawal_execution(
             &client,
         ),
     )?))
+}
+
+#[uniffi::export]
+#[allow(clippy::too_many_arguments)]
+pub fn start_prepare_relay_execution_job(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+    chain_id: u64,
+    entrypoint_address: String,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+) -> Result<FfiAsyncJobHandle, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let profile = parse_backend_profile(&backend_profile)?;
+    let request = from_ffi_withdrawal_witness_request(request)?;
+    let entrypoint_address = parse_address(&entrypoint_address)?;
+    let pool_address = parse_address(&pool_address)?;
+    let policy = from_ffi_execution_policy(policy)?;
+    let artifacts_root = PathBuf::from(artifacts_root);
+    let config = PrepareRelayJobConfig {
+        chain_id,
+        entrypoint_address,
+        pool_address,
+        rpc_url,
+        policy,
+    };
+
+    spawn_background_job(BackgroundJobKind::PrepareRelayExecution, move |entry| {
+        prepare_relay_execution_background(
+            entry,
+            profile,
+            manifest,
+            artifacts_root,
+            request,
+            config,
+        )
+    })
+}
+
+#[uniffi::export]
+pub fn get_prepare_relay_execution_job_result(
+    job_id: String,
+) -> Result<Option<FfiPreparedTransactionExecution>, FfiError> {
+    prepared_execution_job_result(&job_id, BackgroundJobKind::PrepareRelayExecution)
 }
 
 #[uniffi::export]
@@ -1635,6 +2245,7 @@ pub fn checkpoint_recovery(
 mod tests {
     use super::*;
     use serde_json::Value;
+    use std::time::Duration;
 
     fn vector() -> Value {
         serde_json::from_str(include_str!(
@@ -2113,5 +2724,117 @@ mod tests {
 
         assert!(unregister_signer("host-wallet".to_owned()).unwrap());
         assert!(unregister_signer("mobile-wallet".to_owned()).unwrap());
+    }
+
+    fn dummy_proving_result() -> FfiProvingResult {
+        FfiProvingResult {
+            backend: "arkworks".to_owned(),
+            proof: FfiProofBundle {
+                proof: FfiSnarkJsProof {
+                    pi_a: vec!["1".to_owned(), "2".to_owned()],
+                    pi_b: vec![
+                        vec!["3".to_owned(), "4".to_owned()],
+                        vec!["5".to_owned(), "6".to_owned()],
+                    ],
+                    pi_c: vec!["7".to_owned(), "8".to_owned()],
+                    protocol: "groth16".to_owned(),
+                    curve: "bn128".to_owned(),
+                },
+                public_signals: vec!["9".to_owned(); 8],
+            },
+        }
+    }
+
+    #[test]
+    fn ffi_background_jobs_report_status_results_and_cancellation() {
+        let proving_handle =
+            spawn_background_job(BackgroundJobKind::ProveWithdrawal, move |entry| {
+                set_job_stage(&entry, "proving");
+                std::thread::sleep(Duration::from_millis(25));
+                ensure_job_not_cancelled(&entry)?;
+                Ok(BackgroundJobResult::Proving(Box::new(
+                    dummy_proving_result(),
+                )))
+            })
+            .unwrap();
+
+        let mut proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
+        for _ in 0..20 {
+            if proving_status.state == "completed" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
+        }
+        assert_eq!(proving_status.kind, "prove_withdrawal");
+        assert_eq!(proving_status.state, "completed");
+        assert!(
+            get_prove_withdrawal_job_result(proving_handle.job_id.clone())
+                .unwrap()
+                .is_some()
+        );
+        assert!(remove_job(proving_handle.job_id).unwrap());
+
+        let cancelled_handle = spawn_background_job(
+            BackgroundJobKind::PrepareWithdrawalExecution,
+            move |entry| {
+                set_job_stage(&entry, "preparing_request");
+                std::thread::sleep(Duration::from_millis(40));
+                ensure_job_not_cancelled(&entry)?;
+                Ok(BackgroundJobResult::PreparedExecution(Box::new(
+                    FfiPreparedTransactionExecution {
+                        proving: dummy_proving_result(),
+                        transaction: FfiTransactionPlan {
+                            kind: "withdraw".to_owned(),
+                            chain_id: 1,
+                            target: "0x1111111111111111111111111111111111111111".to_owned(),
+                            calldata: "0x".to_owned(),
+                            value: "0".to_owned(),
+                            proof: FfiFormattedGroth16Proof {
+                                p_a: vec!["1".to_owned(), "2".to_owned()],
+                                p_b: vec![
+                                    vec!["3".to_owned(), "4".to_owned()],
+                                    vec!["5".to_owned(), "6".to_owned()],
+                                ],
+                                p_c: vec!["7".to_owned(), "8".to_owned()],
+                                pub_signals: vec!["9".to_owned(); 8],
+                            },
+                        },
+                        preflight: FfiExecutionPreflightReport {
+                            kind: "withdraw".to_owned(),
+                            caller: "0x1111111111111111111111111111111111111111".to_owned(),
+                            target: "0x1111111111111111111111111111111111111111".to_owned(),
+                            expected_chain_id: 1,
+                            actual_chain_id: 1,
+                            chain_id_matches: true,
+                            simulated: true,
+                            estimated_gas: 42_000,
+                            code_hash_checks: vec![],
+                            root_checks: vec![],
+                        },
+                    },
+                )))
+            },
+        )
+        .unwrap();
+
+        assert!(cancel_job(cancelled_handle.job_id.clone()).unwrap());
+        let mut cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
+        for _ in 0..20 {
+            if cancelled_status.state == "cancelled" {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
+        }
+        assert_eq!(cancelled_status.kind, "prepare_withdrawal_execution");
+        assert_eq!(cancelled_status.state, "cancelled");
+        assert!(cancelled_status.cancel_requested);
+        assert!(
+            get_prepare_withdrawal_execution_job_result(cancelled_handle.job_id.clone())
+                .unwrap()
+                .is_none()
+        );
+        assert!(remove_job(cancelled_handle.job_id).unwrap());
     }
 }

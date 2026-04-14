@@ -12,6 +12,7 @@ Current package status:
 - classic iOS/Android bridge modules are scaffolded against the generated Swift/Kotlin bindings
 - withdraw proof generation and local proof verification are delegated to native Rust-backed bindings
 - prepared withdraw/relay execution preflight is delegated to native Rust-backed bindings
+- long-running proof/execution work can be started as native Rust-backed jobs and observed with explicit status polling, typed result retrieval, and best-effort cancellation
 - signer registration for `local_dev`, `host_provided`, and `mobile_secure_storage` flows is delegated to native Rust-backed bindings
 - signer-aware finalized transaction preparation for host/native signers is delegated to native Rust-backed bindings
 - validated signed-transaction submission is delegated to native Rust-backed bindings

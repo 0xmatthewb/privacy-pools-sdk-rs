@@ -243,6 +243,20 @@ type RecoveryCheckpoint = {
   commitments_seen: number;
 };
 
+type AsyncJobHandle = {
+  job_id: string;
+  kind: string;
+};
+
+type AsyncJobStatus = {
+  job_id: string;
+  kind: string;
+  state: "queued" | "running" | "completed" | "failed" | "cancelled";
+  stage?: string | null;
+  error?: string | null;
+  cancel_requested: boolean;
+};
+
 export type NativePrivacyPoolsSdkModule = {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
@@ -284,12 +298,22 @@ export type NativePrivacyPoolsSdkModule = {
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
   ): Promise<ProvingResult>;
+  startProveWithdrawalJob(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+  ): Promise<AsyncJobHandle>;
   verifyWithdrawalProof(
     backendProfile: "stable" | "fast",
     manifestJson: string,
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
+  pollJobStatus(jobId: string): Promise<AsyncJobStatus>;
+  getProveWithdrawalJobResult(jobId: string): Promise<ProvingResult | null>;
+  cancelJob(jobId: string): Promise<boolean>;
+  removeJob(jobId: string): Promise<boolean>;
   prepareWithdrawalExecution(
     backendProfile: "stable" | "fast",
     manifestJson: string,
@@ -300,6 +324,19 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<PreparedTransactionExecution>;
+  startPrepareWithdrawalExecutionJob(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+    chainId: number,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+  ): Promise<AsyncJobHandle>;
+  getPrepareWithdrawalExecutionJobResult(
+    jobId: string,
+  ): Promise<PreparedTransactionExecution | null>;
   prepareRelayExecution(
     backendProfile: "stable" | "fast",
     manifestJson: string,
@@ -311,6 +348,20 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<PreparedTransactionExecution>;
+  startPrepareRelayExecutionJob(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+    chainId: number,
+    entrypointAddress: string,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+  ): Promise<AsyncJobHandle>;
+  getPrepareRelayExecutionJobResult(
+    jobId: string,
+  ): Promise<PreparedTransactionExecution | null>;
   registerLocalMnemonicSigner(
     handle: string,
     mnemonic: string,
@@ -484,6 +535,19 @@ export const proveWithdrawal = (
     request,
   );
 
+export const startProveWithdrawalJob = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+): Promise<AsyncJobHandle> =>
+  requireNativeModule().startProveWithdrawalJob(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+  );
+
 export const verifyWithdrawalProof = (
   backendProfile: "stable" | "fast",
   manifestJson: string,
@@ -496,6 +560,20 @@ export const verifyWithdrawalProof = (
     artifactsRoot,
     proof,
   );
+
+export const pollJobStatus = (jobId: string): Promise<AsyncJobStatus> =>
+  requireNativeModule().pollJobStatus(jobId);
+
+export const getProveWithdrawalJobResult = (
+  jobId: string,
+): Promise<ProvingResult | null> =>
+  requireNativeModule().getProveWithdrawalJobResult(jobId);
+
+export const cancelJob = (jobId: string): Promise<boolean> =>
+  requireNativeModule().cancelJob(jobId);
+
+export const removeJob = (jobId: string): Promise<boolean> =>
+  requireNativeModule().removeJob(jobId);
 
 export const prepareWithdrawalExecution = (
   backendProfile: "stable" | "fast",
@@ -517,6 +595,32 @@ export const prepareWithdrawalExecution = (
     rpcUrl,
     policy,
   );
+
+export const startPrepareWithdrawalExecutionJob = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): Promise<AsyncJobHandle> =>
+  requireNativeModule().startPrepareWithdrawalExecutionJob(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+  );
+
+export const getPrepareWithdrawalExecutionJobResult = (
+  jobId: string,
+): Promise<PreparedTransactionExecution | null> =>
+  requireNativeModule().getPrepareWithdrawalExecutionJobResult(jobId);
 
 export const prepareRelayExecution = (
   backendProfile: "stable" | "fast",
@@ -540,6 +644,34 @@ export const prepareRelayExecution = (
     rpcUrl,
     policy,
   );
+
+export const startPrepareRelayExecutionJob = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  entrypointAddress: string,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): Promise<AsyncJobHandle> =>
+  requireNativeModule().startPrepareRelayExecutionJob(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+    chainId,
+    entrypointAddress,
+    poolAddress,
+    rpcUrl,
+    policy,
+  );
+
+export const getPrepareRelayExecutionJobResult = (
+  jobId: string,
+): Promise<PreparedTransactionExecution | null> =>
+  requireNativeModule().getPrepareRelayExecutionJobResult(jobId);
 
 export const registerLocalMnemonicSigner = (
   handle: string,

@@ -62,10 +62,33 @@ RCT_EXTERN_METHOD(proveWithdrawal:(NSString *)backendProfile
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(startProveWithdrawalJob:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(verifyWithdrawalProof:(NSString *)backendProfile
                   manifestJson:(NSString *)manifestJson
                   artifactsRoot:(NSString *)artifactsRoot
                   proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(pollJobStatus:(NSString *)jobId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(getProveWithdrawalJobResult:(NSString *)jobId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(cancelJob:(NSString *)jobId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(removeJob:(NSString *)jobId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
@@ -80,6 +103,21 @@ RCT_EXTERN_METHOD(prepareWithdrawalExecution:(NSString *)backendProfile
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(startPrepareWithdrawalExecutionJob:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  chainId:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  rpcUrl:(NSString *)rpcUrl
+                  policy:(NSDictionary *)policy
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(getPrepareWithdrawalExecutionJobResult:(NSString *)jobId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(prepareRelayExecution:(NSString *)backendProfile
                   manifestJson:(NSString *)manifestJson
                   artifactsRoot:(NSString *)artifactsRoot
@@ -89,6 +127,22 @@ RCT_EXTERN_METHOD(prepareRelayExecution:(NSString *)backendProfile
                   poolAddress:(NSString *)poolAddress
                   rpcUrl:(NSString *)rpcUrl
                   policy:(NSDictionary *)policy
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(startPrepareRelayExecutionJob:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  chainId:(nonnull NSNumber *)chainId
+                  entrypointAddress:(NSString *)entrypointAddress
+                  poolAddress:(NSString *)poolAddress
+                  rpcUrl:(NSString *)rpcUrl
+                  policy:(NSDictionary *)policy
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(getPrepareRelayExecutionJobResult:(NSString *)jobId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

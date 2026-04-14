@@ -76,6 +76,9 @@ Implemented now:
   generation/verification, prepared execution helpers, finalized signing
   helpers, signer-handle based submission, signed submission, and transaction
   planning
+- additive mobile job APIs for long-running withdraw proof generation and
+  prepared withdraw/relay execution, with Rust-owned status polling,
+  best-effort cancellation, typed result retrieval, and explicit job cleanup
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
