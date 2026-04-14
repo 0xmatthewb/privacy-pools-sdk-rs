@@ -1,0 +1,18 @@
+[package]
+name = "privacy-pools-sdk-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["serde"] }
+hex.workspace = true
+privacy-pools-sdk = { path = "../privacy-pools-sdk" }
+serde_json.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true

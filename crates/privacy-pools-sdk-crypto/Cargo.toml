@@ -1,0 +1,19 @@
+[package]
+name = "privacy-pools-sdk-crypto"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-signer-local.workspace = true
+alloy-sol-types.workspace = true
+ark-bn254.workspace = true
+ark-ff.workspace = true
+privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+pso-poseidon.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

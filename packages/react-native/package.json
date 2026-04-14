@@ -1,0 +1,17 @@
+{
+  "name": "@0xbow/privacy-pools-sdk",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "description": "React Native bindings for the Rust-first Privacy Pools SDK",
+  "license": "Apache-2.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "react": ">=18",
+    "react-native": ">=0.79"
+  }
+}

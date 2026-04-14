@@ -1,0 +1,54 @@
+[workspace]
+members = [
+    "crates/privacy-pools-sdk",
+    "crates/privacy-pools-sdk-ffi",
+    "crates/privacy-pools-sdk-core",
+    "crates/privacy-pools-sdk-crypto",
+    "crates/privacy-pools-sdk-tree",
+    "crates/privacy-pools-sdk-artifacts",
+    "crates/privacy-pools-sdk-prover",
+    "crates/privacy-pools-sdk-chain",
+    "crates/privacy-pools-sdk-recovery",
+    "crates/privacy-pools-sdk-signer",
+    "crates/privacy-pools-sdk-cli",
+    "xtask",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.93"
+repository = "https://github.com/0xmatthewb/privacy-pools-sdk-rs"
+homepage = "https://github.com/0xmatthewb/privacy-pools-sdk-rs"
+authors = ["matthewb"]
+
+[workspace.dependencies]
+alloy-primitives = "1.5.7"
+alloy-signer-local = { version = "2.0.0", features = ["mnemonic", "zeroize"] }
+alloy-sol-types = "1.5.7"
+ark-bn254 = "0.5.0"
+ark-ff = "0.5.0"
+circom-prover = "0.1.4"
+hex = "0.4.3"
+num-bigint = "0.4.6"
+pso-poseidon = "0.2.0"
+secrecy = "0.10.3"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+thiserror = "2.0.17"
+tokio = { version = "1.51.1", features = ["macros", "rt-multi-thread"] }
+uniffi = { version = "0.31.1", features = ["cli"] }
+zeroize = { version = "1.8.2", features = ["derive"] }
+zk-kit-lean-imt = { version = "0.1.1", features = ["serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

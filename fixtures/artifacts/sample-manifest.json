@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0-alpha.1",
+  "artifacts": [
+    {
+      "circuit": "withdraw",
+      "kind": "wasm",
+      "filename": "sample-artifact.bin",
+      "sha256": "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+    }
+  ]
+}

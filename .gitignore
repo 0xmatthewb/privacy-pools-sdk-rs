@@ -1,0 +1,10 @@
+/target
+/Cargo.lock
+/node_modules
+/dist
+/coverage
+/.DS_Store
+/.idea
+/.vscode
+/bindings/ios/build
+/bindings/android/build

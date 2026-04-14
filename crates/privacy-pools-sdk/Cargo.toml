@@ -1,0 +1,18 @@
+[package]
+name = "privacy-pools-sdk"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["serde"] }
+privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-chain = { path = "../privacy-pools-sdk-chain" }
+privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
+privacy-pools-sdk-prover = { path = "../privacy-pools-sdk-prover" }
+privacy-pools-sdk-recovery = { path = "../privacy-pools-sdk-recovery" }
+privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
+privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
