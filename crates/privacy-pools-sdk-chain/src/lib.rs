@@ -31,6 +31,7 @@ sol! {
     }
 
     interface IPrivacyPool {
+        function ENTRYPOINT() external view returns (address);
         function currentRoot() external view returns (uint256);
         function currentRootIndex() external view returns (uint32);
         function roots(uint256 index) external view returns (uint256);
@@ -65,6 +66,8 @@ pub enum ChainError {
     InvalidRpcUrl(String),
     #[error("invalid root response length: expected at least 32 bytes, got {0}")]
     InvalidRootResponse(usize),
+    #[error("invalid address response word: {0}")]
+    InvalidAddressResponse(U256),
     #[error("planned transaction kind mismatch: expected {expected:?}, got {actual:?}")]
     UnexpectedTransactionKind {
         expected: TransactionKind,
@@ -459,6 +462,15 @@ pub fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> Root
     }
 }
 
+fn pool_entrypoint_read(pool_address: Address) -> RootRead {
+    RootRead {
+        kind: RootReadKind::PoolState,
+        contract_address: pool_address,
+        pool_address,
+        call_data: Bytes::from(IPrivacyPool::ENTRYPOINTCall {}.abi_encode()),
+    }
+}
+
 pub fn is_current_state_root(expected_root: U256, current_root: U256) -> bool {
     expected_root == current_root
 }
@@ -532,23 +544,39 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
     plan: &TransactionPlan,
     pool_address: Address,
     expected_state_root: U256,
+    expected_asp_root: U256,
     policy: &ExecutionPolicy,
 ) -> Result<ExecutionPreflightReport, ChainError> {
+    let entrypoint_address = read_pool_entrypoint_address(client, pool_address).await?;
+
     preflight_transaction(
         client,
         plan,
         TransactionKind::Withdraw,
         pool_address,
         policy,
-        vec![(
-            state_root_read(pool_address),
-            expected_state_root,
-            ChainError::StateRootMismatch {
-                expected: expected_state_root,
-                actual: expected_state_root,
-            },
-        )],
-        vec![(pool_address, policy.expected_pool_code_hash)],
+        vec![
+            (
+                state_root_read(pool_address),
+                expected_state_root,
+                ChainError::StateRootMismatch {
+                    expected: expected_state_root,
+                    actual: expected_state_root,
+                },
+            ),
+            (
+                asp_root_read(entrypoint_address, pool_address),
+                expected_asp_root,
+                ChainError::AspRootMismatch {
+                    expected: expected_asp_root,
+                    actual: expected_asp_root,
+                },
+            ),
+        ],
+        vec![
+            (pool_address, policy.expected_pool_code_hash),
+            (entrypoint_address, policy.expected_entrypoint_code_hash),
+        ],
     )
     .await
 }
@@ -894,6 +922,25 @@ fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
             .abi_encode(),
         ),
     }
+}
+
+async fn read_pool_entrypoint_address<C: ExecutionClient>(
+    client: &C,
+    pool_address: Address,
+) -> Result<Address, ChainError> {
+    let encoded = client
+        .read_root(&pool_entrypoint_read(pool_address))
+        .await?;
+    decode_address_word(encoded)
+}
+
+fn decode_address_word(value: U256) -> Result<Address, ChainError> {
+    let bytes = value.to_be_bytes::<32>();
+    if bytes[..12].iter().any(|byte| *byte != 0) {
+        return Err(ChainError::InvalidAddressResponse(value));
+    }
+
+    Ok(Address::from_slice(&bytes[12..]))
 }
 
 async fn verify_known_pool_root<C: ExecutionClient>(
@@ -1427,6 +1474,358 @@ mod tests {
     #[tokio::test]
     async fn preflights_withdrawals_against_live_roots_and_code_hashes() {
         let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy)
+            .await
+            .unwrap();
+
+        assert_eq!(report.kind, TransactionKind::Withdraw);
+        assert!(report.chain_id_matches);
+        assert!(report.simulated);
+        assert_eq!(report.estimated_gas, 420_000);
+        assert_eq!(report.code_hash_checks.len(), 2);
+        assert_eq!(report.root_checks.len(), 2);
+        assert!(report.root_checks[0].matches);
+        assert!(report.root_checks[1].matches);
+    }
+
+    #[tokio::test]
+    async fn accepts_known_historical_state_roots_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
+                (
+                    (pool, current_root_index_read(pool).call_data),
+                    U256::from(3_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 3).call_data),
+                    U256::from(555_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 2).call_data),
+                    U256::from(444_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 1).call_data),
+                    U256::from(123_u64),
+                ),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    U256::from(111_u64),
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        let report =
+            preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), asp_root, &policy)
+                .await
+                .unwrap();
+
+        assert!(report.root_checks[0].matches);
+        assert_eq!(report.root_checks[0].expected_root, U256::from(123_u64));
+        assert_eq!(report.root_checks[0].actual_root, U256::from(123_u64));
+        assert!(report.root_checks[1].matches);
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_state_roots_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let mut roots = std::collections::HashMap::from([
+            (
+                (pool, pool_entrypoint_read(pool).call_data),
+                U256::from_be_slice(entrypoint.as_slice()),
+            ),
+            ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
+            (
+                (pool, current_root_index_read(pool).call_data),
+                U256::from(1_u64),
+            ),
+            (
+                (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                U256::from(999_u64),
+            ),
+        ]);
+        for index in 0..ROOT_HISTORY_SIZE {
+            roots.insert(
+                (pool, historical_state_root_read(pool, index).call_data),
+                U256::from(400_u64 + index as u64),
+            );
+        }
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots,
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(
+                &client,
+                &plan,
+                pool,
+                U256::from(123_u64),
+                U256::from(999_u64),
+                &policy
+            )
+            .await,
+            Err(ChainError::StateRootMismatch { expected, actual })
+                if expected == U256::from(123_u64) && actual == U256::from(555_u64)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_stale_asp_roots_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    U256::from(888_u64),
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(
+                &client,
+                &plan,
+                pool,
+                state_root,
+                U256::from(999_u64),
+                &policy
+            )
+            .await,
+            Err(ChainError::AspRootMismatch { expected, actual })
+                if expected == U256::from(999_u64) && actual == U256::from(888_u64)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_malformed_pool_entrypoint_words_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
         let state_root = U256::from(123_u64);
         let proof = ProofBundle {
             proof: privacy_pools_sdk_core::SnarkJsProof {
@@ -1457,159 +1856,10 @@ mod tests {
                 pool,
                 b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             )]),
-            roots: std::collections::HashMap::from([
-                ((pool, state_root_read(pool).call_data), state_root),
-                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
-                (
-                    (pool, historical_state_root_read(pool, 0).call_data),
-                    state_root,
-                ),
-            ]),
-            estimated_gas: 420_000,
-        };
-        let policy = ExecutionPolicy {
-            expected_chain_id: 1,
-            caller: address!("9999999999999999999999999999999999999999"),
-            expected_pool_code_hash: Some(b256!(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            )),
-            expected_entrypoint_code_hash: None,
-        };
-
-        let report = preflight_withdrawal(&client, &plan, pool, state_root, &policy)
-            .await
-            .unwrap();
-
-        assert_eq!(report.kind, TransactionKind::Withdraw);
-        assert!(report.chain_id_matches);
-        assert!(report.simulated);
-        assert_eq!(report.estimated_gas, 420_000);
-        assert_eq!(report.code_hash_checks.len(), 1);
-        assert_eq!(report.root_checks.len(), 1);
-        assert!(report.root_checks[0].matches);
-    }
-
-    #[tokio::test]
-    async fn accepts_known_historical_state_roots_during_withdrawal_preflight() {
-        let pool = address!("0987654321098765432109876543210987654321");
-        let proof = ProofBundle {
-            proof: privacy_pools_sdk_core::SnarkJsProof {
-                pi_a: ["123".to_owned(), "123".to_owned()],
-                pi_b: [
-                    ["69".to_owned(), "123".to_owned()],
-                    ["12".to_owned(), "123".to_owned()],
-                ],
-                pi_c: ["12".to_owned(), "828".to_owned()],
-                protocol: "groth16".to_owned(),
-                curve: "bn128".to_owned(),
-            },
-            public_signals: vec!["911".to_owned(); 8],
-        };
-        let plan = plan_withdrawal_transaction(
-            1,
-            pool,
-            &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
-                data: bytes!("1234"),
-            },
-            &proof,
-        )
-        .unwrap();
-        let client = MockExecutionClient {
-            chain_id: 1,
-            code_hashes: std::collections::HashMap::from([(
-                pool,
-                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            roots: std::collections::HashMap::from([(
+                (pool, pool_entrypoint_read(pool).call_data),
+                U256::MAX,
             )]),
-            roots: std::collections::HashMap::from([
-                ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
-                (
-                    (pool, current_root_index_read(pool).call_data),
-                    U256::from(3_u64),
-                ),
-                (
-                    (pool, historical_state_root_read(pool, 3).call_data),
-                    U256::from(555_u64),
-                ),
-                (
-                    (pool, historical_state_root_read(pool, 2).call_data),
-                    U256::from(444_u64),
-                ),
-                (
-                    (pool, historical_state_root_read(pool, 1).call_data),
-                    U256::from(123_u64),
-                ),
-                (
-                    (pool, historical_state_root_read(pool, 0).call_data),
-                    U256::from(111_u64),
-                ),
-            ]),
-            estimated_gas: 420_000,
-        };
-        let policy = ExecutionPolicy {
-            expected_chain_id: 1,
-            caller: address!("9999999999999999999999999999999999999999"),
-            expected_pool_code_hash: Some(b256!(
-                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            )),
-            expected_entrypoint_code_hash: None,
-        };
-
-        let report = preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), &policy)
-            .await
-            .unwrap();
-
-        assert!(report.root_checks[0].matches);
-        assert_eq!(report.root_checks[0].expected_root, U256::from(123_u64));
-        assert_eq!(report.root_checks[0].actual_root, U256::from(123_u64));
-    }
-
-    #[tokio::test]
-    async fn rejects_unknown_state_roots_during_withdrawal_preflight() {
-        let pool = address!("0987654321098765432109876543210987654321");
-        let proof = ProofBundle {
-            proof: privacy_pools_sdk_core::SnarkJsProof {
-                pi_a: ["123".to_owned(), "123".to_owned()],
-                pi_b: [
-                    ["69".to_owned(), "123".to_owned()],
-                    ["12".to_owned(), "123".to_owned()],
-                ],
-                pi_c: ["12".to_owned(), "828".to_owned()],
-                protocol: "groth16".to_owned(),
-                curve: "bn128".to_owned(),
-            },
-            public_signals: vec!["911".to_owned(); 8],
-        };
-        let plan = plan_withdrawal_transaction(
-            1,
-            pool,
-            &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
-                data: bytes!("1234"),
-            },
-            &proof,
-        )
-        .unwrap();
-        let mut roots = std::collections::HashMap::from([
-            ((pool, state_root_read(pool).call_data), U256::from(555_u64)),
-            (
-                (pool, current_root_index_read(pool).call_data),
-                U256::from(1_u64),
-            ),
-        ]);
-        for index in 0..ROOT_HISTORY_SIZE {
-            roots.insert(
-                (pool, historical_state_root_read(pool, index).call_data),
-                U256::from(400_u64 + index as u64),
-            );
-        }
-        let client = MockExecutionClient {
-            chain_id: 1,
-            code_hashes: std::collections::HashMap::from([(
-                pool,
-                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-            )]),
-            roots,
             estimated_gas: 420_000,
         };
         let policy = ExecutionPolicy {
@@ -1622,9 +1872,16 @@ mod tests {
         };
 
         assert!(matches!(
-            preflight_withdrawal(&client, &plan, pool, U256::from(123_u64), &policy).await,
-            Err(ChainError::StateRootMismatch { expected, actual })
-                if expected == U256::from(123_u64) && actual == U256::from(555_u64)
+            preflight_withdrawal(
+                &client,
+                &plan,
+                pool,
+                state_root,
+                U256::from(999_u64),
+                &policy
+            )
+            .await,
+            Err(ChainError::InvalidAddressResponse(value)) if value == U256::MAX
         ));
     }
 

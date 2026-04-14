@@ -94,8 +94,8 @@ const witness = {
   root: "18",
   leaf: commitment.hash,
   index: 0,
-  siblings: ["19", "20"],
-  depth: 32,
+  siblings: ["19", "20", ...Array.from({ length: 30 }, () => "0")],
+  depth: 2,
 };
 
 const merkleProof = {

@@ -1523,6 +1523,7 @@ fn prepare_withdrawal_execution_background(
             &transaction,
             config.pool_address,
             request.state_witness.root,
+            request.asp_witness.root,
             &config.policy,
         ))
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;

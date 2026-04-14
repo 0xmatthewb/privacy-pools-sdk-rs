@@ -66,7 +66,7 @@ pub fn to_circuit_witness(
     }
 
     let mut siblings = proof.siblings.clone();
-    siblings.resize(depth, U256::ZERO);
+    siblings.resize(DEFAULT_CIRCUIT_DEPTH, U256::ZERO);
 
     Ok(CircuitMerkleWitness {
         root: proof.root,
@@ -193,6 +193,33 @@ mod tests {
         assert!(
             witness
                 .siblings
+                .iter()
+                .all(|sibling| *sibling == U256::ZERO)
+        );
+    }
+
+    #[test]
+    fn pads_shallow_witnesses_to_protocol_depth() {
+        let proof = generate_merkle_proof(
+            &[
+                U256::from(11),
+                U256::from(22),
+                U256::from(33),
+                U256::from(44),
+                U256::from(55),
+            ],
+            U256::from(44),
+        )
+        .unwrap();
+
+        let shallow_depth = proof.siblings.len();
+        let witness = to_circuit_witness(&proof, shallow_depth).unwrap();
+
+        assert_eq!(witness.depth, shallow_depth);
+        assert_eq!(witness.siblings.len(), DEFAULT_CIRCUIT_DEPTH);
+        assert_eq!(&witness.siblings[..proof.siblings.len()], &proof.siblings);
+        assert!(
+            witness.siblings[proof.siblings.len()..]
                 .iter()
                 .all(|sibling| *sibling == U256::ZERO)
         );

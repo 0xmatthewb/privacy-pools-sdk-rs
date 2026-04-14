@@ -64,6 +64,8 @@ pub enum SdkError {
         depth: usize,
         max_depth: usize,
     },
+    #[error("merkle witness padding for `{name}` must be zero beyond depth {depth}")]
+    WitnessPaddingNotZero { name: &'static str, depth: usize },
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
         field: &'static str,
@@ -403,6 +405,7 @@ impl PrivacyPoolsSdk {
             &transaction,
             config.pool_address,
             request.state_witness.root,
+            request.asp_witness.root,
             &config.policy,
         )
         .await?;
@@ -609,13 +612,25 @@ fn validate_witness_shape(
         });
     }
 
-    if witness.siblings.len() != witness.depth {
+    if witness.siblings.len() != tree::DEFAULT_CIRCUIT_DEPTH {
         return Err(core::CoreError::InvalidWitnessShape {
             name,
-            expected: witness.depth,
+            expected: tree::DEFAULT_CIRCUIT_DEPTH,
             actual: witness.siblings.len(),
         }
         .into());
+    }
+
+    if witness
+        .siblings
+        .iter()
+        .skip(witness.depth)
+        .any(|sibling| !sibling.is_zero())
+    {
+        return Err(SdkError::WitnessPaddingNotZero {
+            name,
+            depth: witness.depth,
+        });
     }
 
     Ok(())
@@ -1141,6 +1156,108 @@ mod tests {
                 depth,
                 max_depth
             }) if name == "state" && depth == 33 && max_depth == 32
+        ));
+    }
+
+    #[test]
+    fn rejects_short_merkle_witness_arrays() {
+        let sdk = PrivacyPoolsSdk::default();
+        let request = core::WithdrawalWitnessRequest {
+            commitment: core::Commitment {
+                hash: U256::from(123_u64),
+                nullifier_hash: U256::from(55_u64),
+                preimage: core::CommitmentPreimage {
+                    value: U256::from(1_000_u64),
+                    label: U256::from(456_u64),
+                    precommitment: core::Precommitment {
+                        hash: U256::from(55_u64),
+                        nullifier: U256::from(66_u64),
+                        secret: U256::from(77_u64),
+                    },
+                },
+            },
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(789_u64),
+            withdrawal_amount: U256::from(400_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from(999_u64),
+                leaf: U256::from(123_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 3],
+                depth: 3,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(111_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+
+        assert!(matches!(
+            sdk.build_withdrawal_circuit_input(&request),
+            Err(SdkError::Core(core::CoreError::InvalidWitnessShape {
+                name,
+                expected,
+                actual
+            })) if name == "state" && expected == 32 && actual == 3
+        ));
+    }
+
+    #[test]
+    fn rejects_non_zero_merkle_padding() {
+        let sdk = PrivacyPoolsSdk::default();
+        let mut padded_siblings = vec![U256::ZERO; 32];
+        padded_siblings[3] = U256::from(999_u64);
+
+        let request = core::WithdrawalWitnessRequest {
+            commitment: core::Commitment {
+                hash: U256::from(123_u64),
+                nullifier_hash: U256::from(55_u64),
+                preimage: core::CommitmentPreimage {
+                    value: U256::from(1_000_u64),
+                    label: U256::from(456_u64),
+                    precommitment: core::Precommitment {
+                        hash: U256::from(55_u64),
+                        nullifier: U256::from(66_u64),
+                        secret: U256::from(77_u64),
+                    },
+                },
+            },
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(789_u64),
+            withdrawal_amount: U256::from(400_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from(999_u64),
+                leaf: U256::from(123_u64),
+                index: 0,
+                siblings: padded_siblings,
+                depth: 3,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(111_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 32,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+
+        assert!(matches!(
+            sdk.build_withdrawal_circuit_input(&request),
+            Err(SdkError::WitnessPaddingNotZero { name, depth })
+                if name == "state" && depth == 3
         ));
     }
 

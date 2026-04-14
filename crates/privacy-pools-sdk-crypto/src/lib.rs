@@ -153,6 +153,8 @@ fn master_keys_from_seeds(key1: U256, key2: U256) -> Result<MasterKeys, CryptoEr
 }
 
 fn legacy_seed_from_private_key(private_key: U256) -> Result<U256, CryptoError> {
+    // Match the shipped TS legacy recovery path exactly:
+    // bytesToNumber(privateKey) -> BigInt(number), including IEEE-754 precision loss.
     let as_number = private_key
         .to_string()
         .parse::<f64>()
@@ -301,5 +303,22 @@ mod tests {
         );
         assert_ne!(legacy_keys.master_nullifier, safe_keys.master_nullifier);
         assert_ne!(legacy_keys.master_secret, safe_keys.master_secret);
+    }
+
+    #[test]
+    fn matches_current_sdk_legacy_number_rounding() {
+        let private_key = U256::from_str(
+            "77814517325470205911140941194401928579557062014761831930645393041380819009408",
+        )
+        .unwrap();
+        let rounded = legacy_seed_from_private_key(private_key).unwrap();
+
+        assert_eq!(
+            rounded,
+            U256::from_str(
+                "77814517325470206090537488703115359743174939106526186048988649279981784924160"
+            )
+            .unwrap()
+        );
     }
 }
