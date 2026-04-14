@@ -19,6 +19,7 @@ fn run() -> Result<()> {
         Some("bindings") => generate_bindings(false),
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
+        Some("react-native-smoke") => react_native_smoke(),
         Some("release-check") => release_check(args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
             print_help();
@@ -38,6 +39,10 @@ fn print_help() {
     println!("                   stage package-local React Native bindings");
     println!(
         "                   flags: --release --with-ios-native --with-android-native --with-native"
+    );
+    println!("  react-native-smoke");
+    println!(
+        "                   install the packed RN package into the sample app and typecheck it"
     );
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
@@ -152,6 +157,53 @@ fn stage_react_native_package(args: Vec<String>) -> Result<()> {
     }
 
     println!("staged React Native package assets into packages/react-native");
+    Ok(())
+}
+
+fn react_native_smoke() -> Result<()> {
+    let workspace_root = workspace_root()?;
+    stage_react_native_package(Vec::new())?;
+
+    let smoke_root = workspace_root.join("target/react-native-smoke");
+    let app_template_root = workspace_root.join("examples/react-native-smoke");
+    let app_root = smoke_root.join("app");
+    let npm_cache_root = smoke_root.join(".npm-cache");
+
+    stage_directory(&app_template_root, &app_root)?;
+    fs::create_dir_all(&npm_cache_root)
+        .with_context(|| format!("failed to create {}", npm_cache_root))?;
+
+    let package_tarball =
+        pack_npm_package(&workspace_root.join("packages/react-native"), &smoke_root)?;
+
+    run_command_with_env(
+        "npm",
+        &["install", "--no-package-lock", "--ignore-scripts"],
+        &app_root,
+        &[("npm_config_cache", npm_cache_root.as_str())],
+        "failed to install React Native smoke-app dependencies",
+    )?;
+    run_command_with_env(
+        "npm",
+        &[
+            "install",
+            "--no-package-lock",
+            "--ignore-scripts",
+            "--no-save",
+            package_tarball.as_str(),
+        ],
+        &app_root,
+        &[("npm_config_cache", npm_cache_root.as_str())],
+        "failed to install packed React Native SDK into smoke app",
+    )?;
+    run_command(
+        "npm",
+        &["run", "typecheck"],
+        &app_root,
+        "React Native smoke app typecheck failed",
+    )?;
+
+    println!("react native smoke ok");
     Ok(())
 }
 
@@ -275,6 +327,76 @@ fn reset_directory(path: &Utf8PathBuf) -> Result<()> {
         fs::remove_dir_all(path).with_context(|| format!("failed to clear {}", path))?;
     }
     fs::create_dir_all(path).with_context(|| format!("failed to create {}", path))?;
+    Ok(())
+}
+
+fn pack_npm_package(package_root: &Utf8PathBuf, output_root: &Utf8PathBuf) -> Result<Utf8PathBuf> {
+    fs::create_dir_all(output_root).with_context(|| format!("failed to create {}", output_root))?;
+
+    let output = Command::new("npm")
+        .args(["pack", "--json"])
+        .current_dir(package_root)
+        .output()
+        .with_context(|| format!("failed to invoke npm pack in {}", package_root))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("npm pack failed in {}: {}", package_root, stderr.trim());
+    }
+
+    let stdout = String::from_utf8(output.stdout).context("npm pack produced non-UTF-8 stdout")?;
+    let pack_result: Value =
+        serde_json::from_str(&stdout).context("failed to parse npm pack JSON output")?;
+    let filename = pack_result
+        .as_array()
+        .and_then(|entries| entries.first())
+        .and_then(|entry| entry.get("filename"))
+        .and_then(Value::as_str)
+        .context("npm pack JSON output did not include a filename")?;
+
+    let source = package_root.join(filename);
+    let destination = output_root.join(filename);
+
+    if destination.exists() {
+        remove_path_if_exists(&destination)?;
+    }
+
+    fs::rename(&source, &destination)
+        .with_context(|| format!("failed to move {} to {}", source, destination))?;
+
+    Ok(destination)
+}
+
+fn run_command(
+    program: &str,
+    args: &[&str],
+    current_dir: &Utf8PathBuf,
+    error_context: &str,
+) -> Result<()> {
+    run_command_with_env(program, args, current_dir, &[], error_context)
+}
+
+fn run_command_with_env(
+    program: &str,
+    args: &[&str],
+    current_dir: &Utf8PathBuf,
+    envs: &[(&str, &str)],
+    error_context: &str,
+) -> Result<()> {
+    let mut command = Command::new(program);
+    command.args(args).current_dir(current_dir);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+
+    let status = command
+        .status()
+        .with_context(|| format!("failed to invoke {} in {}", program, current_dir))?;
+
+    if !status.success() {
+        bail!("{error_context}");
+    }
+
     Ok(())
 }
 

@@ -36,3 +36,7 @@ workflow uploads:
 - iOS XCFramework archive
 - Android JNI archive
 - fully assembled React Native package tarball
+
+Build artifacts are only part of promotion readiness. Pair them with the device
+benchmark captures and rollout notes described in `docs/canary-rollout.md`
+before promoting alpha, beta, rc, or stable.

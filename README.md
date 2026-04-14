@@ -76,6 +76,8 @@ Implemented now:
   generation/verification, prepared execution helpers, finalized signing
   helpers, signer-handle based submission, signed submission, and transaction
   planning
+- consumer-style React Native smoke harness that installs the packed npm tarball
+  into a lightweight sample app and typechecks the public package surface
 - additive mobile job APIs for long-running withdraw proof generation and
   prepared withdraw/relay execution, with Rust-owned status polling,
   best-effort cancellation, typed result retrieval, and explicit job cleanup
@@ -83,8 +85,8 @@ Implemented now:
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
 - CI expanded to include clippy, tests, cargo-deny, cargo-audit, RN package
-  smoke packaging, and platform-split native release packaging smoke for iOS
-  and Android
+  smoke packaging, RN sample-app smoke, and platform-split native release
+  packaging smoke for iOS and Android
 - CLI benchmark entrypoint for the Rust withdraw proving path, driven by the
   checked-in compatibility fixtures and real verified artifact bundles, with
   structured JSON report output for device comparisons
@@ -96,6 +98,8 @@ Benchmarking:
 - see `docs/benchmarking.md` for the `privacy-pools-sdk-cli benchmark-withdraw`
   workflow
 - see `docs/release-process.md` for release-channel validation and packaging
+- see `docs/canary-rollout.md` for the benchmark/canary evidence required before
+  promotion
 
 Next milestone:
 

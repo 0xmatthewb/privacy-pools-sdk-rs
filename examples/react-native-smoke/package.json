@@ -1,0 +1,14 @@
+{
+  "name": "privacy-pools-sdk-rn-smoke",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "dependencies": {
+    "@types/react": "19.0.0",
+    "react": "19.0.0",
+    "react-native": "0.79.7",
+    "typescript": "5.8.3"
+  }
+}
