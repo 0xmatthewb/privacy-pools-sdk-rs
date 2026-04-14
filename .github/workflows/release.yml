@@ -14,16 +14,13 @@ on:
           - rc
           - stable
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
@@ -32,14 +29,14 @@ jobs:
     needs: validate
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
       - run: cargo run -p xtask -- react-native-package --release --with-ios-native
       - run: mkdir -p dist
       - run: tar -C packages/react-native/ios/frameworks -czf "dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz" PrivacyPoolsSdkFFI.xcframework
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: react-native-ios-frameworks-${{ inputs.channel }}
           path: dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz
@@ -48,17 +45,17 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.10.2"
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
       - run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android
       - run: yes | sdkmanager --licenses
       - run: sdkmanager "ndk;27.1.12297006"
@@ -70,7 +67,7 @@ jobs:
       - run: cargo run -p xtask -- react-native-package --release --with-android-native
       - run: mkdir -p dist
       - run: tar -C packages/react-native/android/src/main -czf "dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz" jniLibs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: react-native-android-jni-${{ inputs.channel }}
           path: dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz
@@ -82,18 +79,18 @@ jobs:
       - react-native-android-native
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
       - run: cargo run -p xtask -- react-native-package
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: react-native-ios-frameworks-${{ inputs.channel }}
           path: dist/ios
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: react-native-android-jni-${{ inputs.channel }}
           path: dist/android
@@ -103,7 +100,7 @@ jobs:
       - run: npm pack --json
         working-directory: packages/react-native
       - run: mkdir -p dist/package && mv packages/react-native/*.tgz dist/package/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: react-native-package-${{ inputs.channel }}
           path: dist/package/*.tgz
