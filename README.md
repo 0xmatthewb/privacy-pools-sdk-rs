@@ -47,13 +47,16 @@ Implemented now:
 - typed withdraw witness requests and normalized circuit-input serialization for
   the default Rust proving backend
 - verified-zkey proving request preparation for the `withdraw` circuit
+- compiled `rust-witness + arkworks` withdraw proving path owned by the Rust
+  SDK, including local proof verification hooks
 - offline withdraw and relay transaction planners with typed calldata output
 - UniFFI-exported FFI surface for versioning, backend discovery, key derivation,
-  typed withdraw circuit inputs, transaction planning, root-read planning,
-  proof formatting, and artifact verification/resolution
+  typed withdraw circuit inputs, withdraw proof generation/verification,
+  transaction planning, root-read planning, proof formatting, and artifact
+  verification/resolution
 - React Native package updated to a native-module facade instead of a fake JS
-  implementation, including typed withdraw-circuit input and transaction
-  planning helpers
+  implementation, including typed withdraw-circuit input, withdraw proof
+  generation/verification, and transaction planning helpers
 - React Native package assembly now stages package-local generated Swift/Kotlin
   bindings, with optional release staging for iOS XCFramework and Android JNI
   libraries
@@ -62,7 +65,6 @@ Implemented now:
 
 Next milestone:
 
-- real `circom-prover` execution wired to a compiled withdraw witness adapter
 - provider-backed transaction simulation, signing, and broadcast flows
 - publishable React Native release builds with staged native binaries and
   mobile smoke builds

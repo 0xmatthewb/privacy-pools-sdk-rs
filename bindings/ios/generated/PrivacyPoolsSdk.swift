@@ -1090,6 +1090,60 @@ public func FfiConverterTypeFfiProofBundle_lower(_ value: FfiProofBundle) -> Rus
 }
 
 
+public struct FfiProvingResult: Equatable, Hashable {
+    public var backend: String
+    public var proof: FfiProofBundle
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(backend: String, proof: FfiProofBundle) {
+        self.backend = backend
+        self.proof = proof
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiProvingResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiProvingResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiProvingResult {
+        return
+            try FfiProvingResult(
+                backend: FfiConverterString.read(from: &buf),
+                proof: FfiConverterTypeFfiProofBundle.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiProvingResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.backend, into: &buf)
+        FfiConverterTypeFfiProofBundle.write(value.proof, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProvingResult_lift(_ buf: RustBuffer) throws -> FfiProvingResult {
+    return try FfiConverterTypeFfiProvingResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiProvingResult_lower(_ value: FfiProvingResult) -> RustBuffer {
+    return FfiConverterTypeFfiProvingResult.lower(value)
+}
+
+
 public struct FfiRecoveryCheckpoint: Equatable, Hashable {
     public var latestBlock: UInt64
     public var commitmentsSeen: UInt64
@@ -2223,6 +2277,16 @@ public func planWithdrawalTransaction(chainId: UInt64, poolAddress: String, with
     )
 })
 }
+public func proveWithdrawal(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiWithdrawalWitnessRequest)throws  -> FfiProvingResult  {
+    return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),$0
+    )
+})
+}
 public func resolveVerifiedArtifactBundle(manifestJson: String, artifactsRoot: String, circuit: String)throws  -> FfiResolvedArtifactBundle  {
     return try  FfiConverterTypeFfiResolvedArtifactBundle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(
@@ -2239,6 +2303,16 @@ public func verifyArtifactBytes(manifestJson: String, circuit: String, kind: Str
         FfiConverterString.lower(circuit),
         FfiConverterString.lower(kind),
         FfiConverterData.lower(bytes),$0
+    )
+})
+}
+public func verifyWithdrawalProof(backendProfile: String, manifestJson: String, artifactsRoot: String, proof: FfiProofBundle)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
     )
 })
 }
@@ -2315,10 +2389,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof() != 13425) {
         return InitializationResult.apiChecksumMismatch
     }
 

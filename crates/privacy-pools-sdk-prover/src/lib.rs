@@ -7,12 +7,15 @@ use circom_prover::{
 };
 use num_bigint::BigUint;
 use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
+use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::{path::PathBuf, str::FromStr};
+use std::{collections::HashMap, path::PathBuf, str::FromStr};
 use thiserror::Error;
 
 pub use circom_prover::witness::WitnessFn;
+
+rust_witness::witness!(withdraw);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BackendProfile {
@@ -55,6 +58,8 @@ pub enum ProverError {
     UnsupportedFastTarget,
     #[error("proof generation requires an explicit witness function")]
     WitnessFunctionRequired,
+    #[error("no compiled witness adapter is available for circuit `{0}`")]
+    MissingCompiledWitness(String),
     #[error("proving key does not exist: {0}")]
     MissingZkey(PathBuf),
     #[error("failed to parse decimal field: {0}")]
@@ -121,6 +126,13 @@ impl NativeProofEngine {
         })
     }
 
+    pub fn prove_with_compiled_witness(
+        &self,
+        request: &ProvingRequest,
+    ) -> Result<ProvingResult, ProverError> {
+        self.prove_with_witness(request, compiled_witness_fn(&request.circuit)?)
+    }
+
     pub fn verify(&self, proof: &ProofBundle, zkey_path: PathBuf) -> Result<bool, ProverError> {
         if !zkey_path.exists() {
             return Err(ProverError::MissingZkey(zkey_path));
@@ -147,6 +159,12 @@ impl NativeProofEngine {
             }
         }
     }
+}
+
+pub fn generate_withdrawal_witness(
+    input: &WithdrawalCircuitInput,
+) -> Result<Vec<String>, ProverError> {
+    generate_withdrawal_witness_from_json(&serialize_withdrawal_circuit_input(input)?)
 }
 
 pub fn serialize_withdrawal_circuit_input(
@@ -221,6 +239,34 @@ impl ProofEngine for NativeProofEngine {
     fn prove(&self, _request: &ProvingRequest) -> Result<ProvingResult, ProverError> {
         Err(ProverError::WitnessFunctionRequired)
     }
+}
+
+fn compiled_witness_fn(circuit: &str) -> Result<WitnessFn, ProverError> {
+    match circuit {
+        "withdraw" => Ok(WitnessFn::RustWitness(withdraw_witness)),
+        _ => Err(ProverError::MissingCompiledWitness(circuit.to_owned())),
+    }
+}
+
+fn generate_withdrawal_witness_from_json(input_json: &str) -> Result<Vec<String>, ProverError> {
+    let witness_map = circom_prover::witness::json_to_hashmap(input_json)
+        .map_err(|error| ProverError::InputSerialization(error.to_string()))?;
+    let normalized_inputs = witness_map
+        .into_iter()
+        .map(|(name, values)| Ok((name, parse_bigints(values)?)))
+        .collect::<Result<HashMap<_, _>, ProverError>>()?;
+
+    Ok(withdraw_witness(normalized_inputs)
+        .into_iter()
+        .map(|value| value.to_string())
+        .collect())
+}
+
+fn parse_bigints(values: Vec<String>) -> Result<Vec<BigInt>, ProverError> {
+    values
+        .into_iter()
+        .map(|value| BigInt::from_str(&value).map_err(|_| ProverError::InvalidField(value)))
+        .collect()
 }
 
 fn circom_proof_to_bundle(proof: CircomProof) -> ProofBundle {
@@ -380,5 +426,69 @@ mod tests {
         let normalized: Value =
             serde_json::from_str(&serialize_withdrawal_circuit_input(&input).unwrap()).unwrap();
         assert_eq!(normalized, fixture["expected"]["normalizedInputs"]);
+    }
+
+    #[test]
+    fn compiled_withdraw_witness_generates_values_from_reference_input() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+
+        let input = WithdrawalCircuitInput {
+            withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
+                .unwrap(),
+            state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
+                .unwrap(),
+            state_tree_depth: fixture["stateWitness"]["depth"].as_u64().unwrap() as usize,
+            asp_root: parse_decimal_field(fixture["aspWitness"]["root"].as_str().unwrap()).unwrap(),
+            asp_tree_depth: fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
+            context: parse_decimal_field(fixture["expected"]["context"].as_str().unwrap()).unwrap(),
+            label: parse_decimal_field(fixture["label"].as_str().unwrap()).unwrap(),
+            existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
+                .unwrap(),
+            existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
+                .unwrap(),
+            existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
+                .unwrap(),
+            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap()).unwrap(),
+            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap()).unwrap(),
+            state_siblings: fixture["stateWitness"]["siblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
+                .collect(),
+            state_index: fixture["stateWitness"]["index"].as_u64().unwrap() as usize,
+            asp_siblings: fixture["aspWitness"]["siblings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
+                .collect(),
+            asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
+        };
+
+        let witness = generate_withdrawal_witness(&input).unwrap();
+        assert!(!witness.is_empty());
+        assert_eq!(witness[0], "1");
+    }
+
+    #[test]
+    fn compiled_withdraw_proof_path_uses_internal_witness_adapter() {
+        let engine =
+            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
+                .unwrap();
+        let request = ProvingRequest {
+            circuit: "withdraw".to_owned(),
+            input_json: "{\"foo\":[\"1\"]}".to_owned(),
+            artifact_version: "0.1.0-alpha.1".to_owned(),
+            zkey_path: PathBuf::from("/tmp/withdraw.zkey"),
+        };
+
+        assert!(matches!(
+            engine.prove_with_compiled_witness(&request),
+            Err(ProverError::MissingZkey(_))
+        ));
     }
 }

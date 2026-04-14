@@ -17,6 +17,7 @@ import io.oxbow.privacypoolssdk.FfiMasterKeys
 import io.oxbow.privacypoolssdk.FfiMerkleProof
 import io.oxbow.privacypoolssdk.FfiPoolEvent
 import io.oxbow.privacypoolssdk.FfiProofBundle
+import io.oxbow.privacypoolssdk.FfiProvingResult
 import io.oxbow.privacypoolssdk.FfiRecoveryCheckpoint
 import io.oxbow.privacypoolssdk.FfiRecoveryPolicy
 import io.oxbow.privacypoolssdk.FfiResolvedArtifact
@@ -172,6 +173,56 @@ class PrivacyPoolsSdkModule(
             promise.resolve(
                 withdrawalCircuitInputMap(
                     NativeSdk.withdrawalCircuitInput(withdrawalWitnessRequestRecord(request))
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun proveWithdrawal(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                provingResultMap(
+                    NativeSdk.proveWithdrawal(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun verifyWithdrawalProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                NativeSdk.verifyWithdrawalProof(
+                    backendProfile,
+                    manifestJson,
+                    artifactsRoot,
+                    proofBundleRecord(proof),
                 )
             )
         } catch (error: FfiException) {
@@ -500,6 +551,24 @@ class PrivacyPoolsSdkModule(
             putArray("asp_siblings", Arguments.fromList(input.aspSiblings))
             putDouble("asp_index", input.aspIndex.toDouble())
         }
+
+    private fun provingResultMap(result: FfiProvingResult) = Arguments.createMap().apply {
+        putString("backend", result.backend)
+        putMap("proof", proofBundleMap(result.proof))
+    }
+
+    private fun proofBundleMap(bundle: FfiProofBundle) = Arguments.createMap().apply {
+        putMap("proof", snarkJsProofMap(bundle.proof))
+        putArray("public_signals", Arguments.fromList(bundle.publicSignals))
+    }
+
+    private fun snarkJsProofMap(proof: FfiSnarkJsProof) = Arguments.createMap().apply {
+        putArray("pi_a", Arguments.fromList(proof.piA))
+        putArray("pi_b", stringMatrixArray(proof.piB))
+        putArray("pi_c", Arguments.fromList(proof.piC))
+        putString("protocol", proof.protocol)
+        putString("curve", proof.curve)
+    }
 
     private fun transactionPlanMap(plan: FfiTransactionPlan) = Arguments.createMap().apply {
         putString("kind", plan.kind)

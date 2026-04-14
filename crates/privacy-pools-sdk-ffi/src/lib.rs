@@ -7,6 +7,7 @@ use privacy_pools_sdk::{
         ProofBundle, RootReadKind, SnarkJsProof, TransactionPlan, Withdrawal,
         WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
+    prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
 use std::{path::PathBuf, str::FromStr};
@@ -71,6 +72,12 @@ pub struct FfiSnarkJsProof {
 pub struct FfiProofBundle {
     pub proof: FfiSnarkJsProof,
     pub public_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiProvingResult {
+    pub backend: String,
+    pub proof: FfiProofBundle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -232,6 +239,16 @@ fn parse_compatibility_mode(value: &str) -> Result<CompatibilityMode, FfiError> 
     }
 }
 
+fn parse_backend_profile(value: &str) -> Result<BackendProfile, FfiError> {
+    match value {
+        "stable" => Ok(BackendProfile::Stable),
+        "fast" => Ok(BackendProfile::Fast),
+        _ => Err(FfiError::OperationFailed(format!(
+            "invalid backend profile: {value}"
+        ))),
+    }
+}
+
 fn to_master_keys(master_nullifier: &str, master_secret: &str) -> Result<MasterKeys, FfiError> {
     Ok(MasterKeys {
         master_nullifier: parse_field(master_nullifier)?,
@@ -281,6 +298,13 @@ fn artifact_kind_label(kind: ArtifactKind) -> String {
         ArtifactKind::Wasm => "wasm".to_owned(),
         ArtifactKind::Zkey => "zkey".to_owned(),
         ArtifactKind::Vkey => "vkey".to_owned(),
+    }
+}
+
+fn prover_backend_label(kind: ProverBackend) -> String {
+    match kind {
+        ProverBackend::Arkworks => "arkworks".to_owned(),
+        ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
     }
 }
 
@@ -347,6 +371,31 @@ fn to_ffi_formatted_groth16_proof(proof: FormattedGroth16Proof) -> FfiFormattedG
             .collect(),
         p_c: proof.p_c.into_iter().collect(),
         pub_signals: proof.pub_signals,
+    }
+}
+
+fn to_ffi_proof_bundle(bundle: ProofBundle) -> FfiProofBundle {
+    FfiProofBundle {
+        proof: FfiSnarkJsProof {
+            pi_a: bundle.proof.pi_a.into_iter().collect(),
+            pi_b: bundle
+                .proof
+                .pi_b
+                .into_iter()
+                .map(|row| row.into_iter().collect())
+                .collect(),
+            pi_c: bundle.proof.pi_c.into_iter().collect(),
+            protocol: bundle.proof.protocol,
+            curve: bundle.proof.curve,
+        },
+        public_signals: bundle.public_signals,
+    }
+}
+
+fn to_ffi_proving_result(result: ProvingResult) -> FfiProvingResult {
+    FfiProvingResult {
+        backend: prover_backend_label(result.backend),
+        proof: to_ffi_proof_bundle(result.proof),
     }
 }
 
@@ -674,6 +723,47 @@ pub fn build_withdrawal_circuit_input(
 }
 
 #[uniffi::export]
+pub fn prove_withdrawal(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<FfiProvingResult, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let result = sdk()
+        .prove_withdrawal(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_withdrawal_witness_request(request)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
+pub fn verify_withdrawal_proof(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    proof: FfiProofBundle,
+) -> Result<bool, FfiError> {
+    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+
+    sdk()
+        .verify_withdrawal_proof(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
 pub fn plan_withdrawal_transaction(
     chain_id: u64,
     pool_address: String,
@@ -962,7 +1052,7 @@ mod tests {
         )
         .unwrap();
 
-        let input = build_withdrawal_circuit_input(FfiWithdrawalWitnessRequest {
+        let request = FfiWithdrawalWitnessRequest {
             commitment,
             withdrawal: FfiWithdrawal {
                 processooor: "0x1111111111111111111111111111111111111111".to_owned(),
@@ -1018,8 +1108,9 @@ mod tests {
                 .unwrap()
                 .to_owned(),
             new_secret: withdrawal_fixture["newSecret"].as_str().unwrap().to_owned(),
-        })
-        .unwrap();
+        };
+
+        let input = build_withdrawal_circuit_input(request.clone()).unwrap();
 
         assert_eq!(
             input.context,
@@ -1036,6 +1127,37 @@ mod tests {
         );
         assert_eq!(input.state_tree_depth, 32);
         assert_eq!(input.asp_tree_depth, 32);
+
+        let missing_manifest = serde_json::to_string(&ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![
+                privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "sample-artifact.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+                privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Zkey,
+                    filename: "missing-artifact.zkey".to_owned(),
+                    sha256: "00".repeat(32),
+                },
+            ],
+        })
+        .unwrap();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+
+        assert!(matches!(
+            prove_withdrawal(
+                "stable".to_owned(),
+                missing_manifest,
+                root.to_string_lossy().into_owned(),
+                request,
+            ),
+            Err(FfiError::OperationFailed(_))
+        ));
     }
 
     #[test]

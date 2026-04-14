@@ -45,6 +45,11 @@ type ProofBundle = {
   public_signals: string[];
 };
 
+type ProvingResult = {
+  backend: "arkworks" | "rapidsnark";
+  proof: ProofBundle;
+};
+
 type FormattedGroth16Proof = {
   p_a: string[];
   p_b: string[][];
@@ -189,6 +194,18 @@ export type NativePrivacyPoolsSdkModule = {
   buildWithdrawalCircuitInput(
     request: WithdrawalWitnessRequest,
   ): Promise<WithdrawalCircuitInput>;
+  proveWithdrawal(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+  ): Promise<ProvingResult>;
+  verifyWithdrawalProof(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
   planWithdrawalTransaction(
     chainId: number,
     poolAddress: string,
@@ -315,6 +332,32 @@ export const buildWithdrawalCircuitInput = (
   request: WithdrawalWitnessRequest,
 ): Promise<WithdrawalCircuitInput> =>
   requireNativeModule().buildWithdrawalCircuitInput(request);
+
+export const proveWithdrawal = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+): Promise<ProvingResult> =>
+  requireNativeModule().proveWithdrawal(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+  );
+
+export const verifyWithdrawalProof = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  proof: ProofBundle,
+): Promise<boolean> =>
+  requireNativeModule().verifyWithdrawalProof(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    proof,
+  );
 
 export const planWithdrawalTransaction = (
   chainId: number,

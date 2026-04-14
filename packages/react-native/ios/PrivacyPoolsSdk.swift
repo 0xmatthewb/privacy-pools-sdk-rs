@@ -184,6 +184,49 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(proveWithdrawal:manifestJson:artifactsRoot:request:resolver:rejecter:)
+    func proveWithdrawal(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.withdrawalProof(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyWithdrawalProof:manifestJson:artifactsRoot:proof:resolver:rejecter:)
+    func verifyWithdrawalProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyWithdrawal(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planWithdrawalTransaction:poolAddress:withdrawal:proof:resolver:rejecter:)
     func planWithdrawalTransaction(
         chainId: NSNumber,
@@ -562,12 +605,26 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func provingResultMap(_ result: FfiProvingResult) -> [String: Any] {
+        [
+            "backend": result.backend,
+            "proof": proofBundleMap(result.proof),
+        ]
+    }
+
     private func formattedGroth16ProofMap(_ proof: FfiFormattedGroth16Proof) -> [String: Any] {
         [
             "p_a": proof.pA,
             "p_b": proof.pB,
             "p_c": proof.pC,
             "pub_signals": proof.pubSignals,
+        ]
+    }
+
+    private func proofBundleMap(_ bundle: FfiProofBundle) -> [String: Any] {
+        [
+            "proof": snarkJsProofMap(bundle.proof),
+            "public_signals": bundle.publicSignals,
         ]
     }
 
@@ -595,6 +652,16 @@ final class PrivacyPoolsSdk: NSObject {
             proof: try snarkJsProofRecord(from: proof),
             publicSignals: try stringArray(from: value["public_signals"], field: "public_signals")
         )
+    }
+
+    private func snarkJsProofMap(_ proof: FfiSnarkJsProof) -> [String: Any] {
+        [
+            "pi_a": proof.piA,
+            "pi_b": proof.piB,
+            "pi_c": proof.piC,
+            "protocol": proof.protocol,
+            "curve": proof.curve,
+        ]
     }
 
     private func snarkJsProofRecord(from value: [String: Any]) throws -> FfiSnarkJsProof {

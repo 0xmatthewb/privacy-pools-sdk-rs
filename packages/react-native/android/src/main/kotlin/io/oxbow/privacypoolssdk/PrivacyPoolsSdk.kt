@@ -19,7 +19,9 @@ import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
 import io.oxbow.privacypoolssdk.planRelayTransaction as ffiPlanRelayTransaction
 import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTransaction
+import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
+import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
 
 object PrivacyPoolsSdk {
@@ -77,6 +79,24 @@ object PrivacyPoolsSdk {
     fun withdrawalCircuitInput(
         request: FfiWithdrawalWitnessRequest,
     ): FfiWithdrawalCircuitInput = ffiBuildWithdrawalCircuitInput(request)
+
+    @Throws(FfiException::class)
+    fun proveWithdrawal(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+    ): FfiProvingResult =
+        ffiProveWithdrawal(backendProfile, manifestJson, artifactsRoot, request)
+
+    @Throws(FfiException::class)
+    fun verifyWithdrawalProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: FfiProofBundle,
+    ): Boolean =
+        ffiVerifyWithdrawalProof(backendProfile, manifestJson, artifactsRoot, proof)
 
     @Throws(FfiException::class)
     fun withdrawalTransactionPlan(

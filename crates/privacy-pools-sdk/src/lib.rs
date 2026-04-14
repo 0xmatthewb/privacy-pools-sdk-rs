@@ -247,6 +247,34 @@ impl PrivacyPoolsSdk {
             .map_err(Into::into)
     }
 
+    pub fn prove_withdrawal(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::WithdrawalWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        let proving_request = self.prepare_withdrawal_proving_request(manifest, root, request)?;
+        self.proving_engine(profile)?
+            .prove_with_compiled_witness(&proving_request)
+            .map_err(Into::into)
+    }
+
+    pub fn verify_withdrawal_proof(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
+        let bundle = self.resolve_verified_artifact_bundle(manifest, root, "withdraw")?;
+        let zkey_path = bundle.artifact(artifacts::ArtifactKind::Zkey)?.path.clone();
+
+        self.proving_engine(profile)?
+            .verify(proof, zkey_path)
+            .map_err(Into::into)
+    }
+
     pub fn checkpoint_recovery(
         &self,
         events: &[recovery::PoolEvent],

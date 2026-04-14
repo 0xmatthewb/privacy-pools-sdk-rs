@@ -673,9 +673,13 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof(
     ): Short
     external fun ffi_privacy_pools_sdk_ffi_uniffi_contract_version(
     ): Int
@@ -728,10 +732,14 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(`chainI
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_resolve_verified_artifact_bundle(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifestJson`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
 external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun ffi_privacy_pools_sdk_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -908,10 +916,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_resolve_verified_artifact_bundle() != 21682.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof() != 13425.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1578,6 +1592,44 @@ public object FfiConverterTypeFfiProofBundle: FfiConverterRustBuffer<FfiProofBun
     override fun write(value: FfiProofBundle, buf: ByteBuffer) {
             FfiConverterTypeFfiSnarkJsProof.write(value.`proof`, buf)
             FfiConverterSequenceString.write(value.`publicSignals`, buf)
+    }
+}
+
+
+
+data class FfiProvingResult (
+    var `backend`: kotlin.String
+    ,
+    var `proof`: FfiProofBundle
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiProvingResult: FfiConverterRustBuffer<FfiProvingResult> {
+    override fun read(buf: ByteBuffer): FfiProvingResult {
+        return FfiProvingResult(
+            FfiConverterString.read(buf),
+            FfiConverterTypeFfiProofBundle.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiProvingResult) = (
+            FfiConverterString.allocationSize(value.`backend`) +
+            FfiConverterTypeFfiProofBundle.allocationSize(value.`proof`)
+    )
+
+    override fun write(value: FfiProvingResult, buf: ByteBuffer) {
+            FfiConverterString.write(value.`backend`, buf)
+            FfiConverterTypeFfiProofBundle.write(value.`proof`, buf)
     }
 }
 
@@ -2693,6 +2745,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `proveWithdrawal`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `request`: FfiWithdrawalWitnessRequest): FfiProvingResult {
+            return FfiConverterTypeFfiProvingResult.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiWithdrawalWitnessRequest.lower(`request`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `resolveVerifiedArtifactBundle`(`manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `circuit`: kotlin.String): FfiResolvedArtifactBundle {
             return FfiConverterTypeFfiResolvedArtifactBundle.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -2710,6 +2773,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(
 
         FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`circuit`),FfiConverterString.lower(`kind`),FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `verifyWithdrawalProof`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `proof`: FfiProofBundle): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
 }
     )
     }

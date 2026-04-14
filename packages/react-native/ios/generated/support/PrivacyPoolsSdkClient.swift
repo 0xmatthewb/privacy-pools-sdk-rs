@@ -86,6 +86,34 @@ public enum PrivacyPoolsSdkClient {
         try buildWithdrawalCircuitInput(request: request)
     }
 
+    public static func withdrawalProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> FfiProvingResult {
+        try proveWithdrawal(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request
+        )
+    }
+
+    public static func verifyWithdrawal(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: FfiProofBundle,
+    ) throws -> Bool {
+        try verifyWithdrawalProof(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            proof: proof
+        )
+    }
+
     public static func withdrawalTransactionPlan(
         chainId: UInt64,
         poolAddress: String,

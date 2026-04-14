@@ -15,6 +15,11 @@ rapidsnark = ["circom-prover/rapidsnark"]
 circom-prover.workspace = true
 num-bigint.workspace = true
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+rust-witness.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[build-dependencies]
+camino.workspace = true
+rust-witness.workspace = true
