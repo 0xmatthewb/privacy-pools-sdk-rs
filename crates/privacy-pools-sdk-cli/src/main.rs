@@ -12,6 +12,7 @@ use std::{
     env, fs,
     panic::{self, AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
+    process::Command,
     str::FromStr,
     time::SystemTime,
     time::{Duration, Instant},
@@ -26,6 +27,8 @@ struct BenchmarkArgs {
     iterations: usize,
     warmup: usize,
     report_json: Option<PathBuf>,
+    device_label: Option<String>,
+    device_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,11 +57,28 @@ struct BenchmarkSummary {
     max_ms: f64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct BenchmarkReportContext<'a> {
+    artifact_version: &'a str,
+    zkey_sha256: &'a str,
+    artifact_resolution: Duration,
+    first_iteration: BenchmarkIteration,
+    peak_resident_memory_bytes: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct BenchmarkReport {
     generated_at_unix_seconds: u64,
+    git_commit: String,
+    sdk_version: String,
     backend_profile: String,
+    backend_name: String,
+    device_label: String,
+    device_model: String,
+    os_name: String,
+    os_version: String,
     artifact_version: String,
+    zkey_sha256: String,
     manifest_path: String,
     artifacts_root: String,
     artifact_resolution_ms: f64,
@@ -105,7 +125,7 @@ fn print_help() {
     println!("  benchmark-withdraw");
     println!("    benchmark the compiled Rust withdraw proving path");
     println!(
-        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n] [--report-json path]"
+        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n] [--report-json path --device-label desktop|ios|android --device-model model]"
     );
 }
 
@@ -117,6 +137,8 @@ impl BenchmarkArgs {
         let mut iterations = 5usize;
         let mut warmup = 1usize;
         let mut report_json = None;
+        let mut device_label = None;
+        let mut device_model = None;
 
         let mut iter = args.into_iter();
         while let Some(flag) = iter.next() {
@@ -154,8 +176,25 @@ impl BenchmarkArgs {
                         iter.next().context("--report-json requires a path value")?,
                     ));
                 }
+                "--device-label" => {
+                    device_label = Some(iter.next().context("--device-label requires a value")?);
+                }
+                "--device-model" => {
+                    device_model = Some(iter.next().context("--device-model requires a value")?);
+                }
                 other => bail!("unknown flag: {other}"),
             }
+        }
+
+        if report_json.is_some() {
+            ensure!(
+                device_label.is_some(),
+                "--device-label is required when --report-json is set"
+            );
+            ensure!(
+                device_model.is_some(),
+                "--device-model is required when --report-json is set"
+            );
         }
 
         Ok(Self {
@@ -165,6 +204,8 @@ impl BenchmarkArgs {
             iterations,
             warmup,
             report_json,
+            device_label,
+            device_model,
         })
     }
 }
@@ -202,6 +243,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     let zkey_path = bundle
         .artifact(ArtifactKind::Zkey)
         .context("withdraw bundle is missing the zkey descriptor")?;
+    let zkey_sha256 = zkey_path.descriptor.sha256.clone();
 
     println!("privacy-pools-sdk-cli withdraw benchmark");
     println!("backend profile: {:?}", args.backend);
@@ -288,10 +330,13 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
         write_report(
             report_path,
             &args,
-            &bundle.version,
-            artifact_resolution,
-            first_iteration,
-            peak_resident_memory_bytes(),
+            BenchmarkReportContext {
+                artifact_version: &bundle.version,
+                zkey_sha256: &zkey_sha256,
+                artifact_resolution,
+                first_iteration,
+                peak_resident_memory_bytes: peak_resident_memory_bytes(),
+            },
             &metrics,
         )?;
         println!();
@@ -478,10 +523,7 @@ fn peak_resident_memory_bytes() -> Option<u64> {
 fn write_report(
     report_path: &Path,
     args: &BenchmarkArgs,
-    artifact_version: &str,
-    artifact_resolution: Duration,
-    first_iteration: BenchmarkIteration,
-    peak_resident_memory_bytes: Option<u64>,
+    context: BenchmarkReportContext<'_>,
     metrics: &[BenchmarkIteration],
 ) -> Result<()> {
     let report = BenchmarkReport {
@@ -489,17 +531,33 @@ fn write_report(
             .duration_since(SystemTime::UNIX_EPOCH)
             .context("system clock is before unix epoch")?
             .as_secs(),
+        git_commit: current_git_commit()?,
+        sdk_version: PrivacyPoolsSdk::version().to_owned(),
         backend_profile: format!("{:?}", args.backend),
-        artifact_version: artifact_version.to_owned(),
+        backend_name: backend_name(args.backend).to_owned(),
+        device_label: args
+            .device_label
+            .clone()
+            .unwrap_or_else(|| "desktop".to_owned()),
+        device_model: args
+            .device_model
+            .clone()
+            .unwrap_or_else(|| "unspecified".to_owned()),
+        os_name: System::name().unwrap_or_else(|| env::consts::OS.to_owned()),
+        os_version: System::long_os_version()
+            .or_else(System::os_version)
+            .unwrap_or_else(|| "unknown".to_owned()),
+        artifact_version: context.artifact_version.to_owned(),
+        zkey_sha256: context.zkey_sha256.to_owned(),
         manifest_path: args.manifest.display().to_string(),
         artifacts_root: args.artifacts_root.display().to_string(),
-        artifact_resolution_ms: duration_ms(artifact_resolution),
-        first_input_preparation_ms: duration_ms(first_iteration.input_preparation),
-        first_witness_generation_ms: duration_ms(first_iteration.witness_generation),
-        first_proof_generation_ms: duration_ms(first_iteration.proof_generation),
-        first_verification_ms: duration_ms(first_iteration.verification),
-        first_prove_and_verify_ms: duration_ms(first_iteration.prove_and_verify),
-        peak_resident_memory_bytes,
+        artifact_resolution_ms: duration_ms(context.artifact_resolution),
+        first_input_preparation_ms: duration_ms(context.first_iteration.input_preparation),
+        first_witness_generation_ms: duration_ms(context.first_iteration.witness_generation),
+        first_proof_generation_ms: duration_ms(context.first_iteration.proof_generation),
+        first_verification_ms: duration_ms(context.first_iteration.verification),
+        first_prove_and_verify_ms: duration_ms(context.first_iteration.prove_and_verify),
+        peak_resident_memory_bytes: context.peak_resident_memory_bytes,
         iterations: args.iterations,
         warmup: args.warmup,
         input_preparation: summarize_durations(
@@ -553,4 +611,34 @@ fn write_report(
         serde_json::to_vec_pretty(&report).context("failed to serialize benchmark report")?,
     )
     .with_context(|| format!("failed to write benchmark report {}", report_path.display()))
+}
+
+fn backend_name(profile: BackendProfile) -> &'static str {
+    match profile {
+        BackendProfile::Stable => "stable",
+        BackendProfile::Fast => "fast",
+    }
+}
+
+fn current_git_commit() -> Result<String> {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .context("failed to resolve workspace root")?;
+    let output = Command::new("git")
+        .arg("rev-parse")
+        .arg("HEAD")
+        .current_dir(&workspace_root)
+        .output()
+        .context("failed to run git rev-parse HEAD")?;
+    ensure!(output.status.success(), "git rev-parse HEAD failed");
+
+    let commit =
+        String::from_utf8(output.stdout).context("git rev-parse HEAD returned non-utf8")?;
+    let commit = commit.trim().to_owned();
+    ensure!(
+        !commit.is_empty(),
+        "git rev-parse HEAD returned an empty commit"
+    );
+    Ok(commit)
 }

@@ -9,7 +9,9 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --backend stable \
   --warmup 1 \
   --iterations 5 \
-  --report-json ./dist/withdraw-benchmark.json
+  --report-json ./dist/desktop-withdraw-stable.json \
+  --device-label desktop \
+  --device-model "apple-m4-max"
 ```
 
 The benchmark reports:
@@ -34,7 +36,10 @@ Notes:
 - `--backend fast` requires a build with the `rapidsnark` feature enabled and a
   supported target; the stable `arkworks` backend remains the default.
 - `--report-json` writes machine-readable timing summaries and per-iteration
-  samples, which is the preferred format for future mobile-device benchmark
-  collection.
+  samples, which is the preferred format for release evidence bundles.
+- When writing JSON, pass both `--device-label` and `--device-model`. The
+  evidence checker now validates benchmark reports against the commit under
+  test and expects those fields to be present for desktop, iOS, and Android
+  captures.
 - Peak resident memory is currently a best-effort host metric from the OS; it
   may be unavailable on unsupported platforms.

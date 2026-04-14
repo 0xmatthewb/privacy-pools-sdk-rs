@@ -15,12 +15,14 @@ Before promoting a release channel, collect:
 
 ## Suggested Evidence Layout
 
-Store evidence outside the repo or in an internal release bucket using a layout
-like:
+Store evidence in a committed `release/evidence/<channel>` directory on the
+release branch, or stage the same layout in an internal release bucket before
+copying it into the branch that will trigger the release workflow:
 
 ```text
-release-evidence/
-  0.1.0-alpha.1/
+release/
+  evidence/
+    alpha/
     commit.txt
     desktop-withdraw-stable.json
     ios-withdraw-stable.json
@@ -41,7 +43,9 @@ cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --backend stable \
   --warmup 1 \
   --iterations 5 \
-  --report-json ./desktop-withdraw-stable.json
+  --report-json ./desktop-withdraw-stable.json \
+  --device-label desktop \
+  --device-model "apple-m4-max"
 ```
 
 Repeat the same capture on one recent iPhone and one recent Android flagship.
@@ -52,7 +56,7 @@ notes are assembled in one directory, validate the bundle with:
 ```sh
 cargo run -p xtask -- evidence-check \
   --channel alpha \
-  --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
+  --dir release/evidence/alpha
 ```
 
 ## Canary Stages

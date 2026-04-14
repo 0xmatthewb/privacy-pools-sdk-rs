@@ -576,18 +576,42 @@ fn evidence_check(args: Vec<String>) -> Result<()> {
     );
 
     let expected_backend_profile = options.backend.report_label();
+    let mut artifact_version = None::<String>;
+    let mut zkey_sha256 = None::<String>;
     for device in ["desktop", "ios", "android"] {
         let report_path = options.dir.join(format!(
             "{}-withdraw-{}.json",
             device,
             options.backend.as_str()
         ));
-        validate_benchmark_report(
+        let metadata = validate_benchmark_report(
             &report_path,
+            &commit,
+            device,
             expected_backend_profile,
             options.backend.as_str(),
         )
         .with_context(|| format!("invalid benchmark report for {device}"))?;
+
+        match &artifact_version {
+            Some(expected) => ensure!(
+                metadata.artifact_version == *expected,
+                "benchmark artifact_version mismatch: expected {expected} but found {} in {}",
+                metadata.artifact_version,
+                report_path
+            ),
+            None => artifact_version = Some(metadata.artifact_version.clone()),
+        }
+
+        match &zkey_sha256 {
+            Some(expected) => ensure!(
+                metadata.zkey_sha256 == *expected,
+                "benchmark zkey_sha256 mismatch: expected {expected} but found {} in {}",
+                metadata.zkey_sha256,
+                report_path
+            ),
+            None => zkey_sha256 = Some(metadata.zkey_sha256.clone()),
+        }
     }
 
     println!("evidence-check ok");
@@ -841,17 +865,53 @@ fn read_required_text_file(path: &Utf8PathBuf) -> Result<String> {
     Ok(trimmed)
 }
 
+struct ValidatedBenchmarkMetadata {
+    artifact_version: String,
+    zkey_sha256: String,
+}
+
 fn validate_benchmark_report(
     path: &Utf8PathBuf,
+    expected_commit: &str,
+    expected_device_label: &str,
     expected_backend_profile: &str,
     expected_backend_name: &str,
-) -> Result<()> {
+) -> Result<ValidatedBenchmarkMetadata> {
     let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
     let json: Value =
         serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path))?;
 
     ensure_json_u64(&json, "generated_at_unix_seconds", path)?;
-    ensure_json_string(&json, "artifact_version", path)?;
+    let git_commit = ensure_json_string(&json, "git_commit", path)?;
+    ensure!(
+        git_commit == expected_commit,
+        "{} git_commit mismatch: expected {} but found {}",
+        path,
+        expected_commit,
+        git_commit
+    );
+    ensure_json_string(&json, "sdk_version", path)?;
+    let backend_name = ensure_json_string(&json, "backend_name", path)?;
+    ensure!(
+        backend_name == expected_backend_name,
+        "{} backend_name mismatch: expected {} but found {}",
+        path,
+        expected_backend_name,
+        backend_name
+    );
+    let device_label = ensure_json_string(&json, "device_label", path)?;
+    ensure!(
+        device_label == expected_device_label,
+        "{} device_label mismatch: expected {} but found {}",
+        path,
+        expected_device_label,
+        device_label
+    );
+    ensure_json_string(&json, "device_model", path)?;
+    ensure_json_string(&json, "os_name", path)?;
+    ensure_json_string(&json, "os_version", path)?;
+    let artifact_version = ensure_json_string(&json, "artifact_version", path)?;
+    let zkey_sha256 = ensure_json_string(&json, "zkey_sha256", path)?;
     ensure_json_string(&json, "manifest_path", path)?;
     ensure_json_string(&json, "artifacts_root", path)?;
 
@@ -921,7 +981,10 @@ fn validate_benchmark_report(
         expected_backend_name
     );
 
-    Ok(())
+    Ok(ValidatedBenchmarkMetadata {
+        artifact_version: artifact_version.to_owned(),
+        zkey_sha256: zkey_sha256.to_owned(),
+    })
 }
 
 fn ensure_json_string<'a>(json: &'a Value, field: &str, path: &Utf8PathBuf) -> Result<&'a str> {

@@ -5,6 +5,8 @@ release artifacts for a chosen channel.
 
 The workflow:
 
+- validates the committed evidence bundle for the selected channel with
+  `xtask evidence-check`
 - validates that all Rust crates share one version
 - validates that the React Native package and both podspecs share one version
 - validates that the selected channel matches the mobile prerelease suffix
@@ -49,13 +51,14 @@ validate the evidence bundle too:
 ```sh
 cargo run -p xtask -- evidence-check \
   --channel alpha \
-  --dir /absolute/path/to/release-evidence/0.1.0-alpha.1
+  --dir release/evidence/alpha
 ```
 
 ## GitHub Workflow
 
 Trigger the `release` workflow manually and choose the target channel. The
-workflow uploads:
+workflow expects a committed evidence bundle at `release/evidence/<channel>`
+and uploads:
 
 - iOS XCFramework archive
 - Android JNI archive
