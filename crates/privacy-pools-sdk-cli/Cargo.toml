@@ -10,7 +10,10 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
-privacy-pools-sdk = { path = "../privacy-pools-sdk" }
+privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true
 sysinfo = "0.38.4"
+
+[lints]
+workspace = true

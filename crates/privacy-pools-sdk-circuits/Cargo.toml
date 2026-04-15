@@ -1,16 +1,21 @@
 [package]
 name = "privacy-pools-sdk-circuits"
 version = "0.1.0"
+description = "Circuit input builders and validators for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-circuits"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
-privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
-privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-crypto = { version = "0.1.0", path = "../privacy-pools-sdk-crypto" }
+privacy-pools-sdk-tree = { version = "0.1.0", path = "../privacy-pools-sdk-tree" }
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -18,14 +18,14 @@ base64 = "0.22.1"
 getrandom = { workspace = true, features = ["js"] }
 hex.workspace = true
 js-sys = "0.3.82"
-privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
-privacy-pools-sdk-circuits = { path = "../privacy-pools-sdk-circuits" }
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
-privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
-privacy-pools-sdk-prover = { path = "../privacy-pools-sdk-prover", default-features = false }
-privacy-pools-sdk-recovery = { path = "../privacy-pools-sdk-recovery" }
-privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
-privacy-pools-sdk-verifier = { path = "../privacy-pools-sdk-verifier" }
+privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-circuits = { version = "0.1.0", path = "../privacy-pools-sdk-circuits" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-crypto = { version = "0.1.0", path = "../privacy-pools-sdk-crypto" }
+privacy-pools-sdk-prover = { version = "0.1.0", path = "../privacy-pools-sdk-prover", default-features = false }
+privacy-pools-sdk-recovery = { version = "0.1.0", path = "../privacy-pools-sdk-recovery" }
+privacy-pools-sdk-tree = { version = "0.1.0", path = "../privacy-pools-sdk-tree" }
+privacy-pools-sdk-verifier = { version = "0.1.0", path = "../privacy-pools-sdk-verifier" }
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen = { version = "0.2.118", features = ["serde-serialize"] }

@@ -1,11 +1,16 @@
 [package]
 name = "privacy-pools-sdk-signer"
 version = "0.1.0"
+description = "Signer abstractions for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-signer"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 alloy-consensus.workspace = true
@@ -13,5 +18,8 @@ alloy-eips.workspace = true
 alloy-network.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-signer-local.workspace = true
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
 thiserror.workspace = true
+
+[lints]
+workspace = true

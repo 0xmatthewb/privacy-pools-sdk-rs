@@ -1,11 +1,16 @@
 [package]
 name = "privacy-pools-sdk-chain"
 version = "0.1.0"
+description = "Ethereum transaction planning and preflight checks for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-chain"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 alloy-consensus.workspace = true
@@ -16,8 +21,8 @@ alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-rpc-types-eth.workspace = true
 alloy-sol-types.workspace = true
 hex.workspace = true
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
-privacy-pools-sdk-signer = { path = "../privacy-pools-sdk-signer" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-signer = { version = "0.1.0", path = "../privacy-pools-sdk-signer" }
 serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
@@ -30,3 +35,6 @@ alloy-provider = { workspace = true, features = ["reqwest", "reqwest-rustls-tls"
 
 [dev-dependencies]
 tokio.workspace = true
+
+[lints]
+workspace = true

@@ -1,11 +1,16 @@
 [package]
 name = "privacy-pools-sdk-crypto"
 version = "0.1.0"
+description = "Cryptographic derivation helpers for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-crypto"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
@@ -13,7 +18,10 @@ alloy-signer-local.workspace = true
 alloy-sol-types.workspace = true
 ark-bn254.workspace = true
 ark-ff.workspace = true
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
 pso-poseidon.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[lints]
+workspace = true

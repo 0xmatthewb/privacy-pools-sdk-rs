@@ -17,7 +17,7 @@ base64 = "0.22.1"
 hex.workspace = true
 napi = "3.8.4"
 napi-derive = "3.5.3"
-privacy-pools-sdk = { path = "../privacy-pools-sdk" }
+privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true
 
@@ -28,3 +28,31 @@ napi-build = "2.3.1"
 # `napi-rs` generates module-registration glue that requires unsafe at the
 # native Node boundary. Keep this exception limited to the addon wrapper crate.
 unsafe_code = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_lossless = "allow"
+cast_possible_truncation = "allow"
+default_trait_access = "allow"
+format_push_string = "allow"
+ignored_unit_patterns = "allow"
+manual_let_else = "allow"
+map_unwrap_or = "allow"
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow"
+redundant_closure_for_method_calls = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+struct_field_names = "allow"
+too_many_lines = "allow"
+trivially_copy_pass_by_ref = "allow"
+uninlined_format_args = "allow"
+unnested_or_patterns = "allow"
+unnecessary_debug_formatting = "allow"
+unnecessary_wraps = "allow"
+unreadable_literal = "allow"
+zero_sized_map_values = "allow"

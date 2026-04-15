@@ -1,11 +1,16 @@
 [package]
 name = "privacy-pools-sdk-artifacts"
 version = "0.1.0"
+description = "Circuit artifact verification and resolution for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-artifacts"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 hex.workspace = true
@@ -13,3 +18,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
+
+[lints]
+workspace = true

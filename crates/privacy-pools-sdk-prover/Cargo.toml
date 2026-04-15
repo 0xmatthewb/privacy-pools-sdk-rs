@@ -1,11 +1,16 @@
 [package]
 name = "privacy-pools-sdk-prover"
 version = "0.1.0"
+description = "Local proof generation and verification engines for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-prover"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [features]
 default = ["native-witness"]
@@ -23,9 +28,9 @@ ark-relations.workspace = true
 ark-std.workspace = true
 circom-prover = { workspace = true, default-features = false, features = ["arkworks"] }
 num-bigint.workspace = true
-privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
-privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
-privacy-pools-sdk-verifier = { path = "../privacy-pools-sdk-verifier" }
+privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-verifier = { version = "0.1.0", path = "../privacy-pools-sdk-verifier" }
 rand.workspace = true
 rust-witness = { workspace = true, optional = true }
 serde.workspace = true
@@ -40,3 +45,6 @@ uuid = { workspace = true, features = ["js"] }
 [build-dependencies]
 camino.workspace = true
 rust-witness = { workspace = true, optional = true }
+
+[lints]
+workspace = true

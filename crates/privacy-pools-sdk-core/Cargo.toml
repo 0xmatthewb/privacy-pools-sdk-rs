@@ -1,14 +1,26 @@
 [package]
 name = "privacy-pools-sdk-core"
 version = "0.1.0"
+description = "Core protocol types for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 repository.workspace = true
-publish = false
+homepage.workspace = true
+documentation = "https://docs.rs/privacy-pools-sdk-core"
+readme = "../../README.md"
+keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
+categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 hex.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
