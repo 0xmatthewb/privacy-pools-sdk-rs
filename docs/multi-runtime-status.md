@@ -61,6 +61,9 @@ plan.
   then passes witness values into the portable Rust/WASM Groth16 proving path
   that consumes verified `zkey` bytes. The browser build does not compile or
   link the `rust-witness` generated C/native witness path.
+- Direct browser proving now prepares a Rust/WASM-verified proof-capable
+  session before witness generation, so fetched circuit `.wasm` bytes are
+  manifest-hash checked before the browser instantiates them.
 - The browser worker now performs real preload, witness, prove, verify, done,
   and error status reporting for proof jobs while keeping the final promise
   result shape unchanged.
@@ -69,6 +72,10 @@ plan.
 - The Rust SDK now includes an explicit bounded `SessionCache` for callers that
   want automatic session reuse without a hidden global cache or unbounded
   artifact retention.
+- The browser runtime keeps proof-capable session `.wasm` bytes in a bounded
+  four-entry cache and exposes `clearCircuitSessionCache()` /
+  `clearBrowserCircuitSessionCache()` to explicitly remove cached JS artifacts
+  and their matching Rust/WASM sessions.
 - The fixture set now pins the v1.2.0 withdrawal `wasm`, `zkey`, and `vkey`
   artifacts, so CI can exercise real withdrawal proof generation and
   verification instead of only static verification fixtures.

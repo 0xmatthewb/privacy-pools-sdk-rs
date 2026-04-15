@@ -4,6 +4,7 @@ import {
   buildCommitmentCircuitInput,
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
+  clearBrowserCircuitSessionCache,
   deriveDepositSecrets,
   deriveMasterKeys,
   deriveWithdrawalSecrets,
@@ -34,7 +35,11 @@ import {
   verifyWithdrawalProofWithSession,
 } from "./runtime.mjs";
 
-export { BrowserRuntimeUnavailableError, getRuntimeCapabilities };
+export {
+  BrowserRuntimeUnavailableError,
+  clearBrowserCircuitSessionCache,
+  getRuntimeCapabilities,
+};
 
 export class PrivacyPoolsSdkClient {
   async getRuntimeCapabilities() {
@@ -131,6 +136,10 @@ export class PrivacyPoolsSdkClient {
 
   async removeCommitmentCircuitSession(sessionHandle) {
     return removeCommitmentCircuitSession(sessionHandle);
+  }
+
+  async clearCircuitSessionCache() {
+    return clearBrowserCircuitSessionCache();
   }
 
   async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request, status) {
@@ -343,6 +352,10 @@ class WorkerPrivacyPoolsSdkClient {
 
   async removeCommitmentCircuitSession(sessionHandle) {
     return this.#send("removeCommitmentCircuitSession", [sessionHandle]);
+  }
+
+  async clearCircuitSessionCache() {
+    return this.#send("clearBrowserCircuitSessionCache");
   }
 
   async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request, status) {

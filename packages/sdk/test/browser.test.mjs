@@ -420,6 +420,186 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
   }
 });
 
+test("direct browser proving verifies artifacts before witness execution", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const server = createFixtureServer({
+    mutate(filename, bytes) {
+      if (
+        filename === "circuits/withdraw/withdraw.wasm" ||
+        filename === "circuits/commitment/commitment.wasm"
+      ) {
+        const tampered = Uint8Array.from(bytes);
+        tampered[0] ^= 0xff;
+        return tampered;
+      }
+      return bytes;
+    },
+  });
+  await server.start();
+
+  try {
+    const withdrawalStatuses = [];
+    const withdrawalRequest = await buildWithdrawalRequest(sdk);
+    await assert.rejects(
+      () =>
+        sdk.proveWithdrawal(
+          "stable",
+          withdrawalProvingManifest,
+          server.rootUrl,
+          withdrawalRequest,
+          (status) => withdrawalStatuses.push(status),
+        ),
+      /sha256 mismatch/,
+    );
+    assert.deepEqual(
+      withdrawalStatuses.map((status) => status.stage),
+      ["preload"],
+    );
+
+    const commitmentStatuses = [];
+    const commitment = await sdk.getCommitment(
+      withdrawalFixture.existingValue,
+      withdrawalFixture.label,
+      cryptoFixture.depositSecrets.nullifier,
+      cryptoFixture.depositSecrets.secret,
+    );
+    await assert.rejects(
+      () =>
+        sdk.proveCommitment(
+          "stable",
+          commitmentProvingManifest,
+          server.rootUrl,
+          { commitment },
+          (status) => commitmentStatuses.push(status),
+        ),
+      /sha256 mismatch/,
+    );
+    assert.deepEqual(
+      commitmentStatuses.map((status) => status.stage),
+      ["preload"],
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
+test("browser session artifact cache is explicit and bounded", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const server = createFixtureServer();
+  await server.start();
+
+  try {
+    const withdrawalRequest = await buildWithdrawalRequest(sdk);
+    const commitment = await sdk.getCommitment(
+      withdrawalFixture.existingValue,
+      withdrawalFixture.label,
+      cryptoFixture.depositSecrets.nullifier,
+      cryptoFixture.depositSecrets.secret,
+    );
+
+    const removedSession = await sdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
+      server.rootUrl,
+    );
+    assert.equal(
+      await sdk.removeWithdrawalCircuitSession(removedSession.handle),
+      true,
+    );
+    await assert.rejects(
+      () =>
+        sdk.proveWithdrawalWithSession(
+          "stable",
+          removedSession.handle,
+          withdrawalRequest,
+        ),
+      /not proof-capable|unknown browser withdrawal circuit session/,
+    );
+
+    const clearedSession = await sdk.prepareCommitmentCircuitSession(
+      commitmentProvingManifest,
+      server.rootUrl,
+    );
+    await sdk.clearCircuitSessionCache();
+    await assert.rejects(
+      () =>
+        sdk.proveCommitmentWithSession(
+          "stable",
+          clearedSession.handle,
+          { commitment },
+        ),
+      /not proof-capable|unknown browser commitment circuit session/,
+    );
+
+    const firstWithdrawal = await sdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
+      server.rootUrl,
+    );
+    const recentlyUsedCommitment = await sdk.prepareCommitmentCircuitSession(
+      commitmentProvingManifest,
+      server.rootUrl,
+    );
+    await sdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
+      server.rootUrl,
+    );
+    await sdk.prepareCommitmentCircuitSession(
+      commitmentProvingManifest,
+      server.rootUrl,
+    );
+
+    const commitmentProof = await sdk.proveCommitmentWithSession(
+      "stable",
+      recentlyUsedCommitment.handle,
+      { commitment },
+    );
+    await sdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
+      server.rootUrl,
+    );
+
+    await assert.rejects(
+      () =>
+        sdk.proveWithdrawalWithSession(
+          "stable",
+          firstWithdrawal.handle,
+          withdrawalRequest,
+        ),
+      /not proof-capable|unknown browser withdrawal circuit session/,
+    );
+    await assert.rejects(
+      () =>
+        sdk.verifyWithdrawalProofWithSession(
+          "stable",
+          firstWithdrawal.handle,
+          browserVerificationProof,
+        ),
+      /unknown browser withdrawal circuit session/,
+    );
+    assert.equal(
+      await sdk.verifyCommitmentProofWithSession(
+        "stable",
+        recentlyUsedCommitment.handle,
+        commitmentProof.proof,
+      ),
+      true,
+    );
+
+    await sdk.clearCircuitSessionCache();
+    await assert.rejects(
+      () =>
+        sdk.verifyCommitmentProofWithSession(
+          "stable",
+          recentlyUsedCommitment.handle,
+          commitmentProof.proof,
+        ),
+      /unknown browser commitment circuit session/,
+    );
+  } finally {
+    await sdk.clearCircuitSessionCache();
+    await server.stop();
+  }
+});
+
 test("browser worker client proves and verifies through real wasm-backed sessions", async () => {
   const worker = new Worker(new URL("../src/browser/worker.mjs", import.meta.url), {
     type: "module",
@@ -496,6 +676,16 @@ test("browser worker client proves and verifies through real wasm-backed session
       commitmentStatuses.map((status) => status.stage),
       ["preload", "witness", "witness", "prove", "verify", "done"],
     );
+    await sdk.clearCircuitSessionCache();
+    await assert.rejects(
+      () =>
+        sdk.verifyCommitmentProofWithSession(
+          "stable",
+          commitmentSession.handle,
+          commitmentProof.proof,
+        ),
+      /unknown browser commitment circuit session/,
+    );
   } finally {
     await server.stop();
     await worker.terminate();
@@ -529,12 +719,15 @@ async function buildWithdrawalRequest(sdk) {
   };
 }
 
-function createFixtureServer() {
+function createFixtureServer(options = {}) {
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const filename = url.pathname.replace(/^\/+/, "");
     try {
-      const bytes = readFileSync(join(fixturesRoot, filename));
+      let bytes = readFileSync(join(fixturesRoot, filename));
+      if (options.mutate) {
+        bytes = Buffer.from(options.mutate(filename, bytes) ?? bytes);
+      }
       response.statusCode = 200;
       response.setHeader("content-type", "application/octet-stream");
       response.end(bytes);

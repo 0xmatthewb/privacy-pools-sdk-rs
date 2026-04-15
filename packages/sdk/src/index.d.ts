@@ -263,6 +263,7 @@ export class PrivacyPoolsSdkClient {
     artifacts: ArtifactBytesInput[],
   ): Promise<CommitmentCircuitSessionHandle>;
   removeCommitmentCircuitSession(sessionHandle: string): Promise<boolean>;
+  clearCircuitSessionCache(): Promise<void>;
   proveWithdrawal(
     backendProfile: "stable" | "fast",
     manifestJson: string,
@@ -316,3 +317,4 @@ export class PrivacyPoolsSdkClient {
 export function createPrivacyPoolsSdkClient(): PrivacyPoolsSdkClient;
 export function createWorkerClient(worker: Worker): PrivacyPoolsSdkClient;
 export function getRuntimeCapabilities(): RuntimeCapabilities;
+export function clearBrowserCircuitSessionCache(): Promise<void>;

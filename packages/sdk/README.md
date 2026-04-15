@@ -15,6 +15,13 @@ Current status:
   construction, manifest-bound `vkey` checks, and final proof verification, and
   the browser build does not compile or link the `rust-witness` generated
   C/native path
+- one-shot browser proving first prepares a Rust/WASM-verified session, then
+  executes the verified session's circuit `.wasm` for witness generation, so a
+  bad artifact hash fails before WebAssembly instantiation
+- browser proof-capable session artifacts are kept in an explicit bounded cache
+  with a default capacity of four sessions; call `clearCircuitSessionCache()` on
+  a client or `clearBrowserCircuitSessionCache()` from the runtime to release
+  cached browser session artifacts and their matching Rust/WASM sessions
 
 This package does not reimplement protocol logic in JavaScript. The Node runtime
 delegates to Rust for key derivation, commitments, Merkle helpers, artifact
