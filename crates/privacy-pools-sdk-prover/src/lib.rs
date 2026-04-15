@@ -1,9 +1,8 @@
 use ark_bls12_381::{Bls12_381, Fr as Bls12_381Fr};
 use ark_bn254::{Bn254, Fr as Bn254Fr};
-use ark_crypto_primitives::snark::SNARK;
 use ark_ec::pairing::Pairing;
 use ark_ff::{BigInteger, PrimeField};
-use ark_groth16::{Groth16, PreparedVerifyingKey, ProvingKey, prepare_verifying_key};
+use ark_groth16::{Groth16, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
 use ark_std::UniformRand;
 use ark_std::rand::thread_rng;
@@ -125,12 +124,12 @@ enum PreparedArkworksCircuit {
     Bn254 {
         proving_key: Arc<ProvingKey<Bn254>>,
         matrices: Arc<ConstraintMatrices<Bn254Fr>>,
-        verifier: Box<PreparedVerifyingKey<Bn254>>,
+        verifier: PreparedVerifier,
     },
     Bls12_381 {
         proving_key: Arc<ProvingKey<Bls12_381>>,
         matrices: Arc<ConstraintMatrices<Bls12_381Fr>>,
-        verifier: Box<PreparedVerifyingKey<Bls12_381>>,
+        verifier: PreparedVerifier,
     },
 }
 
@@ -406,9 +405,8 @@ impl PreparedArkworksCircuit {
 
     fn verify(&self, proof: &CircomProof) -> Result<bool, ProverError> {
         match self {
-            Self::Bn254 { verifier, .. } => verify_with_prepared_bn254_verifier(verifier, proof),
-            Self::Bls12_381 { verifier, .. } => {
-                verify_with_prepared_bls12_381_verifier(verifier, proof)
+            Self::Bn254 { verifier, .. } | Self::Bls12_381 { verifier, .. } => {
+                verify_prepared_verifier_circom(verifier, proof)
             }
         }
     }
@@ -620,7 +618,8 @@ fn parse_arkworks_circuit(zkey_bytes: &[u8]) -> Result<PreparedArkworksCircuit, 
                 .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
 
             Ok(PreparedArkworksCircuit::Bn254 {
-                verifier: Box::new(prepare_verifying_key(&proving_key.vk)),
+                verifier: ParsedVerificationKey::from_bn254_verifying_key(proving_key.vk.clone())
+                    .prepare(),
                 proving_key: Arc::new(proving_key),
                 matrices: Arc::new(matrices),
             })
@@ -631,7 +630,10 @@ fn parse_arkworks_circuit(zkey_bytes: &[u8]) -> Result<PreparedArkworksCircuit, 
                 .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
 
             Ok(PreparedArkworksCircuit::Bls12_381 {
-                verifier: Box::new(prepare_verifying_key(&proving_key.vk)),
+                verifier: ParsedVerificationKey::from_bls12_381_verifying_key(
+                    proving_key.vk.clone(),
+                )
+                .prepare(),
                 proving_key: Arc::new(proving_key),
                 matrices: Arc::new(matrices),
             })
@@ -761,42 +763,6 @@ fn prove_with_prepared_key_bls12_381(
         proof: proof.into(),
         pub_inputs: PublicInputs(public_inputs),
     })
-}
-
-fn verify_with_prepared_bn254_verifier(
-    verifier: &PreparedVerifyingKey<Bn254>,
-    proof: &CircomProof,
-) -> Result<bool, ProverError> {
-    let public_inputs = proof
-        .pub_inputs
-        .0
-        .iter()
-        .map(|value| Bn254Fr::from(value.clone()))
-        .collect::<Vec<_>>();
-    Groth16::<Bn254, CircomReduction>::verify_with_processed_vk(
-        verifier,
-        &public_inputs,
-        &proof.proof.clone().into(),
-    )
-    .map_err(|error| ProverError::Circom(error.to_string()))
-}
-
-fn verify_with_prepared_bls12_381_verifier(
-    verifier: &PreparedVerifyingKey<Bls12_381>,
-    proof: &CircomProof,
-) -> Result<bool, ProverError> {
-    let public_inputs = proof
-        .pub_inputs
-        .0
-        .iter()
-        .map(|value| Bls12_381Fr::from(value.clone()))
-        .collect::<Vec<_>>();
-    Groth16::<Bls12_381, CircomReduction>::verify_with_processed_vk(
-        verifier,
-        &public_inputs,
-        &proof.proof.clone().into(),
-    )
-    .map_err(|error| ProverError::Circom(error.to_string()))
 }
 
 struct ZkeyHeader {

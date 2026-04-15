@@ -48,6 +48,10 @@ const browserVerificationProof = JSON.parse(
   ),
 );
 const artifactsFixtureRoot = join(fixturesRoot, "artifacts");
+const BN254_BASE_FIELD_MODULUS =
+  21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+const BN254_SCALAR_FIELD_MODULUS =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 test("browser runtime reports browser verification capabilities", () => {
   assert.deepEqual(getRuntimeCapabilities(), {
@@ -130,6 +134,26 @@ test("browser wasm runtime matches reference helper vectors", async () => {
     input.withdrawnValue,
     withdrawalFixture.expected.normalizedInputs.withdrawnValue[0],
   );
+
+  const websiteShapedRequest = {
+    commitment,
+    withdrawal: {
+      processooor: "0x1111111111111111111111111111111111111111",
+      data: "0x1234",
+    },
+    scope: cryptoFixture.scope,
+    withdrawalAmount: withdrawalFixture.withdrawalAmount,
+    stateWitness: { ...withdrawalFixture.stateWitness, depth: 32 },
+    aspWitness: { ...withdrawalFixture.aspWitness, depth: 32 },
+    newNullifier: withdrawalFixture.newNullifier,
+    newSecret: withdrawalFixture.newSecret,
+  };
+  const websiteShapedInput =
+    await sdk.buildWithdrawalCircuitInput(websiteShapedRequest);
+  assert.equal(websiteShapedInput.stateTreeDepth, 32);
+  assert.equal(websiteShapedInput.aspTreeDepth, 32);
+  assert.equal(websiteShapedInput.stateRoot, withdrawalFixture.stateWitness.root);
+  assert.equal(websiteShapedInput.aspRoot, withdrawalFixture.aspWitness.root);
 });
 
 test("browser wasm runtime verifies artifact bytes without base64 bridging", async () => {
@@ -236,6 +260,42 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
       false,
     );
 
+    const noncanonicalSignalProof = JSON.parse(
+      JSON.stringify(browserVerificationProof),
+    );
+    noncanonicalSignalProof.publicSignals[0] = addModulus(
+      noncanonicalSignalProof.publicSignals[0],
+      BN254_SCALAR_FIELD_MODULUS,
+    );
+    await assert.rejects(
+      () =>
+        sdk.verifyWithdrawalProof(
+          "stable",
+          browserVerificationManifest,
+          server.rootUrl,
+          noncanonicalSignalProof,
+        ),
+      /not canonical/,
+    );
+
+    const noncanonicalCoordinateProof = JSON.parse(
+      JSON.stringify(browserVerificationProof),
+    );
+    noncanonicalCoordinateProof.proof.piA[0] = addModulus(
+      noncanonicalCoordinateProof.proof.piA[0],
+      BN254_BASE_FIELD_MODULUS,
+    );
+    await assert.rejects(
+      () =>
+        sdk.verifyWithdrawalProof(
+          "stable",
+          browserVerificationManifest,
+          server.rootUrl,
+          noncanonicalCoordinateProof,
+        ),
+      /not canonical/,
+    );
+
     await assert.rejects(
       () =>
         sdk.verifyWithdrawalProof(
@@ -309,6 +369,10 @@ test("browser worker client performs real wasm-backed helper calls", async () =>
     await worker.terminate();
   }
 });
+
+function addModulus(value, modulus) {
+  return (BigInt(value) + modulus).toString();
+}
 
 function createFixtureServer() {
   const server = createServer((request, response) => {

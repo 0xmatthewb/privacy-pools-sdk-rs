@@ -3,8 +3,10 @@ use ark_bn254::{
     Bn254, Fq as Bn254Fq, Fq2 as Bn254Fq2, Fr as Bn254Fr, G1Projective as Bn254G1Projective,
     G2Projective as Bn254G2Projective,
 };
+use ark_ff::PrimeField;
 use ark_groth16::{Groth16, PreparedVerifyingKey, VerifyingKey, prepare_verifying_key};
 use ark_snark::SNARK;
+use num_bigint::BigUint;
 use privacy_pools_sdk_core::ProofBundle;
 use serde_json::Value;
 use std::str::FromStr;
@@ -28,6 +30,12 @@ pub enum VerifierError {
     InvalidVerificationKey(String),
     #[error("invalid proof: {0}")]
     InvalidProof(String),
+}
+
+#[derive(Clone, Copy)]
+enum FieldContext {
+    VerificationKey,
+    Proof,
 }
 
 impl PreparedVerifier {
@@ -226,18 +234,26 @@ fn parse_bn254_g1_from_pair(
     coordinates: &[String; 2],
     label: &str,
 ) -> Result<ark_bn254::G1Affine, VerifierError> {
-    let x = parse_bn254_fq(&coordinates[0], label)?;
-    let y = parse_bn254_fq(&coordinates[1], label)?;
-    Ok(Bn254G1Projective::new(x, y, Bn254Fq::from(1u64)).into())
+    let x = parse_bn254_proof_fq(&coordinates[0], label)?;
+    let y = parse_bn254_proof_fq(&coordinates[1], label)?;
+    validate_bn254_g1(
+        ark_bn254::G1Affine::new_unchecked(x, y),
+        label,
+        FieldContext::Proof,
+    )
 }
 
 fn parse_bls12_381_g1_from_pair(
     coordinates: &[String; 2],
     label: &str,
 ) -> Result<ark_bls12_381::G1Affine, VerifierError> {
-    let x = parse_bls12_381_fq(&coordinates[0], label)?;
-    let y = parse_bls12_381_fq(&coordinates[1], label)?;
-    Ok(ark_bls12_381::G1Projective::new(x, y, Bls12_381Fq::from(1u64)).into())
+    let x = parse_bls12_381_proof_fq(&coordinates[0], label)?;
+    let y = parse_bls12_381_proof_fq(&coordinates[1], label)?;
+    validate_bls12_381_g1(
+        ark_bls12_381::G1Affine::new_unchecked(x, y),
+        label,
+        FieldContext::Proof,
+    )
 }
 
 fn parse_bn254_g2_from_rows(
@@ -245,19 +261,18 @@ fn parse_bn254_g2_from_rows(
     label: &str,
 ) -> Result<ark_bn254::G2Affine, VerifierError> {
     let x = Bn254Fq2::new(
-        parse_bn254_fq(&coordinates[0][0], label)?,
-        parse_bn254_fq(&coordinates[0][1], label)?,
+        parse_bn254_proof_fq(&coordinates[0][0], label)?,
+        parse_bn254_proof_fq(&coordinates[0][1], label)?,
     );
     let y = Bn254Fq2::new(
-        parse_bn254_fq(&coordinates[1][0], label)?,
-        parse_bn254_fq(&coordinates[1][1], label)?,
+        parse_bn254_proof_fq(&coordinates[1][0], label)?,
+        parse_bn254_proof_fq(&coordinates[1][1], label)?,
     );
-    Ok(Bn254G2Projective::new(
-        x,
-        y,
-        Bn254Fq2::new(Bn254Fq::from(1u64), Bn254Fq::from(0u64)),
+    validate_bn254_g2(
+        ark_bn254::G2Affine::new_unchecked(x, y),
+        label,
+        FieldContext::Proof,
     )
-    .into())
 }
 
 fn parse_bls12_381_g2_from_rows(
@@ -265,19 +280,18 @@ fn parse_bls12_381_g2_from_rows(
     label: &str,
 ) -> Result<ark_bls12_381::G2Affine, VerifierError> {
     let x = Bls12_381Fq2::new(
-        parse_bls12_381_fq(&coordinates[0][0], label)?,
-        parse_bls12_381_fq(&coordinates[0][1], label)?,
+        parse_bls12_381_proof_fq(&coordinates[0][0], label)?,
+        parse_bls12_381_proof_fq(&coordinates[0][1], label)?,
     );
     let y = Bls12_381Fq2::new(
-        parse_bls12_381_fq(&coordinates[1][0], label)?,
-        parse_bls12_381_fq(&coordinates[1][1], label)?,
+        parse_bls12_381_proof_fq(&coordinates[1][0], label)?,
+        parse_bls12_381_proof_fq(&coordinates[1][1], label)?,
     );
-    Ok(ark_bls12_381::G2Projective::new(
-        x,
-        y,
-        Bls12_381Fq2::new(Bls12_381Fq::from(1u64), Bls12_381Fq::from(0u64)),
+    validate_bls12_381_g2(
+        ark_bls12_381::G2Affine::new_unchecked(x, y),
+        label,
+        FieldContext::Proof,
     )
-    .into())
 }
 
 fn parse_bn254_g1(value: &Value) -> Result<ark_bn254::G1Affine, VerifierError> {
@@ -288,7 +302,11 @@ fn parse_bn254_g1(value: &Value) -> Result<ark_bn254::G1Affine, VerifierError> {
     let y = parse_bn254_value(coordinates.get(1), "missing G1 y")?;
     let z = parse_optional_bn254_value(coordinates.get(2), "missing G1 z")?;
 
-    Ok(Bn254G1Projective::new(x, y, z).into())
+    validate_bn254_g1(
+        Bn254G1Projective::new_unchecked(x, y, z).into(),
+        "verification key G1 point",
+        FieldContext::VerificationKey,
+    )
 }
 
 fn parse_bls12_381_g1(value: &Value) -> Result<ark_bls12_381::G1Affine, VerifierError> {
@@ -299,7 +317,11 @@ fn parse_bls12_381_g1(value: &Value) -> Result<ark_bls12_381::G1Affine, Verifier
     let y = parse_bls12_381_value(coordinates.get(1), "missing G1 y")?;
     let z = parse_optional_bls12_381_value(coordinates.get(2), "missing G1 z")?;
 
-    Ok(ark_bls12_381::G1Projective::new(x, y, z).into())
+    validate_bls12_381_g1(
+        ark_bls12_381::G1Projective::new_unchecked(x, y, z).into(),
+        "verification key G1 point",
+        FieldContext::VerificationKey,
+    )
 }
 
 fn parse_bn254_g2(value: &Value) -> Result<ark_bn254::G2Affine, VerifierError> {
@@ -318,7 +340,11 @@ fn parse_bn254_g2(value: &Value) -> Result<ark_bn254::G2Affine, VerifierError> {
     )?;
     let z = parse_optional_bn254_fq2(coordinates.get(2), "missing G2 z")?;
 
-    Ok(Bn254G2Projective::new(x, y, z).into())
+    validate_bn254_g2(
+        Bn254G2Projective::new_unchecked(x, y, z).into(),
+        "verification key G2 point",
+        FieldContext::VerificationKey,
+    )
 }
 
 fn parse_bls12_381_g2(value: &Value) -> Result<ark_bls12_381::G2Affine, VerifierError> {
@@ -337,7 +363,11 @@ fn parse_bls12_381_g2(value: &Value) -> Result<ark_bls12_381::G2Affine, Verifier
     )?;
     let z = parse_optional_bls12_381_fq2(coordinates.get(2), "missing G2 z")?;
 
-    Ok(ark_bls12_381::G2Projective::new(x, y, z).into())
+    validate_bls12_381_g2(
+        ark_bls12_381::G2Projective::new_unchecked(x, y, z).into(),
+        "verification key G2 point",
+        FieldContext::VerificationKey,
+    )
 }
 
 fn parse_bn254_fq2(value: &Value) -> Result<Bn254Fq2, VerifierError> {
@@ -450,27 +480,126 @@ fn parse_optional_bls12_381_fq2(
 }
 
 fn parse_bn254_fq(value: &str, label: &str) -> Result<Bn254Fq, VerifierError> {
-    Bn254Fq::from_str(value).map_err(|_| {
-        VerifierError::InvalidVerificationKey(format!("invalid {label} field element `{value}`"))
-    })
+    parse_prime_field(value, label, FieldContext::VerificationKey)
 }
 
 fn parse_bls12_381_fq(value: &str, label: &str) -> Result<Bls12_381Fq, VerifierError> {
-    Bls12_381Fq::from_str(value).map_err(|_| {
-        VerifierError::InvalidVerificationKey(format!("invalid {label} field element `{value}`"))
-    })
+    parse_prime_field(value, label, FieldContext::VerificationKey)
+}
+
+fn parse_bn254_proof_fq(value: &str, label: &str) -> Result<Bn254Fq, VerifierError> {
+    parse_prime_field(value, label, FieldContext::Proof)
+}
+
+fn parse_bls12_381_proof_fq(value: &str, label: &str) -> Result<Bls12_381Fq, VerifierError> {
+    parse_prime_field(value, label, FieldContext::Proof)
 }
 
 fn parse_bn254_fr(value: &str, label: &str) -> Result<Bn254Fr, VerifierError> {
-    Bn254Fr::from_str(value).map_err(|_| {
-        VerifierError::InvalidProof(format!("invalid {label} field element `{value}`"))
-    })
+    parse_prime_field(value, label, FieldContext::Proof)
 }
 
 fn parse_bls12_381_fr(value: &str, label: &str) -> Result<Bls12_381Fr, VerifierError> {
-    Bls12_381Fr::from_str(value).map_err(|_| {
-        VerifierError::InvalidProof(format!("invalid {label} field element `{value}`"))
-    })
+    parse_prime_field(value, label, FieldContext::Proof)
+}
+
+fn parse_prime_field<F: PrimeField>(
+    value: &str,
+    label: &str,
+    context: FieldContext,
+) -> Result<F, VerifierError>
+where
+    <F as PrimeField>::BigInt: TryFrom<BigUint>,
+    BigUint: From<<F as PrimeField>::BigInt>,
+{
+    let integer = BigUint::from_str(value)
+        .map_err(|_| invalid_field_element(context, label, value, "expected unsigned decimal"))?;
+    if integer >= BigUint::from(F::MODULUS) {
+        return Err(invalid_field_element(
+            context,
+            label,
+            value,
+            "field element is not canonical",
+        ));
+    }
+
+    let bigint = <F as PrimeField>::BigInt::try_from(integer)
+        .map_err(|_| invalid_field_element(context, label, value, "field element is too large"))?;
+    F::from_bigint(bigint)
+        .ok_or_else(|| invalid_field_element(context, label, value, "invalid field element"))
+}
+
+fn validate_bn254_g1(
+    point: ark_bn254::G1Affine,
+    label: &str,
+    context: FieldContext,
+) -> Result<ark_bn254::G1Affine, VerifierError> {
+    if point.is_on_curve() && point.is_in_correct_subgroup_assuming_on_curve() {
+        Ok(point)
+    } else {
+        Err(invalid_curve_point(context, label))
+    }
+}
+
+fn validate_bn254_g2(
+    point: ark_bn254::G2Affine,
+    label: &str,
+    context: FieldContext,
+) -> Result<ark_bn254::G2Affine, VerifierError> {
+    if point.is_on_curve() && point.is_in_correct_subgroup_assuming_on_curve() {
+        Ok(point)
+    } else {
+        Err(invalid_curve_point(context, label))
+    }
+}
+
+fn validate_bls12_381_g1(
+    point: ark_bls12_381::G1Affine,
+    label: &str,
+    context: FieldContext,
+) -> Result<ark_bls12_381::G1Affine, VerifierError> {
+    if point.is_on_curve() && point.is_in_correct_subgroup_assuming_on_curve() {
+        Ok(point)
+    } else {
+        Err(invalid_curve_point(context, label))
+    }
+}
+
+fn validate_bls12_381_g2(
+    point: ark_bls12_381::G2Affine,
+    label: &str,
+    context: FieldContext,
+) -> Result<ark_bls12_381::G2Affine, VerifierError> {
+    if point.is_on_curve() && point.is_in_correct_subgroup_assuming_on_curve() {
+        Ok(point)
+    } else {
+        Err(invalid_curve_point(context, label))
+    }
+}
+
+fn invalid_field_element(
+    context: FieldContext,
+    label: &str,
+    value: &str,
+    reason: &str,
+) -> VerifierError {
+    match context {
+        FieldContext::VerificationKey => VerifierError::InvalidVerificationKey(format!(
+            "invalid {label} field element `{value}`: {reason}"
+        )),
+        FieldContext::Proof => VerifierError::InvalidProof(format!(
+            "invalid {label} field element `{value}`: {reason}"
+        )),
+    }
+}
+
+fn invalid_curve_point(context: FieldContext, label: &str) -> VerifierError {
+    match context {
+        FieldContext::VerificationKey => {
+            VerifierError::InvalidVerificationKey(format!("invalid {label} curve point"))
+        }
+        FieldContext::Proof => VerifierError::InvalidProof(format!("invalid {label} curve point")),
+    }
 }
 
 fn missing_vkey_field(field: &str) -> VerifierError {
@@ -530,6 +659,64 @@ mod tests {
         let mut tampered = fixture.proof.clone();
         tampered.public_signals[0] = "9".to_owned();
         assert!(!verifier.verify(&tampered).expect("verification completes"));
+    }
+
+    #[test]
+    fn rejects_noncanonical_public_signal() {
+        let fixture = generate_bn254_fixture();
+        let verifier =
+            PreparedVerifier::from_vkey_bytes(fixture.vkey_json.as_bytes()).expect("vkey parses");
+        let mut tampered = fixture.proof.clone();
+        tampered.public_signals[0] = add_field_modulus::<Bn254Fr>(&tampered.public_signals[0]);
+
+        let error = verifier
+            .verify(&tampered)
+            .expect_err("non-canonical public signal should fail before verification");
+        assert!(matches!(error, VerifierError::InvalidProof(_)));
+    }
+
+    #[test]
+    fn rejects_noncanonical_proof_coordinate() {
+        let fixture = generate_bn254_fixture();
+        let verifier =
+            PreparedVerifier::from_vkey_bytes(fixture.vkey_json.as_bytes()).expect("vkey parses");
+        let mut tampered = fixture.proof.clone();
+        tampered.proof.pi_a[0] = add_field_modulus::<Bn254Fq>(&tampered.proof.pi_a[0]);
+
+        let error = verifier
+            .verify(&tampered)
+            .expect_err("non-canonical proof coordinate should fail before verification");
+        assert!(matches!(error, VerifierError::InvalidProof(_)));
+    }
+
+    #[test]
+    fn rejects_invalid_proof_curve_point_without_panicking() {
+        let fixture = generate_bn254_fixture();
+        let verifier =
+            PreparedVerifier::from_vkey_bytes(fixture.vkey_json.as_bytes()).expect("vkey parses");
+        let mut tampered = fixture.proof.clone();
+        tampered.proof.pi_a = ["0".to_owned(), "0".to_owned()];
+
+        let error = verifier
+            .verify(&tampered)
+            .expect_err("invalid proof point should fail without panicking");
+        assert!(matches!(error, VerifierError::InvalidProof(_)));
+    }
+
+    #[test]
+    fn rejects_noncanonical_verification_key_coordinate() {
+        let fixture = generate_bn254_fixture();
+        let mut vkey: Value =
+            serde_json::from_str(&fixture.vkey_json).expect("vkey fixture parses");
+        let alpha_x = vkey["vk_alpha_1"][0]
+            .as_str()
+            .expect("alpha x is a decimal string");
+        vkey["vk_alpha_1"][0] = json!(add_field_modulus::<Bn254Fq>(alpha_x));
+        let vkey_json = serde_json::to_vec(&vkey).expect("vkey serializes");
+
+        let error = PreparedVerifier::from_vkey_bytes(&vkey_json)
+            .expect_err("non-canonical vkey coordinate should fail");
+        assert!(matches!(error, VerifierError::InvalidVerificationKey(_)));
     }
 
     #[test]
@@ -642,6 +829,15 @@ mod tests {
             vec![point.x.c0.to_string(), point.x.c1.to_string()],
             vec![point.y.c0.to_string(), point.y.c1.to_string()],
         ]
+    }
+
+    fn add_field_modulus<F: PrimeField>(value: &str) -> String
+    where
+        BigUint: From<<F as PrimeField>::BigInt>,
+    {
+        (BigUint::from_str(value).expect("decimal field element parses")
+            + BigUint::from(F::MODULUS))
+        .to_string()
     }
 
     fn to_browser_proof_bundle(proof: &ProofBundle) -> Value {

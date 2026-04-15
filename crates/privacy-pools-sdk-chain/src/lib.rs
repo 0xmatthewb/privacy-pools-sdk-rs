@@ -64,6 +64,12 @@ pub enum ChainError {
         expected: U256,
         actual: U256,
     },
+    #[error("proof field `{field}` is not canonical: {value} >= {modulus}")]
+    NonCanonicalProofField {
+        field: String,
+        value: U256,
+        modulus: U256,
+    },
     #[error("relay transactions require a non-zero withdrawn value")]
     RelayRequiresNonZeroWithdrawValue,
     #[error("relay withdrawal processooor mismatch: expected {expected}, got {actual}")]
@@ -424,27 +430,52 @@ impl SubmissionClient for LocalSignerExecutionClient {
 pub fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof, ChainError> {
     Ok(FormattedGroth16Proof {
         p_a: [
-            field_to_hex_32(parse_decimal_field(&proof.proof.pi_a[0])?),
-            field_to_hex_32(parse_decimal_field(&proof.proof.pi_a[1])?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_a[0],
+                "piA[0]",
+            )?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_a[1],
+                "piA[1]",
+            )?),
         ],
         p_b: [
             [
-                field_to_hex_32(parse_decimal_field(&proof.proof.pi_b[0][1])?),
-                field_to_hex_32(parse_decimal_field(&proof.proof.pi_b[0][0])?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[0][1],
+                    "piB[0][1]",
+                )?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[0][0],
+                    "piB[0][0]",
+                )?),
             ],
             [
-                field_to_hex_32(parse_decimal_field(&proof.proof.pi_b[1][1])?),
-                field_to_hex_32(parse_decimal_field(&proof.proof.pi_b[1][0])?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[1][1],
+                    "piB[1][1]",
+                )?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[1][0],
+                    "piB[1][0]",
+                )?),
             ],
         ],
         p_c: [
-            field_to_hex_32(parse_decimal_field(&proof.proof.pi_c[0])?),
-            field_to_hex_32(parse_decimal_field(&proof.proof.pi_c[1])?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_c[0],
+                "piC[0]",
+            )?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_c[1],
+                "piC[1]",
+            )?),
         ],
         pub_signals: proof
             .public_signals
             .iter()
-            .map(|value| parse_decimal_field(value).map(field_to_hex_32))
+            .enumerate()
+            .map(|(index, value)| parse_bn254_public_signal(value, index).map(field_to_hex_32))
             .collect::<Result<Vec<_>, _>>()?,
     })
 }
@@ -453,11 +484,57 @@ pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainEr
     let public_signals = proof
         .public_signals
         .iter()
-        .map(|value| parse_decimal_field(value))
+        .enumerate()
+        .map(|(index, value)| parse_bn254_public_signal(value, index))
         .collect::<Result<Vec<_>, _>>()?;
     public_signals
         .try_into()
         .map_err(|signals: Vec<U256>| ChainError::InvalidWithdrawPublicSignals(signals.len()))
+}
+
+fn parse_bn254_proof_coordinate(value: &str, field: &str) -> Result<U256, ChainError> {
+    let parsed = parse_decimal_field(value)?;
+    ensure_canonical_proof_field(field.to_owned(), parsed, bn254_base_field_modulus())?;
+    Ok(parsed)
+}
+
+fn parse_bn254_public_signal(value: &str, index: usize) -> Result<U256, ChainError> {
+    let parsed = parse_decimal_field(value)?;
+    ensure_canonical_proof_field(
+        format!("publicSignals[{index}]"),
+        parsed,
+        bn254_scalar_field_modulus(),
+    )?;
+    Ok(parsed)
+}
+
+fn ensure_canonical_proof_field(
+    field: String,
+    value: U256,
+    modulus: U256,
+) -> Result<(), ChainError> {
+    if value >= modulus {
+        return Err(ChainError::NonCanonicalProofField {
+            field,
+            value,
+            modulus,
+        });
+    }
+    Ok(())
+}
+
+fn bn254_base_field_modulus() -> U256 {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+    )
+    .expect("valid BN254 base field modulus")
+}
+
+fn bn254_scalar_field_modulus() -> U256 {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    )
+    .expect("valid BN254 scalar field modulus")
 }
 
 pub fn state_root_read(pool_address: Address) -> RootRead {
@@ -1236,22 +1313,22 @@ fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi, ChainErro
 
     Ok(WithdrawProofAbi {
         pA: [
-            parse_decimal_field(&proof.proof.pi_a[0])?,
-            parse_decimal_field(&proof.proof.pi_a[1])?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[0], "piA[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[1], "piA[1]")?,
         ],
         pB: [
             [
-                parse_decimal_field(&proof.proof.pi_b[0][1])?,
-                parse_decimal_field(&proof.proof.pi_b[0][0])?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][1], "piB[0][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][0], "piB[0][0]")?,
             ],
             [
-                parse_decimal_field(&proof.proof.pi_b[1][1])?,
-                parse_decimal_field(&proof.proof.pi_b[1][0])?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][1], "piB[1][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][0], "piB[1][0]")?,
             ],
         ],
         pC: [
-            parse_decimal_field(&proof.proof.pi_c[0])?,
-            parse_decimal_field(&proof.proof.pi_c[1])?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[0], "piC[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[1], "piC[1]")?,
         ],
         pubSignals: public_signals,
     })
@@ -1401,6 +1478,47 @@ mod tests {
                 .map(|value| value.as_str().unwrap().to_owned())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn rejects_noncanonical_proof_fields_before_calldata_planning() {
+        let mut proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+
+        proof.public_signals[0] = bn254_scalar_field_modulus().to_string();
+        let error = format_groth16_proof(&proof).expect_err("public signal must be canonical");
+        assert!(matches!(
+            error,
+            ChainError::NonCanonicalProofField { field, .. } if field == "publicSignals[0]"
+        ));
+
+        proof.public_signals[0] = "911".to_owned();
+        proof.proof.pi_a[0] = bn254_base_field_modulus().to_string();
+        let error = plan_withdrawal_transaction(
+            1,
+            address!("0987654321098765432109876543210987654321"),
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .expect_err("proof coordinate must be canonical");
+        assert!(matches!(
+            error,
+            ChainError::NonCanonicalProofField { field, .. } if field == "piA[0]"
+        ));
     }
 
     #[test]
