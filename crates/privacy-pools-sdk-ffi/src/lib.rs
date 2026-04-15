@@ -2245,6 +2245,7 @@ pub fn checkpoint_recovery(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloy_primitives::bytes;
     use serde_json::Value;
     use std::time::Duration;
 
@@ -2253,6 +2254,15 @@ mod tests {
             "../../../fixtures/vectors/crypto-compatibility.json"
         ))
         .expect("valid ffi fixture")
+    }
+
+    fn valid_relay_data_bytes() -> Vec<u8> {
+        bytes!(
+            "0000000000000000000000002222222222222222222222222222222222222222\
+             0000000000000000000000003333333333333333333333333333333333333333\
+             0000000000000000000000000000000000000000000000000000000000000019"
+        )
+        .to_vec()
     }
 
     #[test]
@@ -2585,7 +2595,7 @@ mod tests {
         };
         let relay_withdrawal = FfiWithdrawal {
             processooor: relay_entrypoint.clone(),
-            data: vec![0x12, 0x34],
+            data: valid_relay_data_bytes(),
         };
 
         let withdraw = plan_withdrawal_transaction(

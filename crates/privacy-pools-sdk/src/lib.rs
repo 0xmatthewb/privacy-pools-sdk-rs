@@ -740,6 +740,14 @@ mod tests {
         receipt: core::TransactionReceiptSummary,
     }
 
+    fn valid_relay_data_bytes() -> alloy_primitives::Bytes {
+        bytes!(
+            "0000000000000000000000002222222222222222222222222222222222222222\
+             0000000000000000000000003333333333333333333333333333333333333333\
+             0000000000000000000000000000000000000000000000000000000000000019"
+        )
+    }
+
     #[async_trait]
     impl chain::ExecutionClient for MockSubmissionClient {
         async fn chain_id(&self) -> Result<u64, chain::ChainError> {
@@ -1684,7 +1692,7 @@ mod tests {
         };
         let relay_withdrawal = core::Withdrawal {
             processooor: relay_entrypoint,
-            data: bytes!("1234"),
+            data: valid_relay_data_bytes(),
         };
 
         let withdraw = sdk

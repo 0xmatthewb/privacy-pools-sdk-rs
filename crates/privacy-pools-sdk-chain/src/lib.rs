@@ -6,7 +6,7 @@ use alloy_network::{Ethereum, ReceiptResponse};
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
 use alloy_rpc_types_eth::{TransactionInput, TransactionRequest};
-use alloy_sol_types::{SolCall, sol};
+use alloy_sol_types::{SolCall, SolValue, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_core::{
     CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FinalizedTransactionRequest,
@@ -21,6 +21,12 @@ sol! {
     struct WithdrawalAbi {
         address processooor;
         bytes data;
+    }
+
+    struct RelayDataAbi {
+        address recipient;
+        address feeRecipient;
+        uint256 relayFeeBPS;
     }
 
     struct WithdrawProofAbi {
@@ -62,6 +68,8 @@ pub enum ChainError {
     RelayRequiresNonZeroWithdrawValue,
     #[error("relay withdrawal processooor mismatch: expected {expected}, got {actual}")]
     RelayProcessooorMismatch { expected: Address, actual: Address },
+    #[error("relay withdrawal data is invalid: {0}")]
+    InvalidRelayData(String),
     #[error("invalid rpc url: {0}")]
     InvalidRpcUrl(String),
     #[error("invalid root response length: expected at least 32 bytes, got {0}")]
@@ -514,6 +522,8 @@ pub fn plan_relay_transaction(
         });
     }
 
+    parse_relay_data(&withdrawal.data)?;
+
     let public_signals = withdraw_public_signals(proof)?;
     if public_signals[2].is_zero() {
         return Err(ChainError::RelayRequiresNonZeroWithdrawValue);
@@ -537,6 +547,25 @@ pub fn plan_relay_transaction(
         value: U256::ZERO,
         proof: formatted,
     })
+}
+
+fn parse_relay_data(data: &Bytes) -> Result<RelayDataAbi, ChainError> {
+    let relay_data = RelayDataAbi::abi_decode(data.as_ref())
+        .map_err(|error| ChainError::InvalidRelayData(error.to_string()))?;
+
+    if relay_data.recipient.is_zero() {
+        return Err(ChainError::InvalidRelayData(
+            "recipient must be non-zero".to_owned(),
+        ));
+    }
+
+    if relay_data.feeRecipient.is_zero() {
+        return Err(ChainError::InvalidRelayData(
+            "fee recipient must be non-zero".to_owned(),
+        ));
+    }
+
+    Ok(relay_data)
 }
 
 pub async fn preflight_withdrawal<C: ExecutionClient>(
@@ -1181,6 +1210,17 @@ mod tests {
         estimated_gas: u64,
     }
 
+    fn valid_relay_data_bytes() -> Bytes {
+        Bytes::from(
+            RelayDataAbi {
+                recipient: address!("2222222222222222222222222222222222222222"),
+                feeRecipient: address!("3333333333333333333333333333333333333333"),
+                relayFeeBPS: U256::from(25_u64),
+            }
+            .abi_encode(),
+        )
+    }
+
     #[async_trait]
     impl ExecutionClient for MockExecutionClient {
         async fn chain_id(&self) -> Result<u64, ChainError> {
@@ -1323,7 +1363,7 @@ mod tests {
         };
         let relay_withdrawal = Withdrawal {
             processooor: entrypoint,
-            data: bytes!("1234"),
+            data: valid_relay_data_bytes(),
         };
 
         let withdraw = plan_withdrawal_transaction(
@@ -1419,7 +1459,7 @@ mod tests {
                 entrypoint,
                 &Withdrawal {
                     processooor: entrypoint,
-                    data: bytes!("1234"),
+                    data: valid_relay_data_bytes(),
                 },
                 &proof,
                 U256::from(123_u64),
@@ -1468,6 +1508,47 @@ mod tests {
             Err(ChainError::RelayProcessooorMismatch { expected, actual })
                 if expected == entrypoint
                     && actual == address!("1111111111111111111111111111111111111111")
+        ));
+    }
+
+    #[test]
+    fn rejects_relay_transactions_with_malformed_relay_data() {
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "10".to_owned(),
+                "11".to_owned(),
+                "1".to_owned(),
+                "12".to_owned(),
+                "32".to_owned(),
+                "13".to_owned(),
+                "32".to_owned(),
+                "14".to_owned(),
+            ],
+        };
+
+        assert!(matches!(
+            plan_relay_transaction(
+                1,
+                entrypoint,
+                &Withdrawal {
+                    processooor: entrypoint,
+                    data: bytes!("1234"),
+                },
+                &proof,
+                U256::from(123_u64),
+            ),
+            Err(ChainError::InvalidRelayData(_))
         ));
     }
 
@@ -1917,7 +1998,7 @@ mod tests {
             entrypoint,
             &Withdrawal {
                 processooor: entrypoint,
-                data: bytes!("1234"),
+                data: valid_relay_data_bytes(),
             },
             &proof,
             U256::from(123_u64),
