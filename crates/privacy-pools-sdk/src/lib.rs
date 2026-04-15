@@ -10,7 +10,7 @@ pub use privacy_pools_sdk_tree as tree;
 
 use alloy_primitives::{Address, U256};
 use privacy_pools_sdk_prover::{BackendPolicy, BackendProfile, NativeProofEngine, ProverError};
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +46,11 @@ pub struct CommitmentCircuitSession {
 
 impl WithdrawalCircuitSession {
     pub fn circuit(&self) -> &str {
-        &self.bundle.circuit
+        self.bundle.circuit()
     }
 
     pub fn artifact_version(&self) -> &str {
-        &self.bundle.version
+        self.bundle.version()
     }
 
     pub fn verified_bundle(&self) -> &artifacts::VerifiedArtifactBundle {
@@ -60,15 +60,224 @@ impl WithdrawalCircuitSession {
 
 impl CommitmentCircuitSession {
     pub fn circuit(&self) -> &str {
-        &self.bundle.circuit
+        self.bundle.circuit()
     }
 
     pub fn artifact_version(&self) -> &str {
-        &self.bundle.version
+        self.bundle.version()
     }
 
     pub fn verified_bundle(&self) -> &artifacts::VerifiedArtifactBundle {
         &self.bundle
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SessionCacheKey {
+    circuit: String,
+    artifact_version: String,
+    backend_profile: BackendProfile,
+    manifest_identity: String,
+    artifact_hashes: Vec<(artifacts::ArtifactKind, String)>,
+}
+
+impl SessionCacheKey {
+    pub fn from_verified_bundle(
+        backend_profile: BackendProfile,
+        bundle: &artifacts::VerifiedArtifactBundle,
+    ) -> Self {
+        let mut descriptors = bundle
+            .artifacts()
+            .iter()
+            .map(|artifact| artifact.descriptor())
+            .collect::<Vec<_>>();
+        descriptors.sort_by_key(|descriptor| descriptor.kind);
+
+        let artifact_hashes = descriptors
+            .iter()
+            .map(|descriptor| (descriptor.kind, descriptor.sha256.clone()))
+            .collect::<Vec<_>>();
+        let manifest_identity = descriptors
+            .iter()
+            .map(|descriptor| {
+                format!(
+                    "{}:{}:{}:{}",
+                    descriptor.circuit,
+                    artifact_kind_identity(descriptor.kind),
+                    descriptor.filename,
+                    descriptor.sha256
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("|");
+
+        Self {
+            circuit: bundle.circuit().to_owned(),
+            artifact_version: bundle.version().to_owned(),
+            backend_profile,
+            manifest_identity,
+            artifact_hashes,
+        }
+    }
+
+    pub fn circuit(&self) -> &str {
+        &self.circuit
+    }
+
+    pub fn artifact_version(&self) -> &str {
+        &self.artifact_version
+    }
+
+    pub fn backend_profile(&self) -> BackendProfile {
+        self.backend_profile
+    }
+
+    pub fn manifest_identity(&self) -> &str {
+        &self.manifest_identity
+    }
+
+    pub fn artifact_hashes(&self) -> &[(artifacts::ArtifactKind, String)] {
+        &self.artifact_hashes
+    }
+}
+
+#[derive(Clone)]
+enum CachedCircuitSession {
+    Withdrawal(WithdrawalCircuitSession),
+    Commitment(CommitmentCircuitSession),
+}
+
+#[derive(Clone)]
+pub struct SessionCache {
+    capacity: usize,
+    entries: VecDeque<(SessionCacheKey, CachedCircuitSession)>,
+}
+
+impl SessionCache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: VecDeque::new(),
+        }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    pub fn remove(&mut self, key: &SessionCacheKey) -> bool {
+        let Some(index) = self
+            .entries
+            .iter()
+            .position(|(entry_key, _)| entry_key == key)
+        else {
+            return false;
+        };
+        self.entries.remove(index);
+        true
+    }
+
+    pub fn withdrawal(&mut self, key: &SessionCacheKey) -> Option<WithdrawalCircuitSession> {
+        let (_, session) = self.touch(key)?;
+        match session {
+            CachedCircuitSession::Withdrawal(session) => Some(session),
+            CachedCircuitSession::Commitment(_) => None,
+        }
+    }
+
+    pub fn commitment(&mut self, key: &SessionCacheKey) -> Option<CommitmentCircuitSession> {
+        let (_, session) = self.touch(key)?;
+        match session {
+            CachedCircuitSession::Commitment(session) => Some(session),
+            CachedCircuitSession::Withdrawal(_) => None,
+        }
+    }
+
+    pub fn insert_withdrawal(&mut self, key: SessionCacheKey, session: WithdrawalCircuitSession) {
+        self.insert(key, CachedCircuitSession::Withdrawal(session));
+    }
+
+    pub fn insert_commitment(&mut self, key: SessionCacheKey, session: CommitmentCircuitSession) {
+        self.insert(key, CachedCircuitSession::Commitment(session));
+    }
+
+    pub fn get_or_prepare_withdrawal_from_bundle(
+        &mut self,
+        sdk: &PrivacyPoolsSdk,
+        backend_profile: BackendProfile,
+        bundle: artifacts::VerifiedArtifactBundle,
+    ) -> Result<WithdrawalCircuitSession, SdkError> {
+        let key = SessionCacheKey::from_verified_bundle(backend_profile, &bundle);
+        if let Some(session) = self.withdrawal(&key) {
+            return Ok(session);
+        }
+
+        let session = sdk.prepare_withdrawal_circuit_session_from_bundle(bundle)?;
+        self.insert_withdrawal(key, session.clone());
+        Ok(session)
+    }
+
+    pub fn get_or_prepare_commitment_from_bundle(
+        &mut self,
+        sdk: &PrivacyPoolsSdk,
+        backend_profile: BackendProfile,
+        bundle: artifacts::VerifiedArtifactBundle,
+    ) -> Result<CommitmentCircuitSession, SdkError> {
+        let key = SessionCacheKey::from_verified_bundle(backend_profile, &bundle);
+        if let Some(session) = self.commitment(&key) {
+            return Ok(session);
+        }
+
+        let session = sdk.prepare_commitment_circuit_session_from_bundle(bundle)?;
+        self.insert_commitment(key, session.clone());
+        Ok(session)
+    }
+
+    fn touch(&mut self, key: &SessionCacheKey) -> Option<(SessionCacheKey, CachedCircuitSession)> {
+        let index = self
+            .entries
+            .iter()
+            .position(|(entry_key, _)| entry_key == key)?;
+        let entry = self.entries.remove(index)?;
+        self.entries.push_back(entry.clone());
+        Some(entry)
+    }
+
+    fn insert(&mut self, key: SessionCacheKey, session: CachedCircuitSession) {
+        if self.capacity == 0 {
+            return;
+        }
+        self.remove(&key);
+        while self.entries.len() >= self.capacity {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, session));
+    }
+}
+
+impl Default for SessionCache {
+    fn default() -> Self {
+        Self::new(4)
+    }
+}
+
+fn artifact_kind_identity(kind: artifacts::ArtifactKind) -> &'static str {
+    match kind {
+        artifacts::ArtifactKind::Wasm => "wasm",
+        artifacts::ArtifactKind::Zkey => "zkey",
+        artifacts::ArtifactKind::Vkey => "vkey",
     }
 }
 
@@ -1510,9 +1719,54 @@ mod tests {
             .load_verified_artifact_bundle(&manifest, root, "withdraw")
             .unwrap();
 
-        assert_eq!(bundle.version, "0.1.0-alpha.1");
-        assert_eq!(bundle.circuit, "withdraw");
-        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(bundle.version(), "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit(), "withdraw");
+        assert_eq!(bundle.artifacts().len(), 3);
+    }
+
+    #[test]
+    fn explicit_session_cache_reuses_invalidates_and_bounds_entries() {
+        let sdk = PrivacyPoolsSdk::default();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/commitment-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let bundle = sdk
+            .load_verified_artifact_bundle(&manifest, root, "commitment")
+            .unwrap();
+        let key = SessionCacheKey::from_verified_bundle(BackendProfile::Stable, &bundle);
+
+        let mut cache = SessionCache::new(1);
+        let session = cache
+            .get_or_prepare_commitment_from_bundle(&sdk, BackendProfile::Stable, bundle.clone())
+            .unwrap();
+        let reused = cache
+            .get_or_prepare_commitment_from_bundle(&sdk, BackendProfile::Stable, bundle)
+            .unwrap();
+        assert_eq!(session.circuit(), "commitment");
+        assert_eq!(reused.circuit(), "commitment");
+        assert_eq!(cache.len(), 1);
+        assert!(cache.commitment(&key).is_some());
+
+        let mut wrong_hash_key = key.clone();
+        wrong_hash_key.artifact_hashes[0].1 = "00".repeat(32);
+        assert!(cache.commitment(&wrong_hash_key).is_none());
+
+        let mut second_key = key.clone();
+        second_key.manifest_identity.push_str("|rotated");
+        second_key.artifact_hashes[0].1 = "11".repeat(32);
+        cache.insert_commitment(second_key.clone(), session.clone());
+        assert_eq!(cache.len(), 1);
+        assert!(cache.commitment(&key).is_none());
+        assert!(cache.commitment(&second_key).is_some());
+
+        assert!(cache.remove(&second_key));
+        assert!(cache.is_empty());
+
+        let mut disabled_cache = SessionCache::new(0);
+        disabled_cache.insert_commitment(key, session);
+        assert!(disabled_cache.is_empty());
     }
 
     #[test]
@@ -1705,12 +1959,12 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(bundle.artifacts().len(), 3);
         assert_eq!(
             bundle
                 .artifact(artifacts::ArtifactKind::Vkey)
                 .unwrap()
-                .descriptor
+                .descriptor()
                 .filename,
             "sample-artifact.bin"
         );

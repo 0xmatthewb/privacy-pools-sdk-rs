@@ -11,6 +11,7 @@ use privacy_pools_sdk_core::{
     CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest, MasterKeys,
     MerkleProof, ProofBundle, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
 };
+use privacy_pools_sdk_prover::{self as prover, ProverBackend, ProvingResult};
 use privacy_pools_sdk_verifier::PreparedVerifier;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -53,6 +54,30 @@ struct JsCommitment {
 struct JsWithdrawal {
     processooor: String,
     data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsSnarkJsProof {
+    pi_a: Vec<String>,
+    pi_b: Vec<Vec<String>>,
+    pi_c: Vec<String>,
+    protocol: String,
+    curve: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsProofBundle {
+    proof: JsSnarkJsProof,
+    public_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsProvingResult {
+    backend: String,
+    proof: JsProofBundle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +202,8 @@ struct JsWithdrawalCircuitSessionHandle {
     handle: String,
     circuit: String,
     artifact_version: String,
+    proving_available: bool,
+    verification_available: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,6 +221,7 @@ struct BrowserCircuitSession {
     circuit: String,
     artifact_version: String,
     verifier: PreparedVerifier,
+    prepared: Option<prover::PreparedCircuitArtifacts>,
 }
 
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
@@ -209,9 +237,9 @@ pub fn get_version() -> String {
 pub fn get_browser_support_status() -> BrowserSupportStatus {
     BrowserSupportStatus {
         runtime: "browser".to_owned(),
-        proving_available: false,
+        proving_available: true,
         verification_available: true,
-        reason: "browser verification is available via Rust/WASM; proving is still blocked on a wasm-capable prover backend"
+        reason: "browser proving and verification are available through Rust/WASM with browser-native circuit witness execution"
             .to_owned(),
     }
 }
@@ -319,11 +347,25 @@ pub fn build_withdrawal_circuit_input_json(request_json: &str) -> Result<String>
     to_json_string(&input)
 }
 
+pub fn build_withdrawal_witness_input_json(request_json: &str) -> Result<String> {
+    let request = parse_json::<JsWithdrawalWitnessRequest>(request_json)?;
+    let request = from_js_withdrawal_witness_request(&request)?;
+    let input = circuits::build_withdrawal_circuit_input(&request)?;
+    prover::serialize_withdrawal_circuit_input(&input).map_err(Into::into)
+}
+
 pub fn build_commitment_circuit_input_json(request_json: &str) -> Result<String> {
     let request = parse_json::<JsCommitmentWitnessRequest>(request_json)?;
     let request = from_js_commitment_witness_request(&request)?;
     let input = circuits::build_commitment_circuit_input(&request)?;
     to_json_string(&to_js_commitment_circuit_input(&input))
+}
+
+pub fn build_commitment_witness_input_json(request_json: &str) -> Result<String> {
+    let request = parse_json::<JsCommitmentWitnessRequest>(request_json)?;
+    let request = from_js_commitment_witness_request(&request)?;
+    let input = circuits::build_commitment_circuit_input(&request)?;
+    prover::serialize_commitment_circuit_input(&input).map_err(Into::into)
 }
 
 pub fn verify_artifact_bytes_json(
@@ -410,6 +452,68 @@ pub fn verify_commitment_proof_json(
     let proof =
         parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
     session.verifier.verify(&proof).map_err(Into::into)
+}
+
+pub fn prove_withdrawal_with_witness_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+    witness_json: &str,
+) -> Result<String> {
+    let manifest = parse_manifest(manifest_json)?;
+    let artifacts =
+        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")?;
+    prove_with_session_witness(&session, witness_json).and_then(|result| to_json_string(&result))
+}
+
+pub fn prove_commitment_with_witness_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+    witness_json: &str,
+) -> Result<String> {
+    let manifest = parse_manifest(manifest_json)?;
+    let artifacts =
+        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")?;
+    prove_with_session_witness(&session, witness_json).and_then(|result| to_json_string(&result))
+}
+
+pub fn prove_withdrawal_with_session_witness_json(
+    session_handle: &str,
+    witness_json: &str,
+) -> Result<String> {
+    let registry = SESSION_REGISTRY
+        .read()
+        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
+    let session = registry.get(session_handle).cloned().with_context(|| {
+        format!("unknown browser withdrawal circuit session `{session_handle}`")
+    })?;
+    if session.circuit != "withdraw" {
+        bail!(
+            "browser session `{session_handle}` is for circuit `{}`",
+            session.circuit
+        );
+    }
+    prove_with_session_witness(&session, witness_json).and_then(|result| to_json_string(&result))
+}
+
+pub fn prove_commitment_with_session_witness_json(
+    session_handle: &str,
+    witness_json: &str,
+) -> Result<String> {
+    let registry = SESSION_REGISTRY
+        .read()
+        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
+    let session = registry.get(session_handle).cloned().with_context(|| {
+        format!("unknown browser commitment circuit session `{session_handle}`")
+    })?;
+    if session.circuit != "commitment" {
+        bail!(
+            "browser session `{session_handle}` is for circuit `{}`",
+            session.circuit
+        );
+    }
+    prove_with_session_witness(&session, witness_json).and_then(|result| to_json_string(&result))
 }
 
 pub fn verify_withdrawal_proof_with_session_json(
@@ -571,11 +675,27 @@ pub fn wasm_build_withdrawal_circuit_input_json(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = buildWithdrawalWitnessInputJson)]
+pub fn wasm_build_withdrawal_witness_input_json(
+    request_json: &str,
+) -> std::result::Result<String, JsValue> {
+    build_withdrawal_witness_input_json(request_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = buildCommitmentCircuitInputJson)]
 pub fn wasm_build_commitment_circuit_input_json(
     request_json: &str,
 ) -> std::result::Result<String, JsValue> {
     build_commitment_circuit_input_json(request_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = buildCommitmentWitnessInputJson)]
+pub fn wasm_build_commitment_witness_input_json(
+    request_json: &str,
+) -> std::result::Result<String, JsValue> {
+    build_commitment_witness_input_json(request_json).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -675,12 +795,52 @@ pub fn wasm_verify_withdrawal_proof_with_session(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = proveWithdrawalWithWitnessJson)]
+pub fn wasm_prove_withdrawal_with_witness_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+    witness_json: &str,
+) -> std::result::Result<String, JsValue> {
+    prove_withdrawal_with_witness_json(manifest_json, artifacts_json, witness_json)
+        .map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = proveWithdrawalWithSessionWitnessJson)]
+pub fn wasm_prove_withdrawal_with_session_witness_json(
+    session_handle: &str,
+    witness_json: &str,
+) -> std::result::Result<String, JsValue> {
+    prove_withdrawal_with_session_witness_json(session_handle, witness_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = verifyCommitmentProofWithSession)]
 pub fn wasm_verify_commitment_proof_with_session(
     session_handle: &str,
     proof_json: &str,
 ) -> std::result::Result<bool, JsValue> {
     verify_commitment_proof_with_session_json(session_handle, proof_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = proveCommitmentWithWitnessJson)]
+pub fn wasm_prove_commitment_with_witness_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+    witness_json: &str,
+) -> std::result::Result<String, JsValue> {
+    prove_commitment_with_witness_json(manifest_json, artifacts_json, witness_json)
+        .map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = proveCommitmentWithSessionWitnessJson)]
+pub fn wasm_prove_commitment_with_session_witness_json(
+    session_handle: &str,
+    witness_json: &str,
+) -> std::result::Result<String, JsValue> {
+    prove_commitment_with_session_witness_json(session_handle, witness_json).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -928,6 +1088,38 @@ fn to_js_commitment_circuit_input(input: &CommitmentCircuitInput) -> JsCommitmen
     }
 }
 
+fn to_js_proof_bundle(bundle: ProofBundle) -> JsProofBundle {
+    JsProofBundle {
+        proof: JsSnarkJsProof {
+            pi_a: bundle.proof.pi_a.into_iter().collect(),
+            pi_b: bundle
+                .proof
+                .pi_b
+                .into_iter()
+                .map(|row| row.into_iter().collect())
+                .collect(),
+            pi_c: bundle.proof.pi_c.into_iter().collect(),
+            protocol: bundle.proof.protocol,
+            curve: bundle.proof.curve,
+        },
+        public_signals: bundle.public_signals,
+    }
+}
+
+fn to_js_proving_result(result: ProvingResult) -> JsProvingResult {
+    JsProvingResult {
+        backend: prover_backend_label(result.backend),
+        proof: to_js_proof_bundle(result.proof),
+    }
+}
+
+fn prover_backend_label(kind: ProverBackend) -> String {
+    match kind {
+        ProverBackend::Arkworks => "arkworks".to_owned(),
+        ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
+    }
+}
+
 fn from_js_artifact_bytes(
     artifacts: Vec<JsArtifactBytes>,
 ) -> Result<Vec<privacy_pools_sdk_artifacts::ArtifactBytes>> {
@@ -1000,19 +1192,38 @@ fn to_js_verified_artifact_bundle(
     bundle: privacy_pools_sdk_artifacts::VerifiedArtifactBundle,
 ) -> JsVerifiedArtifactBundle {
     JsVerifiedArtifactBundle {
-        version: bundle.version,
-        circuit: bundle.circuit,
+        version: bundle.version().to_owned(),
+        circuit: bundle.circuit().to_owned(),
         artifacts: bundle
-            .artifacts
-            .into_iter()
+            .artifacts()
+            .iter()
             .map(|artifact| JsVerifiedArtifactDescriptor {
-                circuit: artifact.descriptor.circuit,
-                kind: artifact_kind_label(artifact.descriptor.kind),
-                filename: artifact.descriptor.filename,
-                sha256: artifact.descriptor.sha256,
+                circuit: artifact.descriptor().circuit.clone(),
+                kind: artifact_kind_label(artifact.descriptor().kind),
+                filename: artifact.descriptor().filename.clone(),
+                sha256: artifact.descriptor().sha256.clone(),
             })
             .collect(),
     }
+}
+
+fn prove_with_session_witness(
+    session: &BrowserCircuitSession,
+    witness_json: &str,
+) -> Result<JsProvingResult> {
+    let witness = parse_json::<Vec<String>>(witness_json)?;
+    let witness = prover::parse_witness_values(&witness)?;
+    let prepared = session.prepared.as_ref().with_context(|| {
+        format!(
+            "browser {} circuit session `{}` was prepared for verification only",
+            session.circuit, session.handle
+        )
+    })?;
+    let proving = prepared.prove_with_witness_values(witness)?;
+    if !session.verifier.verify(&proving.proof)? {
+        bail!("browser proof verification failed after proving");
+    }
+    Ok(to_js_proving_result(proving))
 }
 
 fn prepare_circuit_session_from_artifacts(
@@ -1024,7 +1235,14 @@ fn prepare_circuit_session_from_artifacts(
     let vkey = bundle.artifact(ArtifactKind::Vkey).with_context(|| {
         format!("verified artifact bundle is missing the {circuit} verification key")
     })?;
-    let verifier = PreparedVerifier::from_vkey_bytes(&vkey.bytes)?;
+    let prepared = if bundle.artifact(ArtifactKind::Zkey).is_ok() {
+        Some(prover::PreparedCircuitArtifacts::from_verified_bundle(
+            &bundle,
+        )?)
+    } else {
+        None
+    };
+    let verifier = PreparedVerifier::from_vkey_bytes(vkey.bytes())?;
 
     let handle = format!(
         "browser-{circuit}-session-{}",
@@ -1032,9 +1250,10 @@ fn prepare_circuit_session_from_artifacts(
     );
     let session = BrowserCircuitSession {
         handle: handle.clone(),
-        circuit: bundle.circuit.clone(),
-        artifact_version: bundle.version.clone(),
+        circuit: bundle.circuit().to_owned(),
+        artifact_version: bundle.version().to_owned(),
         verifier,
+        prepared,
     };
 
     SESSION_REGISTRY
@@ -1050,6 +1269,8 @@ fn to_js_session_handle(session: &BrowserCircuitSession) -> JsWithdrawalCircuitS
         handle: session.handle.clone(),
         circuit: session.circuit.clone(),
         artifact_version: session.artifact_version.clone(),
+        proving_available: session.prepared.is_some(),
+        verification_available: true,
     }
 }
 
@@ -1058,11 +1279,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn browser_status_reports_proving_blocker() {
+    fn browser_status_reports_proving_available() {
         let status = get_browser_support_status();
         assert_eq!(status.runtime, "browser");
-        assert!(!status.proving_available);
-        assert!(status.reason.contains("wasm-capable prover backend"));
+        assert!(status.proving_available);
+        assert!(status.reason.contains("browser proving"));
     }
 
     #[test]

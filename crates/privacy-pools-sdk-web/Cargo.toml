@@ -21,6 +21,7 @@ privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-circuits = { path = "../privacy-pools-sdk-circuits" }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
+privacy-pools-sdk-prover = { path = "../privacy-pools-sdk-prover", default-features = false }
 privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
 privacy-pools-sdk-verifier = { path = "../privacy-pools-sdk-verifier" }
 serde.workspace = true

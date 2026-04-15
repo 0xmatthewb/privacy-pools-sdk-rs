@@ -75,11 +75,11 @@ const BN254_SCALAR_FIELD_MODULUS =
 test("browser runtime reports browser verification capabilities", () => {
   assert.deepEqual(getRuntimeCapabilities(), {
     runtime: "browser",
-    provingAvailable: false,
+    provingAvailable: true,
     verificationAvailable: true,
     workerAvailable: true,
     reason:
-      "Browser verification is available via Rust/WASM; proving is still blocked on a wasm-capable Rust prover backend.",
+      "Browser proving and verification are available through Rust/WASM with browser-native circuit witness execution.",
   });
 });
 
@@ -395,6 +395,16 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
       browserVerificationManifest,
       server.rootUrl,
     );
+    const withdrawalRequest = await buildWithdrawalRequest(sdk);
+    await assert.rejects(
+      () =>
+        sdk.proveWithdrawalWithSession(
+          "stable",
+          session.handle,
+          withdrawalRequest,
+        ),
+      /not proof-capable/,
+    );
     assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
     await assert.rejects(
       () =>
@@ -402,7 +412,7 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
           "stable",
           session.handle,
           browserVerificationProof,
-        ),
+      ),
       /unknown browser withdrawal circuit session/,
     );
   } finally {
@@ -410,7 +420,7 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
   }
 });
 
-test("browser worker client performs real wasm-backed helper calls", async () => {
+test("browser worker client proves and verifies through real wasm-backed sessions", async () => {
   const worker = new Worker(new URL("../src/browser/worker.mjs", import.meta.url), {
     type: "module",
   });
@@ -424,37 +434,67 @@ test("browser worker client performs real wasm-backed helper calls", async () =>
     const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
     assert.equal(keys.masterNullifier, cryptoFixture.keys.masterNullifier);
 
-    const session = await sdk.prepareWithdrawalCircuitSession(
-      browserVerificationManifest,
+    const withdrawalRequest = await buildWithdrawalRequest(sdk);
+    const withdrawalSession = await sdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
       server.rootUrl,
     );
+    assert.equal(withdrawalSession.provingAvailable, true);
+    assert.equal(withdrawalSession.verificationAvailable, true);
+
+    const withdrawalStatuses = [];
+    const withdrawalProof = await sdk.proveWithdrawalWithSession(
+      "stable",
+      withdrawalSession.handle,
+      withdrawalRequest,
+      { onStatus: (status) => withdrawalStatuses.push(status) },
+    );
+    assert.equal(withdrawalProof.backend, "arkworks");
     assert.equal(
       await sdk.verifyWithdrawalProofWithSession(
         "stable",
-        session.handle,
-        browserVerificationProof,
+        withdrawalSession.handle,
+        withdrawalProof.proof,
       ),
       true,
     );
-
-    await assert.rejects(
-      () =>
-        sdk.proveWithdrawal("stable", sampleProvingManifest, "https://example.com/", {
-          commitment: {},
-        }),
-      (error) =>
-        error instanceof BrowserRuntimeUnavailableError &&
-        error.message.includes("wasm-capable Rust prover backend"),
+    assert.deepEqual(
+      withdrawalStatuses.map((status) => status.stage),
+      ["preload", "witness", "witness", "prove", "verify", "done"],
     );
 
-    await assert.rejects(
-      () =>
-        sdk.proveCommitment("stable", sampleProvingManifest, "https://example.com/", {
-          commitment: {},
-        }),
-      (error) =>
-        error instanceof BrowserRuntimeUnavailableError &&
-        error.message.includes("wasm-capable Rust prover backend"),
+    const commitment = await sdk.getCommitment(
+      withdrawalFixture.existingValue,
+      withdrawalFixture.label,
+      cryptoFixture.depositSecrets.nullifier,
+      cryptoFixture.depositSecrets.secret,
+    );
+    const commitmentSession = await sdk.prepareCommitmentCircuitSession(
+      commitmentProvingManifest,
+      server.rootUrl,
+    );
+    assert.equal(commitmentSession.provingAvailable, true);
+    assert.equal(commitmentSession.verificationAvailable, true);
+
+    const commitmentStatuses = [];
+    const commitmentProof = await sdk.proveCommitmentWithSession(
+      "stable",
+      commitmentSession.handle,
+      { commitment },
+      (status) => commitmentStatuses.push(status),
+    );
+    assert.equal(commitmentProof.backend, "arkworks");
+    assert.equal(
+      await sdk.verifyCommitmentProofWithSession(
+        "stable",
+        commitmentSession.handle,
+        commitmentProof.proof,
+      ),
+      true,
+    );
+    assert.deepEqual(
+      commitmentStatuses.map((status) => status.stage),
+      ["preload", "witness", "witness", "prove", "verify", "done"],
     );
   } finally {
     await server.stop();
@@ -494,7 +534,7 @@ function createFixtureServer() {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const filename = url.pathname.replace(/^\/+/, "");
     try {
-      const bytes = readFileSync(join(artifactsFixtureRoot, filename));
+      const bytes = readFileSync(join(fixturesRoot, filename));
       response.statusCode = 200;
       response.setHeader("content-type", "application/octet-stream");
       response.end(bytes);
@@ -509,7 +549,7 @@ function createFixtureServer() {
     async start() {
       await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
-      this.rootUrl = `http://127.0.0.1:${address.port}/`;
+      this.rootUrl = `http://127.0.0.1:${address.port}/artifacts/`;
     },
     async stop() {
       await new Promise((resolve, reject) => server.close((error) => {

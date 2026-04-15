@@ -8,7 +8,8 @@ repository.workspace = true
 publish = false
 
 [features]
-default = []
+default = ["native-witness"]
+native-witness = ["circom-prover/rustwitness", "dep:rust-witness"]
 rapidsnark = ["circom-prover/rapidsnark"]
 
 [dependencies]
@@ -20,13 +21,13 @@ ark-ff.workspace = true
 ark-groth16.workspace = true
 ark-relations.workspace = true
 ark-std.workspace = true
-circom-prover.workspace = true
+circom-prover = { workspace = true, default-features = false, features = ["arkworks"] }
 num-bigint.workspace = true
 privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 privacy-pools-sdk-verifier = { path = "../privacy-pools-sdk-verifier" }
 rand.workspace = true
-rust-witness.workspace = true
+rust-witness = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
@@ -38,4 +39,4 @@ uuid = { workspace = true, features = ["js"] }
 
 [build-dependencies]
 camino.workspace = true
-rust-witness.workspace = true
+rust-witness = { workspace = true, optional = true }

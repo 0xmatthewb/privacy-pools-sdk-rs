@@ -1,7 +1,7 @@
 # Privacy Pools SDK
 
 Privacy Pools SDK for Rust, browser, Node, iOS, Android, and React Native
-apps, with browser local proving still in progress on the same Rust core.
+apps, with local proving and verification kept on the same Rust core.
 
 > [!CAUTION]
 > Experimental software. Use at your own risk.
@@ -29,9 +29,10 @@ Current first-class surfaces:
 - generated Android bindings
 - React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`
 
-Remaining browser milestone:
+Remaining browser/Node package milestone:
 
-- local client-side proving in the browser runtime
+- fuller website-facing v1 facade parity for `Circuits`, `PrivacyPoolSDK`,
+  recovery, and account-data service exports
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`

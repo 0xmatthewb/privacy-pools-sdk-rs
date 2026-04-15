@@ -14,7 +14,8 @@ plan.
 
 ## In Progress
 
-- browser local client-side proving
+- browser/Node v1 facade parity for the website-used `Circuits`,
+  `PrivacyPoolSDK`, recovery, and account-data service shapes
 
 ## Completed
 
@@ -54,6 +55,20 @@ plan.
 - The browser runtime now supports real proof verification and verification
   session reuse against manifest-bound `vkey` artifacts through the shared Rust
   verifier layer.
+- The browser runtime now supports local client-side proving for withdrawal and
+  commitment circuits. It generates witnesses by executing the
+  manifest-pinned circuit `.wasm` artifact in the browser WebAssembly engine,
+  then passes witness values into the portable Rust/WASM Groth16 proving path
+  that consumes verified `zkey` bytes. The browser build does not compile or
+  link the `rust-witness` generated C/native witness path.
+- The browser worker now performs real preload, witness, prove, verify, done,
+  and error status reporting for proof jobs while keeping the final promise
+  result shape unchanged.
+- Verified artifact bundle fields are sealed behind accessors so callers cannot
+  forge a verified bundle by directly constructing public fields.
+- The Rust SDK now includes an explicit bounded `SessionCache` for callers that
+  want automatic session reuse without a hidden global cache or unbounded
+  artifact retention.
 - The fixture set now pins the v1.2.0 withdrawal `wasm`, `zkey`, and `vkey`
   artifacts, so CI can exercise real withdrawal proof generation and
   verification instead of only static verification fixtures.
@@ -80,31 +95,26 @@ plan.
   layer now runs full real prove/verify fixtures. The React Native smoke app
   still validates packaging and typechecking rather than running a full native
   prove/verify flow inside an app process.
-- The runtime matrix is now documented explicitly, and Node is shipped, but the
-  browser surface is still only partially implemented because proving remains
-  unavailable there.
+- The runtime matrix is now documented explicitly, Node is shipped, and browser
+  proving is available, but the browser/Node package still needs the fuller
+  v1-like website facade and recovery/account-data service exports.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
-- The browser package exports the intended worker-facing API shape, and the
-  worker now performs the currently supported helper/artifact methods, but
-  proving-specific methods still fail closed.
 
 ## Not Yet Completed
 
-- No production-ready browser proving path has shipped yet.
+- Browser/Node package parity with the website-used v1 `Circuits` /
+  `PrivacyPoolSDK` / recovery / account-data facade is not complete yet.
 - Mobile app-level smoke coverage still does not execute a full native
   prove/verify fixture in React Native, iOS, and Android sample apps.
 
-## Current Browser Blocker
+## Browser Proving Acceptance
 
-The proving stack is still native-oriented. The workspace now contains a
-browser-focused Rust binding crate plus real browser helper, artifact, and
-verification APIs, but the compiled witness path still relies on the
-`rust-witness` transpilation pipeline. The prover crate now has the WASM-target
-randomness feature wiring needed to get past the initial `getrandom`/`uuid`
-browser build failure, but a direct `wasm32-unknown-unknown` prover build still
-tries to compile generated C/WASI support for the browser target and fails on
-missing C runtime headers such as `stdio.h` and `math.h` before producing a
-usable browser prover. Browser support should stay on the same Rust-first
-foundation, but local browser proving needs a dedicated WASM-capable witness
-execution strategy before it can ship safely.
+The browser prover must generate witnesses from the manifest-pinned circuit
+`.wasm`, then pass witness values into a portable Rust/WASM Groth16 proving path
+that consumes verified `zkey` bytes, without compiling or linking the
+`rust-witness` generated C/native path. Rust/WASM must own artifact
+verification, `zkey` parsing, proof construction from witness values,
+manifest-bound `vkey` verification, and final proof verification. The browser
+worker is transport, artifact fetching, witness execution, and progress/status
+events; it must not reimplement Privacy Pools protocol logic.

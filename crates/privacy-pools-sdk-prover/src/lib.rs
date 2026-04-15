@@ -6,41 +6,48 @@ use ark_groth16::{Groth16, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
 use ark_std::UniformRand;
 use ark_std::rand::thread_rng;
-use circom_prover::{
-    CircomProver,
-    prover::{
-        CircomProof, ProofLib, PublicInputs,
-        ark_circom::{CircomReduction, read_zkey},
-        circom::{G1, G2, Proof},
-    },
-    witness::generate_witness,
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+use circom_prover::prover::ProofLib;
+use circom_prover::prover::{
+    CircomProof, PublicInputs,
+    ark_circom::{CircomReduction, read_zkey},
+    circom::{G1, G2, Proof},
 };
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+use circom_prover::{CircomProver, witness::generate_witness};
 use num_bigint::BigUint;
 use privacy_pools_sdk_artifacts::{self as artifacts, ArtifactKind, VerifiedArtifactBundle};
 use privacy_pools_sdk_core::{
     CommitmentCircuitInput, ProofBundle, SnarkJsProof, WithdrawalCircuitInput,
 };
 use privacy_pools_sdk_verifier::{ParsedVerificationKey, PreparedVerifier, VerifierError};
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
-    io::{Cursor, Write},
+    io::Cursor,
     path::PathBuf,
     str::FromStr,
     sync::{Arc, OnceLock},
-    thread::JoinHandle,
 };
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+use std::{io::Write, thread::JoinHandle};
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 pub use circom_prover::witness::WitnessFn;
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 rust_witness::witness!(commitment);
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 rust_witness::witness!(withdraw);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BackendProfile {
     Stable,
     Fast,
@@ -93,6 +100,8 @@ pub enum ProverError {
     InputSerialization(String),
     #[error("invalid zkey bundle: {0}")]
     InvalidZkey(String),
+    #[error("invalid witness length: expected at least {expected}, got {actual}")]
+    InvalidWitnessLength { expected: usize, actual: usize },
     #[error("manifest vkey does not match zkey for circuit `{0}`")]
     VerificationKeyMismatch(String),
     #[error("circom prover failed: {0}")]
@@ -166,6 +175,7 @@ impl NativeProofEngine {
         Ok(Self { backend })
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_witness(
         &self,
         request: &ProvingRequest,
@@ -189,6 +199,7 @@ impl NativeProofEngine {
         })
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_prepared_artifacts(
         &self,
         artifacts: &PreparedCircuitArtifacts,
@@ -198,6 +209,7 @@ impl NativeProofEngine {
         artifacts.prove_with_witness(self, input_json, witness_fn)
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_compiled_witness(
         &self,
         request: &ProvingRequest,
@@ -205,6 +217,7 @@ impl NativeProofEngine {
         self.prove_with_witness(request, compiled_witness_fn(&request.circuit)?)
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_compiled_witness_and_artifacts(
         &self,
         artifacts: &PreparedCircuitArtifacts,
@@ -213,6 +226,7 @@ impl NativeProofEngine {
         artifacts.prove_with_compiled_witness(self, input_json)
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn verify(&self, proof: &ProofBundle, zkey_path: PathBuf) -> Result<bool, ProverError> {
         if !zkey_path.exists() {
             return Err(ProverError::MissingZkey(zkey_path));
@@ -235,6 +249,7 @@ impl NativeProofEngine {
         artifacts.verify(self, proof)
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     fn proof_lib(&self) -> Result<ProofLib, ProverError> {
         match self.backend {
             ProverBackend::Arkworks => Ok(ProofLib::Arkworks),
@@ -251,13 +266,17 @@ impl NativeProofEngine {
 
 impl PreparedCircuitArtifacts {
     pub fn from_verified_bundle(bundle: &VerifiedArtifactBundle) -> Result<Self, ProverError> {
-        let zkey_bytes = bundle.artifact(ArtifactKind::Zkey)?.bytes.clone();
+        let zkey_bytes = bundle.artifact(ArtifactKind::Zkey)?.bytes().to_vec();
         let prepared_circuit = Arc::new(parse_arkworks_circuit(&zkey_bytes)?);
         let verifier = bundle
             .artifact(ArtifactKind::Vkey)
             .ok()
             .map(|artifact| {
-                prepare_manifest_bound_verifier(&bundle.circuit, &prepared_circuit, &artifact.bytes)
+                prepare_manifest_bound_verifier(
+                    bundle.circuit(),
+                    &prepared_circuit,
+                    artifact.bytes(),
+                )
             })
             .transpose()?;
         let arkworks_circuit = OnceLock::new();
@@ -267,8 +286,8 @@ impl PreparedCircuitArtifacts {
 
         Ok(Self {
             inner: Arc::new(PreparedCircuitArtifactsInner {
-                circuit: bundle.circuit.clone(),
-                artifact_version: bundle.version.clone(),
+                circuit: bundle.circuit().to_owned(),
+                artifact_version: bundle.version().to_owned(),
                 zkey_bytes: Arc::<[u8]>::from(zkey_bytes),
                 arkworks_circuit,
                 verifier: cached_verifier,
@@ -284,6 +303,7 @@ impl PreparedCircuitArtifacts {
         &self.inner.artifact_version
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_witness(
         &self,
         engine: &NativeProofEngine,
@@ -313,6 +333,21 @@ impl PreparedCircuitArtifacts {
         })
     }
 
+    pub fn prove_with_witness_values(
+        &self,
+        witness: Vec<BigUint>,
+    ) -> Result<ProvingResult, ProverError> {
+        let proof = self
+            .prepare_arkworks_circuit()?
+            .prove_with_witness_values(witness)?;
+
+        Ok(ProvingResult {
+            backend: ProverBackend::Arkworks,
+            proof: circom_proof_to_bundle(proof),
+        })
+    }
+
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_compiled_witness(
         &self,
         engine: &NativeProofEngine,
@@ -335,17 +370,25 @@ impl PreparedCircuitArtifacts {
         match engine.backend {
             ProverBackend::Arkworks => self.prepare_arkworks_circuit()?.verify(&circom_proof),
             ProverBackend::Rapidsnark => {
-                let zkey_file = self.materialize_zkey_file()?;
-                CircomProver::verify(
-                    engine.proof_lib()?,
-                    circom_proof,
-                    zkey_file.path().to_string_lossy().into_owned(),
-                )
-                .map_err(|error| ProverError::Circom(error.to_string()))
+                #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+                {
+                    let zkey_file = self.materialize_zkey_file()?;
+                    CircomProver::verify(
+                        engine.proof_lib()?,
+                        circom_proof,
+                        zkey_file.path().to_string_lossy().into_owned(),
+                    )
+                    .map_err(|error| ProverError::Circom(error.to_string()))
+                }
+                #[cfg(not(all(feature = "native-witness", not(target_arch = "wasm32"))))]
+                {
+                    Err(ProverError::UnsupportedFastTarget)
+                }
             }
         }
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     fn materialize_zkey_file(&self) -> Result<NamedTempFile, ProverError> {
         let mut file =
             NamedTempFile::new().map_err(|error| ProverError::Circom(error.to_string()))?;
@@ -391,18 +434,26 @@ impl PreparedArkworksCircuit {
         }
     }
 
+    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     fn prove(&self, witness_thread: JoinHandle<Vec<BigUint>>) -> Result<CircomProof, ProverError> {
+        let witness = witness_thread
+            .join()
+            .map_err(|_| ProverError::Circom("witness thread panicked".to_owned()))?;
+        self.prove_with_witness_values(witness)
+    }
+
+    fn prove_with_witness_values(&self, witness: Vec<BigUint>) -> Result<CircomProof, ProverError> {
         match self {
             Self::Bn254 {
                 proving_key,
                 matrices,
                 ..
-            } => prove_with_prepared_key_bn254(proving_key, matrices, witness_thread),
+            } => prove_with_prepared_key_bn254(proving_key, matrices, witness),
             Self::Bls12_381 {
                 proving_key,
                 matrices,
                 ..
-            } => prove_with_prepared_key_bls12_381(proving_key, matrices, witness_thread),
+            } => prove_with_prepared_key_bls12_381(proving_key, matrices, witness),
         }
     }
 
@@ -415,6 +466,7 @@ impl PreparedArkworksCircuit {
     }
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 pub fn generate_commitment_witness(
     input: &CommitmentCircuitInput,
 ) -> Result<Vec<String>, ProverError> {
@@ -435,6 +487,7 @@ pub fn serialize_commitment_circuit_input(
         .map_err(|error| ProverError::InputSerialization(error.to_string()))
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 pub fn generate_withdrawal_witness(
     input: &WithdrawalCircuitInput,
 ) -> Result<Vec<String>, ProverError> {
@@ -491,6 +544,10 @@ pub fn serialize_withdrawal_circuit_input(
         .map_err(|error| ProverError::InputSerialization(error.to_string()))
 }
 
+pub fn parse_witness_values(values: &[String]) -> Result<Vec<BigUint>, ProverError> {
+    values.iter().map(|value| parse_biguint(value)).collect()
+}
+
 fn insert_field(json: &mut Map<String, Value>, key: &str, value: String) {
     json.insert(key.to_owned(), Value::Array(vec![Value::String(value)]));
 }
@@ -537,6 +594,7 @@ impl ProofEngine for NativeProofEngine {
     }
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 fn compiled_witness_fn(circuit: &str) -> Result<WitnessFn, ProverError> {
     match circuit {
         "commitment" => Ok(WitnessFn::RustWitness(commitment_witness)),
@@ -545,6 +603,7 @@ fn compiled_witness_fn(circuit: &str) -> Result<WitnessFn, ProverError> {
     }
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 fn generate_commitment_witness_from_json(input_json: &str) -> Result<Vec<String>, ProverError> {
     let witness_map = circom_prover::witness::json_to_hashmap(input_json)
         .map_err(|error| ProverError::InputSerialization(error.to_string()))?;
@@ -559,6 +618,7 @@ fn generate_commitment_witness_from_json(input_json: &str) -> Result<Vec<String>
         .collect())
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 fn generate_withdrawal_witness_from_json(input_json: &str) -> Result<Vec<String>, ProverError> {
     let witness_map = circom_prover::witness::json_to_hashmap(input_json)
         .map_err(|error| ProverError::InputSerialization(error.to_string()))?;
@@ -573,6 +633,7 @@ fn generate_withdrawal_witness_from_json(input_json: &str) -> Result<Vec<String>
         .collect())
 }
 
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 fn parse_bigints(values: Vec<String>) -> Result<Vec<BigInt>, ProverError> {
     values
         .into_iter()
@@ -734,11 +795,9 @@ fn read_zkey_header(zkey_bytes: &[u8]) -> Result<ZkeyHeader, ProverError> {
 fn prove_with_prepared_key_bn254(
     proving_key: &ProvingKey<Bn254>,
     matrices: &ConstraintMatrices<Bn254Fr>,
-    witness_thread: JoinHandle<Vec<BigUint>>,
+    witness: Vec<BigUint>,
 ) -> Result<CircomProof, ProverError> {
-    let witness = witness_thread
-        .join()
-        .map_err(|_| ProverError::Circom("witness thread panicked".to_owned()))?;
+    validate_witness_length(witness.len(), matrices.num_instance_variables)?;
     let witness_fr = witness
         .iter()
         .map(|value| Bn254Fr::from(value.clone()))
@@ -770,11 +829,9 @@ fn prove_with_prepared_key_bn254(
 fn prove_with_prepared_key_bls12_381(
     proving_key: &ProvingKey<Bls12_381>,
     matrices: &ConstraintMatrices<Bls12_381Fr>,
-    witness_thread: JoinHandle<Vec<BigUint>>,
+    witness: Vec<BigUint>,
 ) -> Result<CircomProof, ProverError> {
-    let witness = witness_thread
-        .join()
-        .map_err(|_| ProverError::Circom("witness thread panicked".to_owned()))?;
+    validate_witness_length(witness.len(), matrices.num_instance_variables)?;
     let witness_fr = witness
         .iter()
         .map(|value| Bls12_381Fr::from(value.clone()))
@@ -801,6 +858,13 @@ fn prove_with_prepared_key_bls12_381(
         proof: proof.into(),
         pub_inputs: PublicInputs(public_inputs),
     })
+}
+
+fn validate_witness_length(actual: usize, expected: usize) -> Result<(), ProverError> {
+    if actual < expected {
+        return Err(ProverError::InvalidWitnessLength { expected, actual });
+    }
+    Ok(())
 }
 
 struct ZkeyHeader {
@@ -880,7 +944,7 @@ pub fn rapidsnark_supported_target() -> bool {
 mod tests {
     use super::*;
     use privacy_pools_sdk_artifacts::{
-        ArtifactDescriptor, ArtifactKind, VerifiedArtifact, VerifiedArtifactBundle,
+        ArtifactBytes, ArtifactDescriptor, ArtifactKind, ArtifactManifest,
     };
     use privacy_pools_sdk_core::{CommitmentCircuitInput, parse_decimal_field};
     use serde_json::Value;
@@ -1102,20 +1166,26 @@ mod tests {
 
     #[test]
     fn session_preload_rejects_invalid_zkey_bytes() {
-        let bundle = VerifiedArtifactBundle {
+        let manifest = ArtifactManifest {
             version: "0.1.0-alpha.1".to_owned(),
-            circuit: "withdraw".to_owned(),
-            artifacts: vec![VerifiedArtifact {
-                descriptor: ArtifactDescriptor {
-                    circuit: "withdraw".to_owned(),
-                    kind: ArtifactKind::Zkey,
-                    filename: "sample-artifact.bin".to_owned(),
-                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
-                        .to_owned(),
-                },
-                bytes: include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec(),
+            artifacts: vec![ArtifactDescriptor {
+                circuit: "withdraw".to_owned(),
+                kind: ArtifactKind::Zkey,
+                filename: "sample-artifact.bin".to_owned(),
+                sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                    .to_owned(),
             }],
         };
+        let bundle = manifest
+            .verify_bundle_bytes(
+                "withdraw",
+                [ArtifactBytes {
+                    kind: ArtifactKind::Zkey,
+                    bytes: include_bytes!("../../../fixtures/artifacts/sample-artifact.bin")
+                        .to_vec(),
+                }],
+            )
+            .unwrap();
 
         let error = match PreparedCircuitArtifacts::from_verified_bundle(&bundle) {
             Ok(_) => panic!("invalid zkey bytes must not create a cached session"),
@@ -1123,5 +1193,26 @@ mod tests {
         };
 
         assert!(matches!(error, ProverError::InvalidZkey(_)));
+    }
+
+    #[test]
+    fn portable_prover_rejects_wrong_witness_length() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/commitment-proving-manifest.json"
+        ))
+        .unwrap();
+        let root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let bundle = manifest.load_verified_bundle(root, "commitment").unwrap();
+        let artifacts = PreparedCircuitArtifacts::from_verified_bundle(&bundle).unwrap();
+
+        let error = artifacts
+            .prove_with_witness_values(vec![BigUint::from(1_u8)])
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProverError::InvalidWitnessLength { actual: 1, .. }
+        ));
     }
 }

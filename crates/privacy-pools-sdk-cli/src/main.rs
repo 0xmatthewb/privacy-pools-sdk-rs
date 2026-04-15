@@ -255,7 +255,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     let zkey = bundle
         .artifact(ArtifactKind::Zkey)
         .context("withdraw bundle is missing the zkey descriptor")?;
-    let zkey_sha256 = zkey.descriptor.sha256.clone();
+    let zkey_sha256 = zkey.descriptor().sha256.clone();
 
     let session_preload_start = Instant::now();
     let session = sdk
@@ -265,7 +265,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
 
     println!("privacy-pools-sdk-cli withdraw benchmark");
     println!("backend profile: {:?}", args.backend);
-    println!("artifact version: {}", bundle.version);
+    println!("artifact version: {}", bundle.version());
     println!("artifact root: {}", args.artifacts_root.display());
     println!("zkey sha256: {}", zkey_sha256);
     println!("bundle verification: {:?}", bundle_verification);
@@ -332,7 +332,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
             report_path,
             &args,
             BenchmarkReportContext {
-                artifact_version: &bundle.version,
+                artifact_version: bundle.version(),
                 zkey_sha256: &zkey_sha256,
                 bundle_verification,
                 session_preload,

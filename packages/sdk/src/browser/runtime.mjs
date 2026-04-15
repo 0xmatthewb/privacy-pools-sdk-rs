@@ -1,18 +1,19 @@
 const PROVER_UNAVAILABLE_MESSAGE =
-  "Browser proving support is still blocked on a wasm-capable Rust prover backend.";
+  "Browser proving supports only the stable Rust/WASM backend.";
 
 const BROWSER_CAPABILITIES = Object.freeze({
   runtime: "browser",
-  provingAvailable: false,
+  provingAvailable: true,
   verificationAvailable: true,
   workerAvailable: true,
   reason:
-    "Browser verification is available via Rust/WASM; proving is still blocked on a wasm-capable Rust prover backend.",
+    "Browser proving and verification are available through Rust/WASM with browser-native circuit witness execution.",
 });
 
 const STABLE_BACKEND_NAME = "Arkworks";
 
 let wasmModulePromise = null;
+const browserSessionArtifacts = new Map();
 
 export class BrowserRuntimeUnavailableError extends Error {
   constructor(message = PROVER_UNAVAILABLE_MESSAGE) {
@@ -213,14 +214,18 @@ async function prepareCircuitSession(manifestJson, artifactsRoot, circuit) {
     circuit === "commitment"
       ? "prepareCommitmentCircuitSessionFromBytes"
       : "prepareWithdrawalCircuitSessionFromBytes";
-  return JSON.parse(
+  const normalizedArtifacts = fetchedArtifacts.map(({ kind, bytes }) => ({
+    kind,
+    bytes,
+  }));
+  const session = JSON.parse(
     wasm[methodName](
       manifestJson,
-      normalizeArtifactInputs(
-        fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
-      ),
+      normalizeArtifactInputs(normalizedArtifacts),
     ),
   );
+  rememberSessionArtifacts(session, normalizedArtifacts);
+  return session;
 }
 
 export async function prepareWithdrawalCircuitSessionFromBytes(
@@ -228,12 +233,15 @@ export async function prepareWithdrawalCircuitSessionFromBytes(
   artifacts,
 ) {
   const wasm = await getWasmModule();
-  return JSON.parse(
+  const normalizedArtifacts = normalizeArtifactInputs(artifacts);
+  const session = JSON.parse(
     wasm.prepareWithdrawalCircuitSessionFromBytes(
       manifestJson,
-      normalizeArtifactInputs(artifacts),
+      normalizedArtifacts,
     ),
   );
+  rememberSessionArtifacts(session, normalizedArtifacts);
+  return session;
 }
 
 export async function prepareCommitmentCircuitSessionFromBytes(
@@ -241,22 +249,33 @@ export async function prepareCommitmentCircuitSessionFromBytes(
   artifacts,
 ) {
   const wasm = await getWasmModule();
-  return JSON.parse(
+  const normalizedArtifacts = normalizeArtifactInputs(artifacts);
+  const session = JSON.parse(
     wasm.prepareCommitmentCircuitSessionFromBytes(
       manifestJson,
-      normalizeArtifactInputs(artifacts),
+      normalizedArtifacts,
     ),
   );
+  rememberSessionArtifacts(session, normalizedArtifacts);
+  return session;
 }
 
 export async function removeWithdrawalCircuitSession(sessionHandle) {
   const wasm = await getWasmModule();
-  return wasm.removeWithdrawalCircuitSession(sessionHandle);
+  const removed = wasm.removeWithdrawalCircuitSession(sessionHandle);
+  if (removed) {
+    browserSessionArtifacts.delete(sessionHandle);
+  }
+  return removed;
 }
 
 export async function removeCommitmentCircuitSession(sessionHandle) {
   const wasm = await getWasmModule();
-  return wasm.removeCommitmentCircuitSession(sessionHandle);
+  const removed = wasm.removeCommitmentCircuitSession(sessionHandle);
+  if (removed) {
+    browserSessionArtifacts.delete(sessionHandle);
+  }
+  return removed;
 }
 
 export async function proveWithdrawal(
@@ -264,23 +283,60 @@ export async function proveWithdrawal(
   manifestJson,
   artifactsRoot,
   request,
+  status,
 ) {
-  void backendProfile;
-  void manifestJson;
-  void artifactsRoot;
-  void request;
-  throw new BrowserRuntimeUnavailableError();
+  assertStableBackend(backendProfile);
+  emitStatus(status, { stage: "preload", circuit: "withdraw" });
+  const { fetchedArtifacts, artifactInputs } = await loadProvingArtifactInputs(
+    manifestJson,
+    artifactsRoot,
+    "withdraw",
+  );
+  const wasmArtifact = requireWasmArtifact(fetchedArtifacts, "withdraw");
+  const witness = await calculateCircuitWitness(
+    wasmArtifact.bytes,
+    await buildWithdrawalWitnessInput(request),
+    (payload) => emitStatus(status, { circuit: "withdraw", ...payload }),
+  );
+  emitStatus(status, { stage: "prove", circuit: "withdraw" });
+  const wasm = await getWasmModule();
+  const proving = JSON.parse(
+    wasm.proveWithdrawalWithWitnessJson(
+      manifestJson,
+      normalizeArtifactInputs(artifactInputs),
+      JSON.stringify(witness),
+    ),
+  );
+  emitStatus(status, { stage: "verify", circuit: "withdraw" });
+  emitStatus(status, { stage: "done", circuit: "withdraw" });
+  return proving;
 }
 
 export async function proveWithdrawalWithSession(
   backendProfile,
   sessionHandle,
   request,
+  status,
 ) {
-  void backendProfile;
-  void sessionHandle;
-  void request;
-  throw new BrowserRuntimeUnavailableError();
+  assertStableBackend(backendProfile);
+  emitStatus(status, { stage: "preload", circuit: "withdraw" });
+  const sessionArtifacts = getSessionArtifacts(sessionHandle, "withdraw");
+  const witness = await calculateCircuitWitness(
+    sessionArtifacts.wasmBytes,
+    await buildWithdrawalWitnessInput(request),
+    (payload) => emitStatus(status, { circuit: "withdraw", ...payload }),
+  );
+  emitStatus(status, { stage: "prove", circuit: "withdraw" });
+  const wasm = await getWasmModule();
+  const proving = JSON.parse(
+    wasm.proveWithdrawalWithSessionWitnessJson(
+      sessionHandle,
+      JSON.stringify(witness),
+    ),
+  );
+  emitStatus(status, { stage: "verify", circuit: "withdraw" });
+  emitStatus(status, { stage: "done", circuit: "withdraw" });
+  return proving;
 }
 
 export async function verifyWithdrawalProof(
@@ -312,23 +368,60 @@ export async function proveCommitment(
   manifestJson,
   artifactsRoot,
   request,
+  status,
 ) {
-  void backendProfile;
-  void manifestJson;
-  void artifactsRoot;
-  void request;
-  throw new BrowserRuntimeUnavailableError();
+  assertStableBackend(backendProfile);
+  emitStatus(status, { stage: "preload", circuit: "commitment" });
+  const { fetchedArtifacts, artifactInputs } = await loadProvingArtifactInputs(
+    manifestJson,
+    artifactsRoot,
+    "commitment",
+  );
+  const wasmArtifact = requireWasmArtifact(fetchedArtifacts, "commitment");
+  const witness = await calculateCircuitWitness(
+    wasmArtifact.bytes,
+    await buildCommitmentWitnessInput(request),
+    (payload) => emitStatus(status, { circuit: "commitment", ...payload }),
+  );
+  emitStatus(status, { stage: "prove", circuit: "commitment" });
+  const wasm = await getWasmModule();
+  const proving = JSON.parse(
+    wasm.proveCommitmentWithWitnessJson(
+      manifestJson,
+      normalizeArtifactInputs(artifactInputs),
+      JSON.stringify(witness),
+    ),
+  );
+  emitStatus(status, { stage: "verify", circuit: "commitment" });
+  emitStatus(status, { stage: "done", circuit: "commitment" });
+  return proving;
 }
 
 export async function proveCommitmentWithSession(
   backendProfile,
   sessionHandle,
   request,
+  status,
 ) {
-  void backendProfile;
-  void sessionHandle;
-  void request;
-  throw new BrowserRuntimeUnavailableError();
+  assertStableBackend(backendProfile);
+  emitStatus(status, { stage: "preload", circuit: "commitment" });
+  const sessionArtifacts = getSessionArtifacts(sessionHandle, "commitment");
+  const witness = await calculateCircuitWitness(
+    sessionArtifacts.wasmBytes,
+    await buildCommitmentWitnessInput(request),
+    (payload) => emitStatus(status, { circuit: "commitment", ...payload }),
+  );
+  emitStatus(status, { stage: "prove", circuit: "commitment" });
+  const wasm = await getWasmModule();
+  const proving = JSON.parse(
+    wasm.proveCommitmentWithSessionWitnessJson(
+      sessionHandle,
+      JSON.stringify(witness),
+    ),
+  );
+  emitStatus(status, { stage: "verify", circuit: "commitment" });
+  emitStatus(status, { stage: "done", circuit: "commitment" });
+  return proving;
 }
 
 export async function verifyCommitmentProof(
@@ -381,6 +474,66 @@ export async function verifyWithdrawalProofWithSession(
   );
 }
 
+async function buildWithdrawalWitnessInput(request) {
+  const wasm = await getWasmModule();
+  return wasm.buildWithdrawalWitnessInputJson(JSON.stringify(request));
+}
+
+async function buildCommitmentWitnessInput(request) {
+  const wasm = await getWasmModule();
+  return wasm.buildCommitmentWitnessInputJson(JSON.stringify(request));
+}
+
+async function loadProvingArtifactInputs(manifestJson, artifactsRoot, circuit) {
+  const manifest = parseManifest(manifestJson);
+  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, circuit);
+  const missingArtifact = fetchedArtifacts.find((artifact) => !artifact.exists);
+  if (missingArtifact) {
+    throw new Error(`missing browser artifact: ${missingArtifact.path}`);
+  }
+
+  return {
+    fetchedArtifacts,
+    artifactInputs: fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
+  };
+}
+
+function rememberSessionArtifacts(session, artifacts) {
+  const wasmArtifact = artifacts.find((artifact) => artifact.kind === "wasm");
+  if (!wasmArtifact) {
+    browserSessionArtifacts.delete(session.handle);
+    return;
+  }
+
+  browserSessionArtifacts.set(session.handle, {
+    circuit: session.circuit,
+    wasmBytes: toUint8Array(wasmArtifact.bytes),
+  });
+}
+
+function getSessionArtifacts(sessionHandle, expectedCircuit) {
+  const artifacts = browserSessionArtifacts.get(sessionHandle);
+  if (!artifacts) {
+    throw new Error(
+      `browser ${expectedCircuit} circuit session \`${sessionHandle}\` is not proof-capable`,
+    );
+  }
+  if (artifacts.circuit !== expectedCircuit) {
+    throw new Error(
+      `browser session \`${sessionHandle}\` is for circuit \`${artifacts.circuit}\``,
+    );
+  }
+  return artifacts;
+}
+
+function requireWasmArtifact(fetchedArtifacts, circuit) {
+  const wasmArtifact = fetchedArtifacts.find((artifact) => artifact.kind === "wasm");
+  if (!wasmArtifact?.bytes) {
+    throw new Error(`browser ${circuit} proving requires a verified wasm artifact`);
+  }
+  return wasmArtifact;
+}
+
 async function getWasmModule() {
   if (!wasmModulePromise) {
     wasmModulePromise = initializeWasmModule().catch((error) => {
@@ -427,8 +580,103 @@ function assertStableBackend(backendProfile) {
   }
 
   throw new BrowserRuntimeUnavailableError(
-    "Browser verification currently supports only the stable backend.",
+    "Browser proving and verification currently support only the stable backend.",
   );
+}
+
+async function calculateCircuitWitness(wasmBytes, inputJson, status) {
+  // Host the manifest-pinned Circom witness artifact; protocol shaping stays in Rust/WASM.
+  emitStatus(status, { stage: "witness" });
+  const bytes = toUint8Array(wasmBytes);
+  const imports = {
+    runtime: {
+      exceptionHandler(code) {
+        throw new Error(`circuit witness exception: ${code}`);
+      },
+      printErrorMessage() {},
+      writeBufferMessage() {},
+      showSharedRWMemory() {},
+    },
+  };
+  const instance = await WebAssembly.instantiate(bytes, imports);
+  const exports = instance.instance?.exports ?? instance.exports;
+  const n32 = Number(exports.getFieldNumLen32());
+  exports.init(0);
+
+  const input = JSON.parse(inputJson);
+  for (const [name, values] of Object.entries(input)) {
+    const [msb, lsb] = fnv64Parts(name);
+    values.forEach((value, index) => {
+      const limbs = toArray32(BigInt(value), n32);
+      for (let cursor = 0; cursor < n32; cursor += 1) {
+        exports.writeSharedRWMemory(cursor, limbs[n32 - 1 - cursor]);
+      }
+      exports.setInputSignal(msb, lsb, index);
+    });
+  }
+
+  const witnessSize = Number(exports.getWitnessSize());
+  const witness = [];
+  for (let index = 0; index < witnessSize; index += 1) {
+    exports.getWitness(index);
+    const limbs = [];
+    for (let cursor = 0; cursor < n32; cursor += 1) {
+      limbs[n32 - 1 - cursor] = Number(exports.readSharedRWMemory(cursor));
+    }
+    witness.push(fromArray32(limbs).toString());
+  }
+  emitStatus(status, { stage: "witness", witnessSize });
+  return witness;
+}
+
+function fnv64Parts(value) {
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  const bytes = new TextEncoder().encode(value);
+  for (const byte of bytes) {
+    hash ^= BigInt(byte);
+    hash = (hash * prime) & mask;
+  }
+  return [
+    Number((hash >> 32n) & 0xffffffffn),
+    Number(hash & 0xffffffffn),
+  ];
+}
+
+function toArray32(value, size) {
+  const limbs = Array(size).fill(0);
+  let remaining = value;
+  const radix = 0x100000000n;
+  let cursor = size;
+  while (remaining !== 0n) {
+    cursor -= 1;
+    if (cursor < 0) {
+      throw new Error("circuit input value exceeds field limb width");
+    }
+    limbs[cursor] = Number(remaining % radix);
+    remaining /= radix;
+  }
+  return limbs;
+}
+
+function fromArray32(limbs) {
+  const radix = 0x100000000n;
+  let value = 0n;
+  for (const limb of limbs) {
+    value = value * radix + BigInt(limb >>> 0);
+  }
+  return value;
+}
+
+function emitStatus(target, status) {
+  if (typeof target === "function") {
+    target(status);
+    return;
+  }
+  if (target?.onStatus && typeof target.onStatus === "function") {
+    target.onStatus(status);
+  }
 }
 
 async function fetchArtifactInputs(manifest, artifactsRoot, circuit) {

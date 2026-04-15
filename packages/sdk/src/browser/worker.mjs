@@ -102,9 +102,12 @@ async function handleMessage(message, respond) {
   }
 
   try {
-    const result = await implementation(...params);
+    const result = await implementation(...params, (status) => {
+      respond({ id, status });
+    });
     respond({ id, ok: true, result });
   } catch (error) {
+    respond({ id, status: { stage: "error", message: error?.message ?? String(error) } });
     respond({ id, ok: false, error: serializeError(error) });
   }
 }

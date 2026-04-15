@@ -1084,16 +1084,16 @@ fn to_js_verified_artifact_bundle(
     bundle: privacy_pools_sdk::artifacts::VerifiedArtifactBundle,
 ) -> JsVerifiedArtifactBundle {
     JsVerifiedArtifactBundle {
-        version: bundle.version,
-        circuit: bundle.circuit,
+        version: bundle.version().to_owned(),
+        circuit: bundle.circuit().to_owned(),
         artifacts: bundle
-            .artifacts
-            .into_iter()
+            .artifacts()
+            .iter()
             .map(|artifact| JsVerifiedArtifactDescriptor {
-                circuit: artifact.descriptor.circuit,
-                kind: artifact_kind_label(artifact.descriptor.kind),
-                filename: artifact.descriptor.filename,
-                sha256: artifact.descriptor.sha256,
+                circuit: artifact.descriptor().circuit.clone(),
+                kind: artifact_kind_label(artifact.descriptor().kind),
+                filename: artifact.descriptor().filename.clone(),
+                sha256: artifact.descriptor().sha256.clone(),
             })
             .collect(),
     }

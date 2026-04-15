@@ -133,12 +133,23 @@ export class PrivacyPoolsSdkClient {
     return removeCommitmentCircuitSession(sessionHandle);
   }
 
-  async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request) {
-    return proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request);
+  async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request, status) {
+    return proveWithdrawal(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      status,
+    );
   }
 
-  async proveWithdrawalWithSession(backendProfile, sessionHandle, request) {
-    return proveWithdrawalWithSession(backendProfile, sessionHandle, request);
+  async proveWithdrawalWithSession(backendProfile, sessionHandle, request, status) {
+    return proveWithdrawalWithSession(
+      backendProfile,
+      sessionHandle,
+      request,
+      status,
+    );
   }
 
   async verifyWithdrawalProof(backendProfile, manifestJson, artifactsRoot, proof) {
@@ -154,12 +165,23 @@ export class PrivacyPoolsSdkClient {
     return verifyWithdrawalProofWithSession(backendProfile, sessionHandle, proof);
   }
 
-  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request) {
-    return proveCommitment(backendProfile, manifestJson, artifactsRoot, request);
+  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request, status) {
+    return proveCommitment(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      status,
+    );
   }
 
-  async proveCommitmentWithSession(backendProfile, sessionHandle, request) {
-    return proveCommitmentWithSession(backendProfile, sessionHandle, request);
+  async proveCommitmentWithSession(backendProfile, sessionHandle, request, status) {
+    return proveCommitmentWithSession(
+      backendProfile,
+      sessionHandle,
+      request,
+      status,
+    );
   }
 
   async verifyCommitmentProof(backendProfile, manifestJson, artifactsRoot, proof) {
@@ -194,6 +216,11 @@ class WorkerPrivacyPoolsSdkClient {
     registerWorkerListener(worker, (message) => {
       const pending = this.#pending.get(message.id);
       if (!pending) {
+        return;
+      }
+
+      if (message.status) {
+        pending.onStatus?.(message.status);
         return;
       }
 
@@ -318,21 +345,21 @@ class WorkerPrivacyPoolsSdkClient {
     return this.#send("removeCommitmentCircuitSession", [sessionHandle]);
   }
 
-  async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request) {
+  async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request, status) {
     return this.#send("proveWithdrawal", [
       backendProfile,
       manifestJson,
       artifactsRoot,
       request,
-    ]);
+    ], status);
   }
 
-  async proveWithdrawalWithSession(backendProfile, sessionHandle, request) {
+  async proveWithdrawalWithSession(backendProfile, sessionHandle, request, status) {
     return this.#send("proveWithdrawalWithSession", [
       backendProfile,
       sessionHandle,
       request,
-    ]);
+    ], status);
   }
 
   async verifyWithdrawalProof(backendProfile, manifestJson, artifactsRoot, proof) {
@@ -352,21 +379,21 @@ class WorkerPrivacyPoolsSdkClient {
     ]);
   }
 
-  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request) {
+  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request, status) {
     return this.#send("proveCommitment", [
       backendProfile,
       manifestJson,
       artifactsRoot,
       request,
-    ]);
+    ], status);
   }
 
-  async proveCommitmentWithSession(backendProfile, sessionHandle, request) {
+  async proveCommitmentWithSession(backendProfile, sessionHandle, request, status) {
     return this.#send("proveCommitmentWithSession", [
       backendProfile,
       sessionHandle,
       request,
-    ]);
+    ], status);
   }
 
   async verifyCommitmentProof(backendProfile, manifestJson, artifactsRoot, proof) {
@@ -386,10 +413,16 @@ class WorkerPrivacyPoolsSdkClient {
     ]);
   }
 
-  #send(method, params = []) {
+  #send(method, params = [], status) {
+    const onStatus =
+      typeof status === "function"
+        ? status
+        : typeof status?.onStatus === "function"
+          ? status.onStatus
+          : undefined;
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject });
+      this.#pending.set(id, { resolve, reject, onStatus });
       this.#worker.postMessage({ id, method, params });
     });
   }

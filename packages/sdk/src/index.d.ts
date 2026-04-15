@@ -142,12 +142,16 @@ export type WithdrawalCircuitSessionHandle = {
   handle: string;
   circuit: string;
   artifactVersion: string;
+  provingAvailable: boolean;
+  verificationAvailable: boolean;
 };
 
 export type CommitmentCircuitSessionHandle = {
   handle: string;
   circuit: string;
   artifactVersion: string;
+  provingAvailable: boolean;
+  verificationAvailable: boolean;
 };
 
 export type RuntimeCapabilities = {
@@ -157,6 +161,29 @@ export type RuntimeCapabilities = {
   workerAvailable: boolean;
   reason?: string;
 };
+
+export type RuntimeStatusStage =
+  | "preload"
+  | "witness"
+  | "prove"
+  | "verify"
+  | "done"
+  | "error";
+
+export type RuntimeStatus = {
+  stage: RuntimeStatusStage;
+  circuit?: string;
+  witnessSize?: number;
+  message?: string;
+};
+
+export type RuntimeStatusHandler = (status: RuntimeStatus) => void;
+
+export type RuntimeStatusOptions =
+  | RuntimeStatusHandler
+  | {
+      onStatus?: RuntimeStatusHandler;
+    };
 
 export class BrowserRuntimeUnavailableError extends Error {}
 
@@ -241,11 +268,13 @@ export class PrivacyPoolsSdkClient {
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
+    status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   proveWithdrawalWithSession(
     backendProfile: "stable" | "fast",
     sessionHandle: string,
     request: WithdrawalWitnessRequest,
+    status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   verifyWithdrawalProof(
     backendProfile: "stable" | "fast",
@@ -263,11 +292,13 @@ export class PrivacyPoolsSdkClient {
     manifestJson: string,
     artifactsRoot: string,
     request: CommitmentWitnessRequest,
+    status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   proveCommitmentWithSession(
     backendProfile: "stable" | "fast",
     sessionHandle: string,
     request: CommitmentWitnessRequest,
+    status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   verifyCommitmentProof(
     backendProfile: "stable" | "fast",

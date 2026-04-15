@@ -1,7 +1,18 @@
+#[cfg(feature = "native-witness")]
 use camino::Utf8PathBuf;
+#[cfg(feature = "native-witness")]
 use std::process::Command;
 
 fn main() {
+    #[cfg(feature = "native-witness")]
+    run_native_witness_build();
+}
+
+#[cfg(feature = "native-witness")]
+fn run_native_witness_build() {
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
+        return;
+    }
     ensure_apple_sdk_available();
 
     let circuits_dir = Utf8PathBuf::from_path_buf(
@@ -22,6 +33,7 @@ fn main() {
     rust_witness::transpile::transpile_wasm(circuits_dir.into_string());
 }
 
+#[cfg(feature = "native-witness")]
 fn ensure_apple_sdk_available() {
     let target = std::env::var("TARGET").unwrap_or_default();
     let sdk = match target.as_str() {
@@ -48,6 +60,7 @@ fn ensure_apple_sdk_available() {
     }
 }
 
+#[cfg(feature = "native-witness")]
 fn fail_missing_apple_sdk(target: &str, sdk: &str, detail: Option<String>) -> ! {
     let developer_dir = Command::new("xcode-select")
         .arg("-p")

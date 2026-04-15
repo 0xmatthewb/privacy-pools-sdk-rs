@@ -8,15 +8,22 @@ Current status:
 - React Native remains a separate package at `@0xmatthewb/privacy-pools-sdk-react-native`
 - browser uses a Rust/WASM runtime for key derivation, commitments, Merkle
   helpers, withdrawal input shaping, manifest-bound artifact verification, and
-  proof verification
-- browser proving is still blocked on the Rust web prover backend
+  proof generation and verification
+- browser proving runs witnesses from manifest-pinned circuit `.wasm` artifacts
+  and passes witness values into the portable Rust/WASM prover with verified
+  `zkey` bytes; Rust/WASM owns artifact verification, `zkey` parsing, proof
+  construction, manifest-bound `vkey` checks, and final proof verification, and
+  the browser build does not compile or link the `rust-witness` generated
+  C/native path
 
 This package does not reimplement protocol logic in JavaScript. The Node runtime
 delegates to Rust for key derivation, commitments, Merkle helpers, artifact
 verification, session preparation, proving, and proof verification. The browser
-runtime delegates the currently supported browser-safe APIs to the Rust
-`privacy-pools-sdk-web` crate, including proof verification, and leaves
-proving-specific methods fail-closed until the wasm prover path is ready.
+runtime delegates protocol helpers, artifact verification, session preparation,
+proof construction, manifest-bound verification key checks, and proof
+verification to the Rust `privacy-pools-sdk-web` crate. Its JavaScript
+worker/runtime glue only hosts browser APIs, worker transport, artifact
+fetching, status events, and circuit `.wasm` witness execution.
 
 Useful commands:
 

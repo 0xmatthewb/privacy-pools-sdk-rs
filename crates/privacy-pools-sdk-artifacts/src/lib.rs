@@ -6,7 +6,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactKind {
     Wasm,
@@ -61,18 +61,40 @@ pub struct ArtifactBytes {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedArtifact {
-    pub descriptor: ArtifactDescriptor,
-    pub bytes: Vec<u8>,
+    descriptor: ArtifactDescriptor,
+    bytes: Vec<u8>,
+}
+
+impl VerifiedArtifact {
+    pub fn descriptor(&self) -> &ArtifactDescriptor {
+        &self.descriptor
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedArtifactBundle {
-    pub version: String,
-    pub circuit: String,
-    pub artifacts: Vec<VerifiedArtifact>,
+    version: String,
+    circuit: String,
+    artifacts: Vec<VerifiedArtifact>,
 }
 
 impl VerifiedArtifactBundle {
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    pub fn circuit(&self) -> &str {
+        &self.circuit
+    }
+
+    pub fn artifacts(&self) -> &[VerifiedArtifact] {
+        &self.artifacts
+    }
+
     pub fn artifact(&self, kind: ArtifactKind) -> Result<&VerifiedArtifact, ArtifactError> {
         self.artifacts
             .iter()
@@ -419,11 +441,11 @@ mod tests {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
         let bundle = manifest.load_verified_bundle(root, "withdraw").unwrap();
 
-        assert_eq!(bundle.version, "0.1.0-alpha.1");
-        assert_eq!(bundle.circuit, "withdraw");
-        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(bundle.version(), "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit(), "withdraw");
+        assert_eq!(bundle.artifacts().len(), 3);
         assert_eq!(
-            bundle.artifact(ArtifactKind::Zkey).unwrap().bytes,
+            bundle.artifact(ArtifactKind::Zkey).unwrap().bytes(),
             include_bytes!("../../../fixtures/artifacts/sample-artifact.bin")
         );
     }
@@ -456,12 +478,12 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(bundle.artifacts().len(), 3);
         assert_eq!(
             bundle
                 .artifact(ArtifactKind::Vkey)
                 .unwrap()
-                .descriptor
+                .descriptor()
                 .filename,
             "sample-artifact.bin"
         );
