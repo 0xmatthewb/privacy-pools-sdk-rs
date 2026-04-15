@@ -31,6 +31,7 @@
     "build:web:debug": "node ./scripts/build-web.mjs --debug",
     "build:web:release": "node ./scripts/build-web.mjs --release",
     "check:generated": "npm run build:web && node ./scripts/check-generated.mjs",
+    "compare:v1-npm": "node ./scripts/compare-v1-npm.mjs",
     "test": "npm run test:ci",
     "test:browser": "playwright test",
     "test:ci": "npm run build:native && npm run check:generated && npm run test:node && npm run test:browser",
