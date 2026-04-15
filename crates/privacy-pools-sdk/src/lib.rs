@@ -71,6 +71,81 @@ pub struct PreparedTransactionExecution {
     pub preflight: core::ExecutionPreflightReport,
 }
 
+/// Transaction plan paired with the preflight report that validated it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreflightedTransaction {
+    pub plan: core::TransactionPlan,
+    pub preflight: core::ExecutionPreflightReport,
+}
+
+/// Commitment proof that has been verified against the request that created it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedCommitmentProof {
+    proof: core::ProofBundle,
+}
+
+impl VerifiedCommitmentProof {
+    pub fn proof(&self) -> &core::ProofBundle {
+        &self.proof
+    }
+
+    pub fn into_proof(self) -> core::ProofBundle {
+        self.proof
+    }
+}
+
+/// Ragequit proof that has been verified against the request that created it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedRagequitProof {
+    proof: core::ProofBundle,
+}
+
+impl VerifiedRagequitProof {
+    pub fn proof(&self) -> &core::ProofBundle {
+        &self.proof
+    }
+
+    pub fn into_proof(self) -> core::ProofBundle {
+        self.proof
+    }
+}
+
+/// Withdrawal proof that has been verified against the request that created it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedWithdrawalProof {
+    proof: core::ProofBundle,
+    withdrawal: core::Withdrawal,
+    scope: U256,
+    state_root: U256,
+    asp_root: U256,
+}
+
+impl VerifiedWithdrawalProof {
+    pub fn proof(&self) -> &core::ProofBundle {
+        &self.proof
+    }
+
+    pub fn withdrawal(&self) -> &core::Withdrawal {
+        &self.withdrawal
+    }
+
+    pub const fn scope(&self) -> U256 {
+        self.scope
+    }
+
+    pub const fn state_root(&self) -> U256 {
+        self.state_root
+    }
+
+    pub const fn asp_root(&self) -> U256 {
+        self.asp_root
+    }
+
+    pub fn into_proof(self) -> core::ProofBundle {
+        self.proof
+    }
+}
+
 /// A prepared transaction after nonce, gas, and fee finalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinalizedTransactionExecution {
@@ -1223,6 +1298,20 @@ impl PrivacyPoolsSdk {
         )
     }
 
+    pub fn plan_verified_withdrawal_transaction(
+        &self,
+        chain_id: u64,
+        pool_address: Address,
+        proof: &VerifiedWithdrawalProof,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_withdrawal_transaction(
+            chain_id,
+            pool_address,
+            proof.withdrawal(),
+            proof.proof(),
+        )
+    }
+
     pub fn plan_relay_transaction(
         &self,
         chain_id: u64,
@@ -1247,6 +1336,21 @@ impl PrivacyPoolsSdk {
         )
     }
 
+    pub fn plan_verified_relay_transaction(
+        &self,
+        chain_id: u64,
+        entrypoint_address: Address,
+        proof: &VerifiedWithdrawalProof,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_relay_transaction(
+            chain_id,
+            entrypoint_address,
+            proof.withdrawal(),
+            proof.proof(),
+            proof.scope(),
+        )
+    }
+
     pub fn plan_ragequit_transaction(
         &self,
         chain_id: u64,
@@ -1261,6 +1365,15 @@ impl PrivacyPoolsSdk {
         request: RagequitTransactionRequest<'_>,
     ) -> Result<core::TransactionPlan, chain::ChainError> {
         self.plan_ragequit_transaction(request.chain_id, request.pool_address, request.proof)
+    }
+
+    pub fn plan_verified_ragequit_transaction(
+        &self,
+        chain_id: u64,
+        pool_address: Address,
+        proof: &VerifiedRagequitProof,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_ragequit_transaction(chain_id, pool_address, proof.proof())
     }
 
     pub fn build_commitment_circuit_input(
@@ -1477,6 +1590,90 @@ impl PrivacyPoolsSdk {
         self.validate_commitment_proof_against_request(request, proof)
     }
 
+    pub fn verify_commitment_proof_for_request(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::CommitmentWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedCommitmentProof, SdkError> {
+        let session = self.prepare_commitment_circuit_session(manifest, root)?;
+        self.verify_commitment_proof_for_request_with_session(profile, &session, request, proof)
+    }
+
+    pub fn verify_commitment_proof_for_request_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &CommitmentCircuitSession,
+        request: &core::CommitmentWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedCommitmentProof, SdkError> {
+        self.validate_commitment_proof_against_request(request, proof)?;
+        if !self.verify_commitment_proof_with_session(profile, session, proof)? {
+            return Err(SdkError::ProofRejected);
+        }
+
+        Ok(VerifiedCommitmentProof {
+            proof: proof.clone(),
+        })
+    }
+
+    pub fn verify_ragequit_proof_for_request(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::RagequitWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedRagequitProof, SdkError> {
+        let session = self.prepare_ragequit_circuit_session(manifest, root)?;
+        self.verify_ragequit_proof_for_request_with_session(profile, &session, request, proof)
+    }
+
+    pub fn verify_ragequit_proof_for_request_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &RagequitCircuitSession,
+        request: &core::RagequitWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedRagequitProof, SdkError> {
+        self.validate_ragequit_proof_against_request(request, proof)?;
+        if !self.verify_ragequit_proof_with_session(profile, session, proof)? {
+            return Err(SdkError::ProofRejected);
+        }
+
+        Ok(VerifiedRagequitProof {
+            proof: proof.clone(),
+        })
+    }
+
+    pub fn prove_and_verify_commitment(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<VerifiedCommitmentProof, SdkError> {
+        let session = self.prepare_commitment_circuit_session(manifest, root)?;
+        self.prove_and_verify_commitment_with_session(profile, &session, request)
+    }
+
+    pub fn prove_and_verify_commitment_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &CommitmentCircuitSession,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<VerifiedCommitmentProof, SdkError> {
+        let proving = self.prove_commitment_with_session(profile, session, request)?;
+        self.verify_commitment_proof_for_request_with_session(
+            profile,
+            session,
+            request,
+            &proving.proof,
+        )
+    }
+
     pub fn prove_withdrawal_with_witness(
         &self,
         profile: BackendProfile,
@@ -1603,6 +1800,65 @@ impl PrivacyPoolsSdk {
         Ok(())
     }
 
+    pub fn verify_withdrawal_proof_for_request(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::WithdrawalWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedWithdrawalProof, SdkError> {
+        let session = self.prepare_withdrawal_circuit_session(manifest, root)?;
+        self.verify_withdrawal_proof_for_request_with_session(profile, &session, request, proof)
+    }
+
+    pub fn verify_withdrawal_proof_for_request_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &WithdrawalCircuitSession,
+        request: &core::WithdrawalWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<VerifiedWithdrawalProof, SdkError> {
+        self.validate_withdrawal_proof_against_request(request, proof)?;
+        if !self.verify_withdrawal_proof_with_session(profile, session, proof)? {
+            return Err(SdkError::ProofRejected);
+        }
+
+        Ok(VerifiedWithdrawalProof {
+            proof: proof.clone(),
+            withdrawal: request.withdrawal.clone(),
+            scope: request.scope,
+            state_root: request.state_witness.root,
+            asp_root: request.asp_witness.root,
+        })
+    }
+
+    pub fn prove_and_verify_withdrawal(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::WithdrawalWitnessRequest,
+    ) -> Result<VerifiedWithdrawalProof, SdkError> {
+        let session = self.prepare_withdrawal_circuit_session(manifest, root)?;
+        self.prove_and_verify_withdrawal_with_session(profile, &session, request)
+    }
+
+    pub fn prove_and_verify_withdrawal_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &WithdrawalCircuitSession,
+        request: &core::WithdrawalWitnessRequest,
+    ) -> Result<VerifiedWithdrawalProof, SdkError> {
+        let proving = self.prove_withdrawal_with_session(profile, session, request)?;
+        self.verify_withdrawal_proof_for_request_with_session(
+            profile,
+            session,
+            request,
+            &proving.proof,
+        )
+    }
+
     pub async fn prepare_withdrawal_execution_with_client<C: chain::ExecutionClient>(
         &self,
         profile: BackendProfile,
@@ -1615,23 +1871,24 @@ impl PrivacyPoolsSdk {
         circuits::validate_withdrawal_request(request)?;
         let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
         let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
-        self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
-        if !self.verify_withdrawal_proof_with_session(profile, &session, &proving.proof)? {
-            return Err(SdkError::ProofRejected);
-        }
+        let verified = self.verify_withdrawal_proof_for_request_with_session(
+            profile,
+            &session,
+            request,
+            &proving.proof,
+        )?;
 
-        let transaction = self.plan_withdrawal_transaction(
+        let transaction = self.plan_verified_withdrawal_transaction(
             config.chain_id,
             config.pool_address,
-            &request.withdrawal,
-            &proving.proof,
+            &verified,
         )?;
         let preflight = chain::preflight_withdrawal(
             client,
             &transaction,
             config.pool_address,
-            request.state_witness.root,
-            request.asp_witness.root,
+            verified.state_root(),
+            verified.asp_root(),
             &config.policy,
         )
         .await?;
@@ -1655,25 +1912,25 @@ impl PrivacyPoolsSdk {
         circuits::validate_withdrawal_request(request)?;
         let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
         let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
-        self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
-        if !self.verify_withdrawal_proof_with_session(profile, &session, &proving.proof)? {
-            return Err(SdkError::ProofRejected);
-        }
+        let verified = self.verify_withdrawal_proof_for_request_with_session(
+            profile,
+            &session,
+            request,
+            &proving.proof,
+        )?;
 
-        let transaction = self.plan_relay_transaction(
+        let transaction = self.plan_verified_relay_transaction(
             config.chain_id,
             config.entrypoint_address,
-            &request.withdrawal,
-            &proving.proof,
-            request.scope,
+            &verified,
         )?;
         let preflight = chain::preflight_relay(
             client,
             &transaction,
             config.entrypoint_address,
             config.pool_address,
-            request.state_witness.root,
-            request.asp_witness.root,
+            verified.state_root(),
+            verified.asp_root(),
             &config.policy,
         )
         .await?;
@@ -2228,14 +2485,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            keys.master_nullifier,
+            keys.master_nullifier.dangerously_expose_field(),
             U256::from_str(
                 "20068762160393292801596226195912281868434195939362930533775271887246872084568"
             )
             .unwrap()
         );
         assert_eq!(
-            keys.master_secret,
+            keys.master_secret.dangerously_expose_field(),
             U256::from_str(
                 "4263194520628581151689140073493505946870598678660509318310629023735624352890"
             )
