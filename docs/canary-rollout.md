@@ -10,6 +10,7 @@ Before promoting a release channel, collect:
 - a desktop `benchmark-withdraw --report-json` report
 - an iOS device `benchmark-withdraw --report-json` report
 - an Android device `benchmark-withdraw --report-json` report
+- `mobile-smoke.json` from the manual/nightly `mobile-smoke` workflow
 - the matching release workflow artifacts for the same commit
 - canary notes covering the rollout scope, success criteria, and any incidents
 
@@ -27,9 +28,14 @@ release/
     desktop-withdraw-stable.json
     ios-withdraw-stable.json
     android-withdraw-stable.json
+    mobile-smoke.json
     release-artifacts.txt
     canary-notes.md
 ```
+
+`mobile-smoke.json` must be copied from the workflow artifact produced by a
+passing `mobile-smoke` run for the same commit. It records the workflow name,
+run URL, and passed iOS and Android app-process statuses.
 
 ## Benchmark Capture
 
@@ -50,8 +56,9 @@ cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
 
 Repeat the same capture on one recent iPhone and one recent Android flagship.
 
-After the benchmark reports, release-artifact manifest, commit, and canary
-notes are assembled in one directory, validate the bundle with:
+After the benchmark reports, mobile smoke evidence, release-artifact manifest,
+commit, and canary notes are assembled in one directory, validate the bundle
+with:
 
 ```sh
 cargo run -p xtask -- evidence-check \
@@ -83,4 +90,5 @@ Do not promote a channel on build status alone. Promotion should require:
 
 - green CI for Rust, RN packaging, RN sample-app smoke, and native release smoke
 - benchmark reports from desktop, iOS, and Android for the same commit
+- passed `mobile-smoke.json` evidence for the same commit
 - acceptable canary notes for the current rollout stage

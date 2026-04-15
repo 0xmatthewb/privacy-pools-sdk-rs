@@ -10,6 +10,7 @@ The workflow:
 - validates that all Rust crates share one version
 - validates that the React Native package and both podspecs share one version
 - validates that the selected channel matches the mobile prerelease suffix
+- runs dependency, examples, feature, package, SDK smoke, and npm package gates
 - builds release iOS native artifacts on macOS
 - builds release Android native artifacts on Linux
 - assembles a publishable React Native tarball that includes both native asset sets
@@ -28,7 +29,17 @@ package surface. For example, Rust `0.1.0` is compatible with mobile
 ## Local Validation
 
 ```sh
+cargo fmt --all --check
+cargo test --workspace
+cargo test --doc --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo doc --workspace --no-deps
+cargo run -p xtask -- examples-check
+cargo run -p xtask -- feature-check
+cargo run -p xtask -- package-check
+cargo run -p xtask -- dependency-check
 cargo run -p xtask -- release-check --channel alpha
+cargo run -p xtask -- sdk-smoke
 ```
 
 Local native packaging prerequisites:
@@ -46,7 +57,9 @@ xcrun --sdk iphonesimulator --show-sdk-path
 ```
 
 Once benchmark captures and canary notes exist for a candidate release,
-validate the evidence bundle too:
+validate the evidence bundle too. The bundle must include the desktop, iOS, and
+Android benchmark reports plus `mobile-smoke.json` from a passing `mobile-smoke`
+workflow run for the same commit:
 
 ```sh
 cargo run -p xtask -- evidence-check \
@@ -67,8 +80,13 @@ and uploads:
 Before promoting a candidate, also run the manual `mobile-smoke` workflow for
 the same commit. That workflow owns the heavyweight iOS Simulator, Android
 Emulator, and React Native app-process prove/verify smoke coverage that is too
-slow for every-push CI.
+slow for every-push CI. Its final evidence job uploads `mobile-smoke.json` with
+the release commit, workflow name, workflow run URL, and passed iOS and Android
+statuses.
 
 Build artifacts are only part of promotion readiness. Pair them with the device
 benchmark captures and rollout notes described in `docs/canary-rollout.md`
 before promoting alpha, beta, rc, or stable.
+
+Use `RELEASE_CHECKLIST.md` as the promotion checklist for local gates, CI gates,
+evidence contents, dependency advisories, package dry runs, and publish order.

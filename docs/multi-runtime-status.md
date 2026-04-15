@@ -17,7 +17,9 @@ plan.
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
   app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
-  workflow and should move to completed only after that workflow is green.
+  workflow. The workflow now uploads `mobile-smoke.json` so release evidence can
+  prove the exact commit, run URL, and passed iOS/Android statuses. This should
+  move to completed only after that workflow is green for a release candidate.
 - React Native iOS and Android app-process smoke harnesses now install the
   packed package tarball into generated consumer apps, copy deterministic
   fixture artifacts into app storage, and run native prepare/prove/verify
@@ -130,8 +132,9 @@ plan.
 - The mobile surfaces share the Rust session/caching model, and the shared FFI
   layer now runs full real prove/verify fixtures. React Native app-process
   prove/verify smoke is wired for iOS and Android in the manual/nightly
-  `mobile-smoke` workflow, but should remain partially complete until that
-  workflow is green.
+  `mobile-smoke` workflow, with release evidence captured as `mobile-smoke.json`.
+  It should remain partially complete until that workflow is green for the
+  candidate commit.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
 
@@ -139,7 +142,8 @@ plan.
 
 - Mobile app-level smoke coverage still needs green confirmation from the
   `mobile-smoke` workflow for the newly wired React Native iOS and Android
-  app-process prove/verify jobs.
+  app-process prove/verify jobs, plus committed `mobile-smoke.json` evidence in
+  the channel bundle before promotion.
 
 ## Browser Proving Acceptance
 
