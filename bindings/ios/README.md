@@ -8,3 +8,5 @@ Current contents:
 - `Sources/PrivacyPoolsSdk/`: thin Swift-friendly wrapper API
 - `PrivacyPoolsSdk.podspec`: CocoaPods packaging entrypoint
 - `scripts/build-xcframework.sh`: reproducible XCFramework build script
+- `scripts/run-smoke-xctest.sh`: stages a minimal iOS Simulator XCTest package
+  that runs real prepare/prove/verify fixtures in-process

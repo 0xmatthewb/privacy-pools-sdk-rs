@@ -1,4 +1,5 @@
 import { native } from "../native.mjs";
+import { createRuntimeFacade } from "../facade.mjs";
 
 export function getRuntimeCapabilities() {
   return {
@@ -269,11 +270,112 @@ export class PrivacyPoolsSdkClient {
       ),
     );
   }
+
+  async formatGroth16ProofBundle(proof) {
+    return parseNativeJson(native.formatGroth16ProofBundle(JSON.stringify(proof)));
+  }
+
+  async planWithdrawalTransaction(chainId, poolAddress, withdrawal, proof) {
+    return parseNativeJson(
+      native.planWithdrawalTransaction(
+        String(chainId),
+        poolAddress,
+        JSON.stringify(withdrawal),
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async planRelayTransaction(chainId, entrypointAddress, withdrawal, proof, scope) {
+    return parseNativeJson(
+      native.planRelayTransaction(
+        String(chainId),
+        entrypointAddress,
+        JSON.stringify(withdrawal),
+        JSON.stringify(proof),
+        String(scope),
+      ),
+    );
+  }
+
+  async planRagequitTransaction(chainId, poolAddress, proof) {
+    return parseNativeJson(
+      native.planRagequitTransaction(
+        String(chainId),
+        poolAddress,
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async planPoolStateRootRead(poolAddress) {
+    return parseNativeJson(native.planPoolStateRootRead(poolAddress));
+  }
+
+  async planAspRootRead(entrypointAddress, poolAddress) {
+    return parseNativeJson(native.planAspRootRead(entrypointAddress, poolAddress));
+  }
+
+  async isCurrentStateRoot(expectedRoot, currentRoot) {
+    return unwrapNativeValue(
+      native.isCurrentStateRoot(String(expectedRoot), String(currentRoot)),
+    );
+  }
+
+  async checkpointRecovery(events, policy) {
+    return parseNativeJson(
+      native.checkpointRecovery(JSON.stringify(events), JSON.stringify(policy)),
+    );
+  }
 }
 
 export function createPrivacyPoolsSdkClient() {
   return new PrivacyPoolsSdkClient();
 }
+
+const facade = createRuntimeFacade(PrivacyPoolsSdkClient);
+
+export const {
+  AccountService,
+  AccountError,
+  BlockchainProvider,
+  CircuitInitialization,
+  CircuitName,
+  Circuits,
+  CommitmentService,
+  CompatibilityError,
+  ContractError,
+  ContractInteractionsService,
+  DataError,
+  DataService,
+  DEFAULT_LOG_FETCH_CONFIG,
+  ErrorCode,
+  FetchArtifact,
+  InvalidRpcUrl,
+  PrivacyPoolError,
+  PrivacyPoolSDK,
+  ProofError,
+  SDKError,
+  Version,
+  bigintToHash,
+  bigintToHex,
+  calculateContext,
+  checkpointRecovery,
+  circuitToAsset,
+  formatGroth16ProofBundle,
+  generateDepositSecrets,
+  generateMasterKeys,
+  generateMerkleProof,
+  generateWithdrawalSecrets,
+  getCommitment,
+  hashPrecommitment,
+  isCurrentStateRoot,
+  planAspRootRead,
+  planPoolStateRootRead,
+  planRagequitTransaction,
+  planRelayTransaction,
+  planWithdrawalTransaction,
+} = facade;
 
 function encodeArtifactBytes(artifacts) {
   return artifacts.map((artifact) => ({

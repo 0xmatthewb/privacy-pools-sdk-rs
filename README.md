@@ -31,8 +31,9 @@ Current first-class surfaces:
 
 Remaining browser/Node package milestone:
 
-- fuller website-facing v1 facade parity for `Circuits`, `PrivacyPoolSDK`,
-  recovery, and account-data service exports
+- network/event-backed v1 account-data behavior, recovered account-state DTOs,
+  and browser-safe contract planning beyond the current Rust-backed facade
+  wrappers and typed compatibility boundaries
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -102,6 +103,8 @@ cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo run -p xtask -- bindings
 cargo run -p xtask -- react-native-smoke
+cargo run -p xtask -- react-native-app-smoke-ios
+cargo run -p xtask -- react-native-app-smoke-android
 cargo run -p xtask -- sdk-smoke
 ```
 
@@ -111,6 +114,7 @@ Further documentation:
 - [`docs/release-process.md`](docs/release-process.md)
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
+- [`docs/v1-js-compatibility-matrix.md`](docs/v1-js-compatibility-matrix.md)
 - [`docs/dependency-audit.md`](docs/dependency-audit.md)
 - [`docs/multi-runtime-status.md`](docs/multi-runtime-status.md)
 

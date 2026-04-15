@@ -30,7 +30,11 @@
     "build:web": "node ./scripts/build-web.mjs",
     "build:web:debug": "node ./scripts/build-web.mjs --debug",
     "build:web:release": "node ./scripts/build-web.mjs --release",
-    "test": "npm run build:web && npm run build:native && node --test ./test/*.test.mjs"
+    "check:generated": "npm run build:web && git diff --exit-code -- src/browser/generated && test -z \"$(git ls-files --others --exclude-standard -- src/browser/generated)\"",
+    "test": "npm run test:ci",
+    "test:browser": "playwright test",
+    "test:ci": "npm run build:native && npm run check:generated && npm run test:node && npm run test:browser",
+    "test:node": "node --test ./test/*.test.mjs"
   },
   "files": [
     "src",
@@ -39,5 +43,8 @@
     "README.md",
     "package.json",
     "privacy_pools_sdk_node.node"
-  ]
+  ],
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
 }

@@ -41,6 +41,58 @@ export type ProvingResult = {
   proof: ProofBundle;
 };
 
+export type FormattedGroth16Proof = {
+  pA: string[];
+  pB: string[][];
+  pC: string[];
+  pubSignals: string[];
+};
+
+export type TransactionPlan = {
+  kind: "withdraw" | "relay" | "ragequit";
+  chainId: number;
+  target: string;
+  calldata: string;
+  value: string;
+  proof: FormattedGroth16Proof;
+};
+
+export type RootRead = {
+  kind: "pool_state" | "asp";
+  contractAddress: string;
+  poolAddress: string;
+  callData: string;
+};
+
+export type PoolEvent = {
+  blockNumber: number;
+  transactionIndex: number;
+  logIndex: number;
+  poolAddress: string;
+  commitmentHash: string;
+};
+
+export type RecoveryPolicy = {
+  compatibilityMode?: "strict" | "legacy";
+  compatibility_mode?: "strict" | "legacy";
+  failClosed?: boolean;
+  fail_closed?: boolean;
+};
+
+export type RecoveryCheckpoint = {
+  latestBlock: number;
+  commitmentsSeen: number;
+};
+
+export type LogFetchConfig = {
+  blockChunkSize: number;
+  concurrency: number;
+  chunkDelayMs: number;
+  retryOnFailure: boolean;
+  maxRetries: number;
+  retryBaseDelayMs: number;
+};
+
 export type MerkleProof = {
   root: string;
   leaf: string;
@@ -186,6 +238,165 @@ export type RuntimeStatusOptions =
     };
 
 export class BrowserRuntimeUnavailableError extends Error {}
+export class SDKError extends Error {
+  code: string;
+  details?: unknown;
+}
+export class CompatibilityError extends SDKError {}
+export class ProofError extends SDKError {}
+export class AccountError extends SDKError {}
+export class DataError extends SDKError {}
+export class ContractError extends SDKError {}
+export class CircuitInitialization extends CompatibilityError {}
+export class FetchArtifact extends CompatibilityError {}
+export class PrivacyPoolError extends SDKError {}
+export class InvalidRpcUrl extends CompatibilityError {}
+
+export const Version: {
+  readonly Latest: "latest";
+};
+export const CircuitName: {
+  readonly Commitment: "commitment";
+  readonly MerkleTree: "merkleTree";
+  readonly Withdraw: "withdraw";
+};
+export const circuitToAsset: Record<string, {
+  wasm: string;
+  vkey: string;
+  zkey: string;
+}>;
+export const ErrorCode: Record<string, string>;
+export const DEFAULT_LOG_FETCH_CONFIG: Readonly<LogFetchConfig>;
+
+export type V1Precommitment = {
+  hash: bigint;
+  nullifier: bigint;
+  secret: bigint;
+};
+
+export type V1MasterKeys = {
+  masterNullifier: bigint;
+  masterSecret: bigint;
+};
+
+export type V1Secrets = {
+  nullifier: bigint;
+  secret: bigint;
+};
+
+export type V1Commitment = Commitment & {
+  hash: bigint;
+  nullifierHash: bigint;
+  preimage: {
+    value: bigint;
+    label: bigint;
+    precommitment: V1Precommitment;
+  };
+};
+
+export class Circuits {
+  constructor(options?: {
+    baseUrl?: string;
+    artifactsRoot?: string;
+    manifestJson?: string;
+    withdrawalManifestJson?: string;
+    withdrawManifestJson?: string;
+    commitmentManifestJson?: string;
+    client?: PrivacyPoolsSdkClient;
+  });
+  downloadArtifacts(version?: string): Promise<Record<string, Record<string, Uint8Array>>>;
+  initArtifacts(version?: string): Promise<void>;
+  getVerificationKey(circuitName: string, version?: string): Promise<Uint8Array>;
+  getProvingKey(circuitName: string, version?: string): Promise<Uint8Array>;
+  getWasm(circuitName: string, version?: string): Promise<Uint8Array>;
+  artifactInputsFor(circuitName: string, version?: string): Promise<ArtifactBytesInput[]>;
+}
+
+export class BlockchainProvider {
+  constructor(rpcUrl: string);
+  getBalance(address: string): Promise<bigint>;
+}
+
+export class CommitmentService {
+  constructor(circuits: Circuits);
+  proveCommitment(
+    value: bigint | string,
+    label: bigint | string,
+    nullifier: bigint | string,
+    secret: bigint | string,
+  ): Promise<ProofBundle>;
+  verifyCommitment(proof: ProofBundle): Promise<boolean>;
+}
+
+export class WithdrawalService {
+  constructor(circuits: Circuits);
+  proveWithdrawal(commitment: V1Commitment | Commitment, input: unknown): Promise<ProofBundle>;
+  verifyWithdrawal(proof: ProofBundle): Promise<boolean>;
+}
+
+export class PrivacyPoolSDK {
+  constructor(circuits: Circuits);
+  proveCommitment(
+    value: bigint | string,
+    label: bigint | string,
+    nullifier: bigint | string,
+    secret: bigint | string,
+  ): Promise<ProofBundle>;
+  verifyCommitment(proof: ProofBundle): Promise<boolean>;
+  proveWithdrawal(commitment: V1Commitment | Commitment, input: unknown): Promise<ProofBundle>;
+  verifyWithdrawal(proof: ProofBundle): Promise<boolean>;
+  createContractInstance(...args: unknown[]): never;
+}
+
+export class AccountService {
+  constructor(...args: unknown[]);
+  getSpendableCommitments(): never;
+  sync(): never;
+  checkpointRecovery(
+    events: PoolEvent[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryCheckpoint>;
+}
+
+export class DataService {
+  constructor(...args: unknown[]);
+  getDeposits(...args: unknown[]): Promise<never>;
+  getWithdrawals(...args: unknown[]): Promise<never>;
+  getRagequits(...args: unknown[]): Promise<never>;
+  checkpointRecovery(
+    events: PoolEvent[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryCheckpoint>;
+}
+
+export class ContractInteractionsService {
+  constructor(...args: unknown[]);
+  getStateRoot(poolAddress: string): Promise<RootRead>;
+  getScopeData(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
+  planWithdrawalTransaction(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+  ): Promise<TransactionPlan>;
+  planRelayTransaction(
+    chainId: number | string | bigint,
+    entrypointAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+    scope: string | bigint,
+  ): Promise<TransactionPlan>;
+  planRagequitTransaction(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    proof: ProofBundle,
+  ): Promise<TransactionPlan>;
+  isCurrentStateRoot(
+    expectedRoot: string | bigint,
+    currentRoot: string | bigint,
+  ): Promise<boolean>;
+  formatGroth16Proof(proof: ProofBundle): Promise<FormattedGroth16Proof>;
+}
 
 export class PrivacyPoolsSdkClient {
   getRuntimeCapabilities(): Promise<RuntimeCapabilities>;
@@ -312,9 +523,115 @@ export class PrivacyPoolsSdkClient {
     sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
+  formatGroth16ProofBundle(proof: ProofBundle): Promise<FormattedGroth16Proof>;
+  planWithdrawalTransaction(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+  ): Promise<TransactionPlan>;
+  planRelayTransaction(
+    chainId: number | string | bigint,
+    entrypointAddress: string,
+    withdrawal: Withdrawal,
+    proof: ProofBundle,
+    scope: string | bigint,
+  ): Promise<TransactionPlan>;
+  planRagequitTransaction(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    proof: ProofBundle,
+  ): Promise<TransactionPlan>;
+  planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
+  planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
+  isCurrentStateRoot(
+    expectedRoot: string | bigint,
+    currentRoot: string | bigint,
+  ): Promise<boolean>;
+  checkpointRecovery(
+    events: PoolEvent[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryCheckpoint>;
 }
 
 export function createPrivacyPoolsSdkClient(): PrivacyPoolsSdkClient;
 export function createWorkerClient(worker: Worker): PrivacyPoolsSdkClient;
 export function getRuntimeCapabilities(): RuntimeCapabilities;
 export function clearBrowserCircuitSessionCache(): Promise<void>;
+export function generateMasterKeys(mnemonic: string): Promise<V1MasterKeys>;
+export function generateDepositSecrets(
+  masterKeys: MasterKeys | V1MasterKeys,
+  scope: string | bigint,
+  index: string | bigint,
+): Promise<V1Secrets>;
+export function generateDepositSecrets(
+  masterNullifier: string | bigint,
+  masterSecret: string | bigint,
+  scope: string | bigint,
+  index: string | bigint,
+): Promise<V1Secrets>;
+export function generateWithdrawalSecrets(
+  masterKeys: MasterKeys | V1MasterKeys,
+  label: string | bigint,
+  index: string | bigint,
+): Promise<V1Secrets>;
+export function generateWithdrawalSecrets(
+  masterNullifier: string | bigint,
+  masterSecret: string | bigint,
+  label: string | bigint,
+  index: string | bigint,
+): Promise<V1Secrets>;
+export function getCommitment(
+  value: string | bigint,
+  label: string | bigint,
+  nullifier: string | bigint,
+  secret: string | bigint,
+): Promise<V1Commitment>;
+export function generateMerkleProof(
+  leaves: Array<string | bigint>,
+  leaf: string | bigint,
+): Promise<MerkleProof>;
+export function calculateContext(
+  withdrawal: Withdrawal,
+  scope: string | bigint,
+): Promise<string>;
+export function bigintToHash(value: string | bigint): bigint;
+export function bigintToHex(value?: string | bigint | null): string;
+export function checkpointRecovery(
+  events: PoolEvent[],
+  policy?: RecoveryPolicy,
+): Promise<RecoveryCheckpoint>;
+export function formatGroth16ProofBundle(
+  proof: ProofBundle,
+): Promise<FormattedGroth16Proof>;
+export function hashPrecommitment(
+  nullifier: string | bigint,
+  secret: string | bigint,
+): Promise<bigint>;
+export function isCurrentStateRoot(
+  expectedRoot: string | bigint,
+  currentRoot: string | bigint,
+): Promise<boolean>;
+export function planAspRootRead(
+  entrypointAddress: string,
+  poolAddress: string,
+): Promise<RootRead>;
+export function planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
+export function planRagequitTransaction(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  proof: ProofBundle,
+): Promise<TransactionPlan>;
+export function planRelayTransaction(
+  chainId: number | string | bigint,
+  entrypointAddress: string,
+  withdrawal: Withdrawal,
+  proof: ProofBundle,
+  scope: string | bigint,
+): Promise<TransactionPlan>;
+export function planWithdrawalTransaction(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  withdrawal: Withdrawal,
+  proof: ProofBundle,
+): Promise<TransactionPlan>;

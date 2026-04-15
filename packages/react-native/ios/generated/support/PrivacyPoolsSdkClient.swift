@@ -1,7 +1,7 @@
 import Foundation
 
 public enum PrivacyPoolsSdkClient {
-    private static let defaultJobPollIntervalNanoseconds: UInt64 = 250_000_000
+    public static let defaultJobPollIntervalNanoseconds: UInt64 = 250_000_000
 
     public static func version() -> String {
         getVersion()

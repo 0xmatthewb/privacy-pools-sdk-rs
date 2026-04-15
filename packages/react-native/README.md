@@ -19,6 +19,10 @@ This package:
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-smoke` installs the packed tarball into the
   lightweight sample app under `examples/react-native-smoke` and typechecks it
+- `cargo run -p xtask -- react-native-app-smoke-ios` and
+  `cargo run -p xtask -- react-native-app-smoke-android` install the packed
+  tarball into generated consumer apps and run real app-process prepare, prove,
+  verify, and stale-session fixture flows
 - `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging
 - `npm run prepare:package-release:ios` stages the publishable iOS package surface, including the XCFramework
 - `npm run prepare:package-release:android` stages the publishable Android package surface, including JNI libraries

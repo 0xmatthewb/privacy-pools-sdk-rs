@@ -9,6 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
     }
 
@@ -16,6 +17,10 @@ android {
         manifest.srcFile("src/main/AndroidManifest.xml")
         java.srcDirs("src/main/kotlin", "generated/src/main/java")
         jniLibs.srcDir("src/main/jniLibs")
+    }
+
+    sourceSets.getByName("androidTest") {
+        assets.srcDir("../../fixtures")
     }
 
     compileOptions {
@@ -30,4 +35,6 @@ android {
 
 dependencies {
     api("net.java.dev.jna:jna:5.14.0")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

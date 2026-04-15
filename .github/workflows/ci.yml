@@ -46,6 +46,10 @@ jobs:
           node-version: "22"
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo install --locked wasm-bindgen-cli
+      - run: npm ci
+        working-directory: packages/sdk
+      - run: npx playwright install --with-deps chromium
+        working-directory: packages/sdk
       - run: cargo run -p xtask -- sdk-smoke
       - run: npm pack --dry-run --json
         working-directory: packages/sdk
@@ -72,6 +76,8 @@ jobs:
           node-version: "22"
       - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
       - run: cargo run -p xtask -- react-native-package --release --with-ios-native
+      - run: bindings/ios/scripts/run-smoke-xctest.sh
+      - run: cargo run -p xtask -- react-native-app-smoke-ios
       - run: test -f packages/react-native/ios/generated/PrivacyPoolsSdkFFI.h
       - run: test -f packages/react-native/ios/generated/PrivacyPoolsSdkFFI.modulemap
       - run: test -f packages/react-native/ios/frameworks/PrivacyPoolsSdkFFI.xcframework/Info.plist
@@ -104,6 +110,14 @@ jobs:
           echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
       - run: cargo run -p xtask -- react-native-package --release --with-android-native
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          script: |
+            cd bindings/android && gradle connectedDebugAndroidTest --stacktrace
+            cd "$GITHUB_WORKSPACE" && cargo run -p xtask -- react-native-app-smoke-android
       - run: test -f packages/react-native/android/src/main/jniLibs/armeabi-v7a/libprivacy_pools_sdk_ffi.so
       - run: test -f packages/react-native/android/src/main/jniLibs/arm64-v8a/libprivacy_pools_sdk_ffi.so
       - run: test -f packages/react-native/android/src/main/jniLibs/x86_64/libprivacy_pools_sdk_ffi.so

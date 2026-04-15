@@ -14,8 +14,20 @@ plan.
 
 ## In Progress
 
-- browser/Node v1 facade parity for the website-used `Circuits`,
-  `PrivacyPoolSDK`, recovery, and account-data service shapes
+- browser/Node v1 facade parity for network/event-backed account-data behavior,
+  recovered account-state DTOs, and browser-safe contract planning. A
+  compatibility matrix, contract tests, Rust-backed crypto/proof wrappers, and
+  typed compatibility boundaries now exist; the remaining work is explicit
+  event/RPC transport and JS bindings for recovered account state.
+- mobile app-process prove/verify coverage for React Native simulator/emulator
+  apps. Native iOS XCTest, Android instrumentation, and React Native
+  app-process smoke jobs are wired in the native release lanes and should move
+  to completed only after CI is green.
+- React Native iOS and Android app-process smoke harnesses now install the
+  packed package tarball into generated consumer apps, copy deterministic
+  fixture artifacts into app storage, and run native prepare/prove/verify
+  session flows from JavaScript before emitting a deterministic success marker.
+  This remains in progress until the CI simulator/emulator jobs are green.
 
 ## Completed
 
@@ -67,6 +79,11 @@ plan.
 - The browser worker now performs real preload, witness, prove, verify, done,
   and error status reporting for proof jobs while keeping the final promise
   result shape unchanged.
+- The SDK package now includes Chromium Playwright coverage for a real browser
+  module worker, browser-native wasm-bindgen initialization, cross-origin CORS
+  artifact fetching, and browser `WebAssembly.instantiate` witness execution.
+- SDK CI now checks browser generated WASM binding freshness after `build:web`
+  so committed generated assets cannot drift silently.
 - Verified artifact bundle fields are sealed behind accessors so callers cannot
   forge a verified bundle by directly constructing public fields.
 - The Rust SDK now includes an explicit bounded `SessionCache` for callers that
@@ -89,7 +106,15 @@ plan.
   artifacts.
 - The unified JS client classes now expose runtime capabilities consistently
   across browser, browser worker, and Node runtimes.
-- The React Native consumer smoke app now typechecks the reusable withdrawal
+- The JS package now exposes the v1 compatibility names and Rust-backed facade
+  wrappers for `Circuits`, `PrivacyPoolSDK`, commitment/withdrawal services,
+  crypto helpers including `hashPrecommitment`, log-fetch constants, and typed
+  compatibility errors.
+- The Node JS package now exposes Rust-backed offline contract planning,
+  root-read, Groth16 formatting, current-root, and recovery checkpoint wrappers
+  used by the v1 facade; browser contract planning remains fail-closed until a
+  browser-safe Rust binding lands.
+- The fast React Native consumer smoke app now typechecks the reusable withdrawal
   circuit session APIs instead of only importing the older path-based proving
   and verification methods.
 - The Rust protocol/core crates still keep the workspace `unsafe_code = forbid`
@@ -99,21 +124,21 @@ plan.
 ## Partially Completed
 
 - The mobile surfaces share the Rust session/caching model, and the shared FFI
-  layer now runs full real prove/verify fixtures. The React Native smoke app
-  still validates packaging and typechecking rather than running a full native
-  prove/verify flow inside an app process.
+  layer now runs full real prove/verify fixtures. React Native app-process
+  prove/verify smoke is wired for iOS and Android release lanes, but should
+  remain partially complete until those CI jobs are green.
 - The runtime matrix is now documented explicitly, Node is shipped, and browser
-  proving is available, but the browser/Node package still needs the fuller
-  v1-like website facade and recovery/account-data service exports.
+  proving is available, but the browser/Node package still needs network-backed
+  v1 account-data behavior and recovered account-state DTO exports.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
 
 ## Not Yet Completed
 
-- Browser/Node package parity with the website-used v1 `Circuits` /
-  `PrivacyPoolSDK` / recovery / account-data facade is not complete yet.
-- Mobile app-level smoke coverage still does not execute a full native
-  prove/verify fixture in React Native, iOS, and Android sample apps.
+- Browser/Node package parity with the website-used v1 network/event account-data
+  facade is not complete yet.
+- Mobile app-level smoke coverage still needs green CI confirmation for the
+  newly wired React Native iOS and Android app-process prove/verify jobs.
 
 ## Browser Proving Acceptance
 

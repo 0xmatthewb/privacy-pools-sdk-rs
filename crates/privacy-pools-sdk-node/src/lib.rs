@@ -8,10 +8,12 @@ use privacy_pools_sdk::{
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentPreimage,
-        CommitmentWitnessRequest, MasterKeys, MerkleProof, Precommitment, ProofBundle,
-        SnarkJsProof, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+        CommitmentWitnessRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, Precommitment,
+        ProofBundle, RootRead, RootReadKind, SnarkJsProof, TransactionKind, TransactionPlan,
+        Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
     prover::{BackendPolicy, BackendProfile, ProverBackend, ProvingResult},
+    recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -219,6 +221,59 @@ struct JsCommitmentCircuitSessionHandle {
     handle: String,
     circuit: String,
     artifact_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsFormattedGroth16Proof {
+    p_a: Vec<String>,
+    p_b: Vec<Vec<String>>,
+    p_c: Vec<String>,
+    pub_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsTransactionPlan {
+    kind: String,
+    chain_id: u64,
+    target: String,
+    calldata: String,
+    value: String,
+    proof: JsFormattedGroth16Proof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRootRead {
+    kind: String,
+    contract_address: String,
+    pool_address: String,
+    call_data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsPoolEvent {
+    block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
+    pool_address: String,
+    commitment_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveryPolicy {
+    compatibility_mode: String,
+    fail_closed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveryCheckpoint {
+    latest_block: u64,
+    commitments_seen: u64,
 }
 
 #[napi]
@@ -721,6 +776,121 @@ pub fn verify_commitment_proof_with_session(
     .map_err(to_napi_error)
 }
 
+#[napi]
+pub fn format_groth16_proof_bundle(proof_json: String) -> NapiResult<String> {
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let formatted = SDK.format_groth16_proof(&proof).map_err(to_napi_error)?;
+    to_json_string(&to_js_formatted_groth16_proof(formatted)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_withdrawal_transaction(
+    chain_id: String,
+    pool_address: String,
+    withdrawal_json: String,
+    proof_json: String,
+) -> NapiResult<String> {
+    let withdrawal = parse_json::<JsWithdrawal>(&withdrawal_json)
+        .and_then(from_js_withdrawal)
+        .map_err(to_napi_error)?;
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let plan = SDK
+        .plan_withdrawal_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&pool_address).map_err(to_napi_error)?,
+            &withdrawal,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_relay_transaction(
+    chain_id: String,
+    entrypoint_address: String,
+    withdrawal_json: String,
+    proof_json: String,
+    scope: String,
+) -> NapiResult<String> {
+    let withdrawal = parse_json::<JsWithdrawal>(&withdrawal_json)
+        .and_then(from_js_withdrawal)
+        .map_err(to_napi_error)?;
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let plan = SDK
+        .plan_relay_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&entrypoint_address).map_err(to_napi_error)?,
+            &withdrawal,
+            &proof,
+            parse_field(&scope).map_err(to_napi_error)?,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_ragequit_transaction(
+    chain_id: String,
+    pool_address: String,
+    proof_json: String,
+) -> NapiResult<String> {
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let plan = SDK
+        .plan_ragequit_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&pool_address).map_err(to_napi_error)?,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_pool_state_root_read(pool_address: String) -> NapiResult<String> {
+    let read = SDK.plan_pool_state_root_read(parse_address(&pool_address).map_err(to_napi_error)?);
+    to_json_string(&to_js_root_read(read)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_asp_root_read(entrypoint_address: String, pool_address: String) -> NapiResult<String> {
+    let read = SDK.plan_asp_root_read(
+        parse_address(&entrypoint_address).map_err(to_napi_error)?,
+        parse_address(&pool_address).map_err(to_napi_error)?,
+    );
+    to_json_string(&to_js_root_read(read)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn is_current_state_root(expected_root: String, current_root: String) -> NapiResult<bool> {
+    Ok(SDK.is_current_state_root(
+        parse_field(&expected_root).map_err(to_napi_error)?,
+        parse_field(&current_root).map_err(to_napi_error)?,
+    ))
+}
+
+#[napi]
+pub fn checkpoint_recovery(events_json: String, policy_json: String) -> NapiResult<String> {
+    let events = parse_json::<Vec<JsPoolEvent>>(&events_json)
+        .and_then(from_js_pool_events)
+        .map_err(to_napi_error)?;
+    let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
+        .and_then(from_js_recovery_policy)
+        .map_err(to_napi_error)?;
+    let checkpoint = SDK
+        .checkpoint_recovery(&events, policy)
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_recovery_checkpoint(checkpoint)).map_err(to_napi_error)
+}
+
 fn parse_json<T>(value: &str) -> Result<T>
 where
     T: DeserializeOwned,
@@ -742,6 +912,12 @@ fn parse_address(value: &str) -> Result<Address> {
 
 fn parse_field(value: &str) -> Result<U256> {
     U256::from_str(value).with_context(|| format!("invalid field element `{value}`"))
+}
+
+fn parse_u64(value: &str) -> Result<u64> {
+    value
+        .parse::<u64>()
+        .with_context(|| format!("invalid u64 `{value}`"))
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
@@ -773,6 +949,21 @@ fn prover_backend_label(kind: ProverBackend) -> String {
     match kind {
         ProverBackend::Arkworks => "arkworks".to_owned(),
         ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
+    }
+}
+
+fn root_read_kind_label(kind: RootReadKind) -> String {
+    match kind {
+        RootReadKind::PoolState => "pool_state".to_owned(),
+        RootReadKind::Asp => "asp".to_owned(),
+    }
+}
+
+fn transaction_kind_label(kind: TransactionKind) -> String {
+    match kind {
+        TransactionKind::Withdraw => "withdraw".to_owned(),
+        TransactionKind::Relay => "relay".to_owned(),
+        TransactionKind::Ragequit => "ragequit".to_owned(),
     }
 }
 
@@ -869,6 +1060,15 @@ fn from_js_withdrawal(withdrawal: JsWithdrawal) -> Result<Withdrawal> {
         processooor: parse_address(&withdrawal.processooor)?,
         data: data.into(),
     })
+}
+
+fn to_js_root_read(read: RootRead) -> JsRootRead {
+    JsRootRead {
+        kind: root_read_kind_label(read.kind),
+        contract_address: read.contract_address.to_string(),
+        pool_address: read.pool_address.to_string(),
+        call_data: format!("0x{}", hex::encode(read.call_data)),
+    }
 }
 
 fn to_js_merkle_proof(proof: MerkleProof) -> Result<JsMerkleProof> {
@@ -1018,6 +1218,30 @@ fn to_js_proving_result(result: ProvingResult) -> JsProvingResult {
     }
 }
 
+fn to_js_formatted_groth16_proof(proof: FormattedGroth16Proof) -> JsFormattedGroth16Proof {
+    JsFormattedGroth16Proof {
+        p_a: proof.p_a.into_iter().collect(),
+        p_b: proof
+            .p_b
+            .into_iter()
+            .map(|row| row.into_iter().collect())
+            .collect(),
+        p_c: proof.p_c.into_iter().collect(),
+        pub_signals: proof.pub_signals,
+    }
+}
+
+fn to_js_transaction_plan(plan: TransactionPlan) -> JsTransactionPlan {
+    JsTransactionPlan {
+        kind: transaction_kind_label(plan.kind),
+        chain_id: plan.chain_id,
+        target: plan.target.to_string(),
+        calldata: format!("0x{}", hex::encode(plan.calldata)),
+        value: field_label(plan.value),
+        proof: to_js_formatted_groth16_proof(plan.proof),
+    }
+}
+
 fn validate_pair(values: Vec<String>, label: &str) -> Result<[String; 2]> {
     values.try_into().map_err(|values: Vec<String>| {
         anyhow!("{label} must have exactly 2 elements, got {}", values.len())
@@ -1096,5 +1320,41 @@ fn to_js_verified_artifact_bundle(
                 sha256: artifact.descriptor().sha256.clone(),
             })
             .collect(),
+    }
+}
+
+fn from_js_pool_events(events: Vec<JsPoolEvent>) -> Result<Vec<PoolEvent>> {
+    events
+        .into_iter()
+        .map(|event| {
+            Ok(PoolEvent {
+                block_number: event.block_number,
+                transaction_index: event.transaction_index,
+                log_index: event.log_index,
+                pool_address: parse_address(&event.pool_address)?,
+                commitment_hash: parse_field(&event.commitment_hash)?,
+            })
+        })
+        .collect()
+}
+
+fn from_js_recovery_policy(policy: JsRecoveryPolicy) -> Result<RecoveryPolicy> {
+    let compatibility_mode = match policy.compatibility_mode.as_str() {
+        "strict" => CompatibilityMode::Strict,
+        "legacy" => CompatibilityMode::Legacy,
+        other => bail!("invalid compatibility mode: {other}"),
+    };
+    Ok(RecoveryPolicy {
+        compatibility_mode,
+        fail_closed: policy.fail_closed,
+    })
+}
+
+fn to_js_recovery_checkpoint(
+    checkpoint: privacy_pools_sdk::recovery::RecoveryCheckpoint,
+) -> JsRecoveryCheckpoint {
+    JsRecoveryCheckpoint {
+        latest_block: checkpoint.latest_block,
+        commitments_seen: u64::try_from(checkpoint.commitments_seen).unwrap_or(u64::MAX),
     }
 }

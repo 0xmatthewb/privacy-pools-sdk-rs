@@ -1,2 +1,3 @@
 privacy_pools_sdk_node.node
-src/browser/generated
+node_modules
+test-results

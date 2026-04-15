@@ -9,10 +9,10 @@ import {
   deriveMasterKeys,
   deriveWithdrawalSecrets,
   fastBackendSupportedOnTarget,
-  generateMerkleProof,
+  generateMerkleProof as runtimeGenerateMerkleProof,
   getArtifactStatuses,
   getCommitmentArtifactStatuses,
-  getCommitment,
+  getCommitment as runtimeGetCommitment,
   getRuntimeCapabilities,
   getStableBackendName,
   getVersion,
@@ -34,6 +34,7 @@ import {
   verifyWithdrawalProof,
   verifyWithdrawalProofWithSession,
 } from "./runtime.mjs";
+import { createRuntimeFacade } from "../facade.mjs";
 
 export {
   BrowserRuntimeUnavailableError,
@@ -71,7 +72,7 @@ export class PrivacyPoolsSdkClient {
   }
 
   async getCommitment(value, label, nullifier, secret) {
-    return getCommitment(value, label, nullifier, secret);
+    return runtimeGetCommitment(value, label, nullifier, secret);
   }
 
   async calculateWithdrawalContext(withdrawal, scope) {
@@ -79,7 +80,7 @@ export class PrivacyPoolsSdkClient {
   }
 
   async generateMerkleProof(leaves, leaf) {
-    return generateMerkleProof(leaves, leaf);
+    return runtimeGenerateMerkleProof(leaves, leaf);
   }
 
   async buildCircuitMerkleWitness(proof, depth) {
@@ -210,6 +211,50 @@ export class PrivacyPoolsSdkClient {
 export function createPrivacyPoolsSdkClient() {
   return new PrivacyPoolsSdkClient();
 }
+
+const facade = createRuntimeFacade(PrivacyPoolsSdkClient);
+
+export const {
+  AccountService,
+  AccountError,
+  BlockchainProvider,
+  CircuitInitialization,
+  CircuitName,
+  Circuits,
+  CommitmentService,
+  CompatibilityError,
+  ContractError,
+  ContractInteractionsService,
+  DataError,
+  DataService,
+  DEFAULT_LOG_FETCH_CONFIG,
+  ErrorCode,
+  FetchArtifact,
+  InvalidRpcUrl,
+  PrivacyPoolError,
+  PrivacyPoolSDK,
+  ProofError,
+  SDKError,
+  Version,
+  bigintToHash,
+  bigintToHex,
+  calculateContext,
+  checkpointRecovery,
+  circuitToAsset,
+  formatGroth16ProofBundle,
+  generateDepositSecrets,
+  generateMasterKeys,
+  generateMerkleProof,
+  generateWithdrawalSecrets,
+  getCommitment,
+  hashPrecommitment,
+  isCurrentStateRoot,
+  planAspRootRead,
+  planPoolStateRootRead,
+  planRagequitTransaction,
+  planRelayTransaction,
+  planWithdrawalTransaction,
+} = facade;
 
 export function createWorkerClient(worker) {
   return new WorkerPrivacyPoolsSdkClient(worker);

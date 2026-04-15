@@ -20,6 +20,8 @@ fn run() -> Result<()> {
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
         Some("react-native-smoke") => react_native_smoke(),
+        Some("react-native-app-smoke-ios") => react_native_app_smoke("ios"),
+        Some("react-native-app-smoke-android") => react_native_app_smoke("android"),
         Some("sdk-web-package") => stage_sdk_web_package(args.collect()),
         Some("sdk-smoke") => sdk_smoke(),
         Some("dependency-check") => dependency_check(),
@@ -48,6 +50,10 @@ fn print_help() {
     println!(
         "                   install the packed RN package into the sample app and typecheck it"
     );
+    println!("  react-native-app-smoke-ios");
+    println!("                   run the packed RN package in an iOS Simulator app process");
+    println!("  react-native-app-smoke-android");
+    println!("                   run the packed RN package in an Android Emulator app process");
     println!("  sdk-web-package");
     println!("                   build the Rust web crate and generate browser WASM bindings");
     println!("                   flags: --debug");
@@ -223,6 +229,71 @@ fn react_native_smoke() -> Result<()> {
 
     println!("react native smoke ok");
     Ok(())
+}
+
+fn react_native_app_smoke(platform: &str) -> Result<()> {
+    let workspace_root = workspace_root()?;
+    let package_args = match platform {
+        "ios" => vec!["--release".to_owned(), "--with-ios-native".to_owned()],
+        "android" => vec!["--release".to_owned(), "--with-android-native".to_owned()],
+        _ => bail!("unknown React Native app smoke platform: {platform}"),
+    };
+    if react_native_app_smoke_package_ready(&workspace_root, platform) {
+        println!("using existing staged React Native {platform} package assets");
+    } else {
+        stage_react_native_package(package_args)?;
+    }
+
+    let smoke_root = workspace_root.join("target/react-native-app-smoke");
+    let npm_cache_root = smoke_root.join(".npm-cache");
+    fs::create_dir_all(&npm_cache_root)
+        .with_context(|| format!("failed to create {}", npm_cache_root))?;
+
+    let package_tarball =
+        pack_npm_package(&workspace_root.join("packages/react-native"), &smoke_root)?;
+    let script = workspace_root.join("examples/react-native-app-smoke/scripts/run-smoke.mjs");
+
+    run_command_with_env(
+        "node",
+        &[
+            script.as_str(),
+            platform,
+            "--workspace",
+            workspace_root.as_str(),
+            "--tarball",
+            package_tarball.as_str(),
+        ],
+        &workspace_root,
+        &[("npm_config_cache", npm_cache_root.as_str())],
+        "React Native app-process smoke failed",
+    )?;
+
+    println!("react native {platform} app-process smoke ok");
+    Ok(())
+}
+
+fn react_native_app_smoke_package_ready(workspace_root: &Utf8PathBuf, platform: &str) -> bool {
+    let package_root = workspace_root.join("packages/react-native");
+    let common_files = [
+        package_root.join("android/generated/src/main/java"),
+        package_root.join("android/src/main/kotlin"),
+        package_root.join("ios/generated/PrivacyPoolsSdk.swift"),
+        package_root.join("ios/generated/support/PrivacyPoolsSdkClient.swift"),
+    ];
+    let platform_files = match platform {
+        "ios" => {
+            vec![package_root.join("ios/frameworks/PrivacyPoolsSdkFFI.xcframework/Info.plist")]
+        }
+        "android" => {
+            vec![package_root.join("android/src/main/jniLibs/x86_64/libprivacy_pools_sdk_ffi.so")]
+        }
+        _ => return false,
+    };
+
+    common_files
+        .iter()
+        .chain(platform_files.iter())
+        .all(|path| path.exists())
 }
 
 fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {

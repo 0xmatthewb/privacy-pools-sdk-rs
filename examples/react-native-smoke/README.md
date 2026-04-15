@@ -8,9 +8,14 @@ It is intentionally small:
 - installs the packed package tarball produced by `npm pack`
 - imports the typed SDK surface from `App.tsx`
 - typechecks the consumer app without reusing internal workspace aliases
+- does not run native prove/verify inside a simulator or emulator app process
 
 Run it locally through the workspace helper:
 
 ```sh
 cargo run -p xtask -- react-native-smoke
 ```
+
+Use `cargo run -p xtask -- react-native-app-smoke-ios` or
+`cargo run -p xtask -- react-native-app-smoke-android` for the heavier
+app-process prove/verify smoke.

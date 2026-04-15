@@ -39,4 +39,7 @@ Useful commands:
 - `npm run build:web` builds the browser WASM bundle in release mode
 - `npm run build:web:debug` builds the browser WASM bundle in debug mode
 - `npm run build:web:release` builds the browser WASM bundle in release mode
-- `npm test` builds both runtimes and runs the Node and browser integration tests
+- `npm run test:node` runs the Node and Node-worker integration tests
+- `npm run test:browser` runs the Chromium module-worker integration tests
+- `npm run check:generated` rebuilds browser WASM bindings and fails on drift
+- `npm test` builds both runtimes and runs the full SDK CI test suite
