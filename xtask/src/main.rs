@@ -1125,6 +1125,8 @@ fn validate_benchmark_report(
 
     for field in [
         "artifact_resolution_ms",
+        "bundle_verification_ms",
+        "session_preload_ms",
         "first_input_preparation_ms",
         "first_witness_generation_ms",
         "first_proof_generation_ms",

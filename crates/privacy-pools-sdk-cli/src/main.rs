@@ -62,7 +62,8 @@ struct BenchmarkSummary {
 struct BenchmarkReportContext<'a> {
     artifact_version: &'a str,
     zkey_sha256: &'a str,
-    artifact_resolution: Duration,
+    bundle_verification: Duration,
+    session_preload: Duration,
     first_iteration: BenchmarkIteration,
     peak_resident_memory_bytes: Option<u64>,
 }
@@ -83,6 +84,8 @@ struct BenchmarkReport {
     manifest_path: String,
     artifacts_root: String,
     artifact_resolution_ms: f64,
+    bundle_verification_ms: f64,
+    session_preload_ms: f64,
     first_input_preparation_ms: f64,
     first_witness_generation_ms: f64,
     first_proof_generation_ms: f64,
@@ -238,7 +241,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     });
     let request = reference_withdrawal_request(&sdk)?;
 
-    let artifact_resolution_start = Instant::now();
+    let bundle_verification_start = Instant::now();
     let bundle = sdk
         .load_verified_artifact_bundle(&manifest, &args.artifacts_root, "withdraw")
         .with_context(|| {
@@ -247,21 +250,26 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
                 args.artifacts_root.display()
             )
         })?;
+    let bundle_verification = bundle_verification_start.elapsed();
+
     let zkey = bundle
         .artifact(ArtifactKind::Zkey)
         .context("withdraw bundle is missing the zkey descriptor")?;
     let zkey_sha256 = zkey.descriptor.sha256.clone();
+
+    let session_preload_start = Instant::now();
     let session = sdk
         .prepare_withdrawal_circuit_session_from_bundle(bundle.clone())
         .context("failed to prepare cached withdraw artifacts for benchmarking")?;
-    let artifact_resolution = artifact_resolution_start.elapsed();
+    let session_preload = session_preload_start.elapsed();
 
     println!("privacy-pools-sdk-cli withdraw benchmark");
     println!("backend profile: {:?}", args.backend);
     println!("artifact version: {}", bundle.version);
     println!("artifact root: {}", args.artifacts_root.display());
     println!("zkey sha256: {}", zkey_sha256);
-    println!("artifact preload: {:?}", artifact_resolution);
+    println!("bundle verification: {:?}", bundle_verification);
+    println!("session preload: {:?}", session_preload);
     println!("iterations: {}", args.iterations);
     println!("warmup: {}", args.warmup);
     println!();
@@ -326,7 +334,8 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
             BenchmarkReportContext {
                 artifact_version: &bundle.version,
                 zkey_sha256: &zkey_sha256,
-                artifact_resolution,
+                bundle_verification,
+                session_preload,
                 first_iteration,
                 peak_resident_memory_bytes: peak_resident_memory_bytes(),
             },
@@ -560,7 +569,9 @@ fn write_report(
         zkey_sha256: context.zkey_sha256.to_owned(),
         manifest_path: args.manifest.display().to_string(),
         artifacts_root: args.artifacts_root.display().to_string(),
-        artifact_resolution_ms: duration_ms(context.artifact_resolution),
+        artifact_resolution_ms: duration_ms(context.bundle_verification + context.session_preload),
+        bundle_verification_ms: duration_ms(context.bundle_verification),
+        session_preload_ms: duration_ms(context.session_preload),
         first_input_preparation_ms: duration_ms(context.first_iteration.input_preparation),
         first_witness_generation_ms: duration_ms(context.first_iteration.witness_generation),
         first_proof_generation_ms: duration_ms(context.first_iteration.proof_generation),

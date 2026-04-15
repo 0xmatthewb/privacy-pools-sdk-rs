@@ -16,7 +16,9 @@ cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
 
 The benchmark reports:
 
-- artifact resolution time for the verified withdraw bundle
+- verified bundle loading and hash verification time
+- session preload time for parsing and caching proving/verifying artifacts
+- aggregate artifact preload time for compatibility with older evidence tooling
 - cold first-proof latency for the first end-to-end Rust SDK iteration
 - typed withdraw circuit-input preparation from the reference compatibility
   fixtures
@@ -39,6 +41,10 @@ Notes:
   supported target; the stable `arkworks` backend remains the default.
 - `--report-json` writes machine-readable timing summaries and per-iteration
   samples, which is the preferred format for release evidence bundles.
+- JSON reports include separate cold `bundle_verification_ms` and
+  `session_preload_ms` fields, plus warm per-iteration summaries for input
+  preparation, witness generation, proof generation, verification, and
+  prove+verify end-to-end.
 - When writing JSON, pass both `--device-label` and `--device-model`. The
   evidence checker now validates benchmark reports against the commit under
   test and expects those fields to be present for desktop, iOS, and Android
