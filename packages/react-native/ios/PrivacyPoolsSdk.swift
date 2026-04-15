@@ -184,6 +184,55 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(prepareWithdrawalCircuitSession:artifactsRoot:resolver:rejecter:)
+    func prepareWithdrawalCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.prepareWithdrawalCircuitSession(
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot
+            )
+            resolve(withdrawalCircuitSessionHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(prepareWithdrawalCircuitSessionFromBytes:artifacts:resolver:rejecter:)
+    func prepareWithdrawalCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: [[String: Any]],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.prepareWithdrawalCircuitSessionFromBytes(
+                manifestJson: manifestJson,
+                artifacts: try artifacts.map(artifactBytesRecord(from:))
+            )
+            resolve(withdrawalCircuitSessionHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(removeWithdrawalCircuitSession:resolver:rejecter:)
+    func removeWithdrawalCircuitSession(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.removeWithdrawalCircuitSession(handle: handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(proveWithdrawal:manifestJson:artifactsRoot:request:resolver:rejecter:)
     func proveWithdrawal(
         backendProfile: String,
@@ -198,6 +247,26 @@ final class PrivacyPoolsSdk: NSObject {
                 backendProfile: backendProfile,
                 manifestJson: manifestJson,
                 artifactsRoot: artifactsRoot,
+                request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveWithdrawalWithSession:sessionHandle:request:resolver:rejecter:)
+    func proveWithdrawalWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.withdrawalProof(
+                backendProfile: backendProfile,
+                sessionHandle: sessionHandle,
                 request: try withdrawalWitnessRequestRecord(from: request)
             )
             resolve(provingResultMap(result))
@@ -228,6 +297,26 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(startProveWithdrawalJobWithSession:sessionHandle:request:resolver:rejecter:)
+    func startProveWithdrawalJobWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.startWithdrawalProofJob(
+                backendProfile: backendProfile,
+                sessionHandle: sessionHandle,
+                request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(asyncJobHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(verifyWithdrawalProof:manifestJson:artifactsRoot:proof:resolver:rejecter:)
     func verifyWithdrawalProof(
         backendProfile: String,
@@ -242,6 +331,25 @@ final class PrivacyPoolsSdk: NSObject {
                 backendProfile: backendProfile,
                 manifestJson: manifestJson,
                 artifactsRoot: artifactsRoot,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyWithdrawalProofWithSession:sessionHandle:proof:resolver:rejecter:)
+    func verifyWithdrawalProofWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyWithdrawal(
+                backendProfile: backendProfile,
+                sessionHandle: sessionHandle,
                 proof: try proofBundleRecord(from: proof)
             ))
         } catch {
@@ -990,6 +1098,16 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func withdrawalCircuitSessionHandleMap(
+        _ handle: FfiWithdrawalCircuitSessionHandle
+    ) -> [String: Any] {
+        [
+            "handle": handle.handle,
+            "circuit": handle.circuit,
+            "artifact_version": handle.artifactVersion,
+        ]
+    }
+
     private func asyncJobStatusMap(_ status: FfiAsyncJobStatus) -> [String: Any] {
         var map: [String: Any] = [
             "job_id": status.jobId,
@@ -1436,6 +1554,24 @@ final class PrivacyPoolsSdk: NSObject {
             "filename": artifact.filename,
             "path": artifact.path,
         ]
+    }
+
+    private func artifactBytesRecord(from value: [String: Any]) throws -> FfiArtifactBytes {
+        guard
+            let kind = value["kind"] as? String,
+            let bytes = value["bytes"] as? [NSNumber]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid artifact bytes payload"]
+            )
+        }
+
+        return FfiArtifactBytes(
+            kind: kind,
+            bytes: bytes.map(\.uint8Value)
+        )
     }
 
     private func poolEventRecord(from value: [String: Any]) throws -> FfiPoolEvent {

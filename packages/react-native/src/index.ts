@@ -180,6 +180,17 @@ type ResolvedArtifactBundle = {
   artifacts: ResolvedArtifact[];
 };
 
+type ArtifactBytesInput = {
+  kind: string;
+  bytes: number[];
+};
+
+type WithdrawalCircuitSessionHandle = {
+  handle: string;
+  circuit: string;
+  artifact_version: string;
+};
+
 type MerkleProof = {
   root: string;
   leaf: string;
@@ -301,10 +312,24 @@ export type NativePrivacyPoolsSdkModule = {
   buildWithdrawalCircuitInput(
     request: WithdrawalWitnessRequest,
   ): Promise<WithdrawalCircuitInput>;
+  prepareWithdrawalCircuitSession(
+    manifestJson: string,
+    artifactsRoot: string,
+  ): Promise<WithdrawalCircuitSessionHandle>;
+  prepareWithdrawalCircuitSessionFromBytes(
+    manifestJson: string,
+    artifacts: ArtifactBytesInput[],
+  ): Promise<WithdrawalCircuitSessionHandle>;
+  removeWithdrawalCircuitSession(handle: string): Promise<boolean>;
   proveWithdrawal(
     backendProfile: "stable" | "fast",
     manifestJson: string,
     artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+  ): Promise<ProvingResult>;
+  proveWithdrawalWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
     request: WithdrawalWitnessRequest,
   ): Promise<ProvingResult>;
   startProveWithdrawalJob(
@@ -313,10 +338,20 @@ export type NativePrivacyPoolsSdkModule = {
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
   ): Promise<AsyncJobHandle>;
+  startProveWithdrawalJobWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
+    request: WithdrawalWitnessRequest,
+  ): Promise<AsyncJobHandle>;
   verifyWithdrawalProof(
     backendProfile: "stable" | "fast",
     manifestJson: string,
     artifactsRoot: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
+  verifyWithdrawalProofWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   pollJobStatus(jobId: string): Promise<AsyncJobStatus>;
@@ -531,6 +566,28 @@ export const buildWithdrawalCircuitInput = (
 ): Promise<WithdrawalCircuitInput> =>
   requireNativeModule().buildWithdrawalCircuitInput(request);
 
+export const prepareWithdrawalCircuitSession = (
+  manifestJson: string,
+  artifactsRoot: string,
+): Promise<WithdrawalCircuitSessionHandle> =>
+  requireNativeModule().prepareWithdrawalCircuitSession(
+    manifestJson,
+    artifactsRoot,
+  );
+
+export const prepareWithdrawalCircuitSessionFromBytes = (
+  manifestJson: string,
+  artifacts: ArtifactBytesInput[],
+): Promise<WithdrawalCircuitSessionHandle> =>
+  requireNativeModule().prepareWithdrawalCircuitSessionFromBytes(
+    manifestJson,
+    artifacts,
+  );
+
+export const removeWithdrawalCircuitSession = (
+  handle: string,
+): Promise<boolean> => requireNativeModule().removeWithdrawalCircuitSession(handle);
+
 export const proveWithdrawal = (
   backendProfile: "stable" | "fast",
   manifestJson: string,
@@ -541,6 +598,17 @@ export const proveWithdrawal = (
     backendProfile,
     manifestJson,
     artifactsRoot,
+    request,
+  );
+
+export const proveWithdrawalWithSession = (
+  backendProfile: "stable" | "fast",
+  sessionHandle: string,
+  request: WithdrawalWitnessRequest,
+): Promise<ProvingResult> =>
+  requireNativeModule().proveWithdrawalWithSession(
+    backendProfile,
+    sessionHandle,
     request,
   );
 
@@ -557,6 +625,17 @@ export const startProveWithdrawalJob = (
     request,
   );
 
+export const startProveWithdrawalJobWithSession = (
+  backendProfile: "stable" | "fast",
+  sessionHandle: string,
+  request: WithdrawalWitnessRequest,
+): Promise<AsyncJobHandle> =>
+  requireNativeModule().startProveWithdrawalJobWithSession(
+    backendProfile,
+    sessionHandle,
+    request,
+  );
+
 export const verifyWithdrawalProof = (
   backendProfile: "stable" | "fast",
   manifestJson: string,
@@ -567,6 +646,17 @@ export const verifyWithdrawalProof = (
     backendProfile,
     manifestJson,
     artifactsRoot,
+    proof,
+  );
+
+export const verifyWithdrawalProofWithSession = (
+  backendProfile: "stable" | "fast",
+  sessionHandle: string,
+  proof: ProofBundle,
+): Promise<boolean> =>
+  requireNativeModule().verifyWithdrawalProofWithSession(
+    backendProfile,
+    sessionHandle,
     proof,
   );
 

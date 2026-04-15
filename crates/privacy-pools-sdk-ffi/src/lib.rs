@@ -38,6 +38,8 @@ pub enum FfiError {
     InvalidArtifactKind(String),
     #[error("invalid compatibility mode: {0}")]
     InvalidCompatibilityMode(String),
+    #[error("withdrawal circuit session handle not found: {0}")]
+    SessionNotFound(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
     #[error("job handle not found: {0}")]
@@ -255,6 +257,19 @@ pub struct FfiResolvedArtifactBundle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiArtifactBytes {
+    pub kind: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiWithdrawalCircuitSessionHandle {
+    pub handle: String,
+    pub circuit: String,
+    pub artifact_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct FfiMerkleProof {
     pub root: String,
     pub leaf: String,
@@ -433,6 +448,15 @@ static SIGNER_REGISTRY: LazyLock<RwLock<HashMap<String, RegisteredSigner>>> =
 static JOB_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<Mutex<BackgroundJobEntry>>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
+static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
+    RwLock<HashMap<String, privacy_pools_sdk::WithdrawalCircuitSession>>,
+> = LazyLock::new(|| RwLock::new(HashMap::new()));
+
+fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
+    serde_json::from_str(manifest_json)
+        .map_err(|error| FfiError::InvalidManifest(error.to_string()))
+}
 
 fn parse_address(value: &str) -> Result<Address, FfiError> {
     Address::from_str(value).map_err(|_| FfiError::InvalidAddress(value.to_owned()))
@@ -608,6 +632,44 @@ fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
         .get(handle)
         .cloned()
         .ok_or_else(|| FfiError::SignerNotFound(handle.to_owned()))
+}
+
+fn register_withdrawal_session(
+    session: privacy_pools_sdk::WithdrawalCircuitSession,
+) -> Result<FfiWithdrawalCircuitSessionHandle, FfiError> {
+    let handle = format!(
+        "withdraw-session-{}",
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let ffi = FfiWithdrawalCircuitSessionHandle {
+        handle: handle.clone(),
+        circuit: session.circuit().to_owned(),
+        artifact_version: session.artifact_version().to_owned(),
+    };
+    let mut registry = WITHDRAWAL_SESSION_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry.insert(handle, session);
+    Ok(ffi)
+}
+
+fn registered_withdrawal_session(
+    handle: &str,
+) -> Result<privacy_pools_sdk::WithdrawalCircuitSession, FfiError> {
+    let registry = WITHDRAWAL_SESSION_REGISTRY
+        .read()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
+}
+
+fn remove_withdrawal_session(handle: &str) -> Result<bool, FfiError> {
+    let mut registry = WITHDRAWAL_SESSION_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    Ok(registry.remove(handle).is_some())
 }
 
 fn register_job(
@@ -1441,6 +1503,20 @@ fn from_ffi_pool_events(events: Vec<FfiPoolEvent>) -> Result<Vec<PoolEvent>, Ffi
         .collect()
 }
 
+fn from_ffi_artifact_bytes(
+    artifacts: Vec<FfiArtifactBytes>,
+) -> Result<Vec<privacy_pools_sdk::artifacts::ArtifactBytes>, FfiError> {
+    artifacts
+        .into_iter()
+        .map(|artifact| {
+            Ok(privacy_pools_sdk::artifacts::ArtifactBytes {
+                kind: parse_artifact_kind(&artifact.kind)?,
+                bytes: artifact.bytes,
+            })
+        })
+        .collect()
+}
+
 fn prove_withdrawal_background(
     entry: Arc<Mutex<BackgroundJobEntry>>,
     profile: BackendProfile,
@@ -1448,18 +1524,16 @@ fn prove_withdrawal_background(
     artifacts_root: PathBuf,
     request: WithdrawalWitnessRequest,
 ) -> Result<BackgroundJobResult, FfiError> {
-    set_job_stage(&entry, "preparing_request");
+    set_job_stage(&entry, "preloading_artifacts");
     ensure_job_not_cancelled(&entry)?;
-    let proving_request = sdk()
-        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+    let session = sdk()
+        .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let result = sdk()
-        .proving_engine(profile)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
-        .prove_with_compiled_witness(&proving_request)
+        .prove_withdrawal_with_session(profile, &session, &request)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     ensure_job_not_cancelled(&entry)?;
@@ -1476,24 +1550,28 @@ fn prepare_withdrawal_execution_background(
     request: WithdrawalWitnessRequest,
     config: PrepareWithdrawalJobConfig,
 ) -> Result<BackgroundJobResult, FfiError> {
-    set_job_stage(&entry, "preparing_request");
+    set_job_stage(&entry, "preloading_artifacts");
     ensure_job_not_cancelled(&entry)?;
-    let proving_request = sdk()
-        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+    let session = sdk()
+        .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
-        .proving_engine(profile)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
-        .prove_with_compiled_witness(&proving_request)
+        .prove_withdrawal_with_session(profile, &session, &request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "validating");
+    ensure_job_not_cancelled(&entry)?;
+    sdk()
+        .validate_withdrawal_proof_against_request(&request, &proving.proof)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
-        .verify_withdrawal_proof(profile, &manifest, &artifacts_root, &proving.proof)
+        .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?
     {
         return Err(FfiError::OperationFailed(
@@ -1546,24 +1624,28 @@ fn prepare_relay_execution_background(
     request: WithdrawalWitnessRequest,
     config: PrepareRelayJobConfig,
 ) -> Result<BackgroundJobResult, FfiError> {
-    set_job_stage(&entry, "preparing_request");
+    set_job_stage(&entry, "preloading_artifacts");
     ensure_job_not_cancelled(&entry)?;
-    let proving_request = sdk()
-        .prepare_withdrawal_proving_request(&manifest, &artifacts_root, &request)
+    let session = sdk()
+        .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
-        .proving_engine(profile)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
-        .prove_with_compiled_witness(&proving_request)
+        .prove_withdrawal_with_session(profile, &session, &request)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    set_job_stage(&entry, "validating");
+    ensure_job_not_cancelled(&entry)?;
+    sdk()
+        .validate_withdrawal_proof_against_request(&request, &proving.proof)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
-        .verify_withdrawal_proof(profile, &manifest, &artifacts_root, &proving.proof)
+        .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?
     {
         return Err(FfiError::OperationFailed(
@@ -1744,14 +1826,70 @@ pub fn build_withdrawal_circuit_input(
 }
 
 #[uniffi::export]
+pub fn prepare_withdrawal_circuit_session(
+    manifest_json: String,
+    artifacts_root: String,
+) -> Result<FfiWithdrawalCircuitSessionHandle, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+    let session = sdk()
+        .prepare_withdrawal_circuit_session(&manifest, PathBuf::from(artifacts_root))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_withdrawal_session(session)
+}
+
+#[uniffi::export]
+pub fn prepare_withdrawal_circuit_session_from_bytes(
+    manifest_json: String,
+    artifacts: Vec<FfiArtifactBytes>,
+) -> Result<FfiWithdrawalCircuitSessionHandle, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+    let bundle = sdk()
+        .verify_artifact_bundle_bytes(&manifest, "withdraw", from_ffi_artifact_bytes(artifacts)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let session = sdk()
+        .prepare_withdrawal_circuit_session_from_bundle(bundle)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_withdrawal_session(session)
+}
+
+#[uniffi::export]
+pub fn remove_withdrawal_circuit_session(handle: String) -> Result<bool, FfiError> {
+    remove_withdrawal_session(&handle)
+}
+
+#[uniffi::export]
+pub fn start_prove_withdrawal_job_with_session(
+    backend_profile: String,
+    session_handle: String,
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<FfiAsyncJobHandle, FfiError> {
+    let profile = parse_backend_profile(&backend_profile)?;
+    let session = registered_withdrawal_session(&session_handle)?;
+    let request = from_ffi_withdrawal_witness_request(request)?;
+
+    spawn_background_job(BackgroundJobKind::ProveWithdrawal, move |entry| {
+        set_job_stage(&entry, "proving");
+        ensure_job_not_cancelled(&entry)?;
+        let result = sdk()
+            .prove_withdrawal_with_session(profile, &session, &request)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        ensure_job_not_cancelled(&entry)?;
+        Ok(BackgroundJobResult::Proving(Box::new(
+            to_ffi_proving_result(result),
+        )))
+    })
+}
+
+#[uniffi::export]
 pub fn start_prove_withdrawal_job(
     backend_profile: String,
     manifest_json: String,
     artifacts_root: String,
     request: FfiWithdrawalWitnessRequest,
 ) -> Result<FfiAsyncJobHandle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let artifacts_root = PathBuf::from(artifacts_root);
@@ -1768,13 +1906,30 @@ pub fn prove_withdrawal(
     artifacts_root: String,
     request: FfiWithdrawalWitnessRequest,
 ) -> Result<FfiProvingResult, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let result = sdk()
         .prove_withdrawal(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
+            &from_ffi_withdrawal_witness_request(request)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
+pub fn prove_withdrawal_with_session(
+    backend_profile: String,
+    session_handle: String,
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<FfiProvingResult, FfiError> {
+    let session = registered_withdrawal_session(&session_handle)?;
+    let result = sdk()
+        .prove_withdrawal_with_session(
+            parse_backend_profile(&backend_profile)?,
+            &session,
             &from_ffi_withdrawal_witness_request(request)?,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
@@ -1812,14 +1967,30 @@ pub fn verify_withdrawal_proof(
     artifacts_root: String,
     proof: FfiProofBundle,
 ) -> Result<bool, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
 
     sdk()
         .verify_withdrawal_proof(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
+pub fn verify_withdrawal_proof_with_session(
+    backend_profile: String,
+    session_handle: String,
+    proof: FfiProofBundle,
+) -> Result<bool, FfiError> {
+    let session = registered_withdrawal_session(&session_handle)?;
+
+    sdk()
+        .verify_withdrawal_proof_with_session(
+            parse_backend_profile(&backend_profile)?,
+            &session,
             &from_ffi_proof_bundle(proof)?,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))
@@ -2688,6 +2859,46 @@ mod tests {
         assert_eq!(bundle.artifacts.len(), 1);
         assert_eq!(bundle.artifacts[0].kind, "wasm");
         assert!(bundle.artifacts[0].path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn ffi_exposes_withdrawal_session_entrypoints_fail_closed() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest =
+            include_str!("../../../fixtures/artifacts/sample-proving-manifest.json").to_owned();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let from_paths = prepare_withdrawal_circuit_session(
+            manifest.clone(),
+            root.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+        assert_eq!(from_paths.circuit, "withdraw");
+        assert_eq!(from_paths.artifact_version, "0.1.0-alpha.1");
+        assert!(remove_withdrawal_circuit_session(from_paths.handle).unwrap());
+
+        let from_bytes = prepare_withdrawal_circuit_session_from_bytes(
+            manifest,
+            vec![
+                FfiArtifactBytes {
+                    kind: "wasm".to_owned(),
+                    bytes: bytes.clone(),
+                },
+                FfiArtifactBytes {
+                    kind: "zkey".to_owned(),
+                    bytes: bytes.clone(),
+                },
+                FfiArtifactBytes {
+                    kind: "vkey".to_owned(),
+                    bytes,
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(from_bytes.circuit, "withdraw");
+        assert_eq!(from_bytes.artifact_version, "0.1.0-alpha.1");
+        assert!(remove_withdrawal_circuit_session(from_bytes.handle).unwrap());
+        assert!(!remove_withdrawal_circuit_session("missing".to_owned()).unwrap());
     }
 
     #[test]

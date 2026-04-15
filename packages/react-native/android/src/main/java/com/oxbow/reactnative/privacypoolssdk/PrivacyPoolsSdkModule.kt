@@ -9,6 +9,7 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
 import io.oxbow.privacypoolssdk.FfiArtifactVerification
 import io.oxbow.privacypoolssdk.FfiArtifactStatus
+import io.oxbow.privacypoolssdk.FfiArtifactBytes
 import io.oxbow.privacypoolssdk.FfiAsyncJobHandle
 import io.oxbow.privacypoolssdk.FfiAsyncJobStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
@@ -39,6 +40,7 @@ import io.oxbow.privacypoolssdk.FfiTransactionPlan
 import io.oxbow.privacypoolssdk.FfiTransactionReceiptSummary
 import io.oxbow.privacypoolssdk.FfiWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.FfiWithdrawal
+import io.oxbow.privacypoolssdk.FfiWithdrawalCircuitSessionHandle
 import io.oxbow.privacypoolssdk.FfiWithdrawalWitnessRequest
 import io.oxbow.privacypoolssdk.FfiSubmittedTransactionExecution
 import io.oxbow.privacypoolssdk.PrivacyPoolsSdk as NativeSdk
@@ -195,6 +197,54 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun prepareWithdrawalCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                withdrawalCircuitSessionHandleMap(
+                    NativeSdk.prepareWithdrawalCircuitSession(manifestJson, artifactsRoot)
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun prepareWithdrawalCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: ReadableArray,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                withdrawalCircuitSessionHandleMap(
+                    NativeSdk.prepareWithdrawalCircuitSessionFromBytes(
+                        manifestJson,
+                        readableMapList(artifacts).map(::artifactBytesRecord),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun removeWithdrawalCircuitSession(handle: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.removeWithdrawalCircuitSession(handle))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun proveWithdrawal(
         backendProfile: String,
         manifestJson: String,
@@ -209,6 +259,30 @@ class PrivacyPoolsSdkModule(
                         backendProfile,
                         manifestJson,
                         artifactsRoot,
+                        withdrawalWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun proveWithdrawalWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                provingResultMap(
+                    NativeSdk.proveWithdrawalWithSession(
+                        backendProfile,
+                        sessionHandle,
                         withdrawalWitnessRequestRecord(request),
                     )
                 )
@@ -247,6 +321,30 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun startProveWithdrawalJobWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                asyncJobHandleMap(
+                    NativeSdk.startProveWithdrawalJobWithSession(
+                        backendProfile,
+                        sessionHandle,
+                        withdrawalWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun verifyWithdrawalProof(
         backendProfile: String,
         manifestJson: String,
@@ -260,6 +358,28 @@ class PrivacyPoolsSdkModule(
                     backendProfile,
                     manifestJson,
                     artifactsRoot,
+                    proofBundleRecord(proof),
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun verifyWithdrawalProofWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                NativeSdk.verifyWithdrawalProofWithSession(
+                    backendProfile,
+                    sessionHandle,
                     proofBundleRecord(proof),
                 )
             )
@@ -971,6 +1091,14 @@ class PrivacyPoolsSdkModule(
         putString("kind", handle.kind)
     }
 
+    private fun withdrawalCircuitSessionHandleMap(
+        handle: FfiWithdrawalCircuitSessionHandle,
+    ) = Arguments.createMap().apply {
+        putString("handle", handle.handle)
+        putString("circuit", handle.circuit)
+        putString("artifact_version", handle.artifactVersion)
+    }
+
     private fun asyncJobStatusMap(status: FfiAsyncJobStatus) = Arguments.createMap().apply {
         putString("job_id", status.jobId)
         putString("kind", status.kind)
@@ -1333,6 +1461,13 @@ class PrivacyPoolsSdkModule(
             poolAddress = poolAddress,
             commitmentHash = commitmentHash,
         )
+    }
+
+    private fun artifactBytesRecord(artifact: ReadableMap): FfiArtifactBytes {
+        val kind = artifact.getString("kind") ?: error("missing artifact kind")
+        val bytes = artifact.getArray("bytes") ?: error("missing artifact bytes")
+
+        return FfiArtifactBytes(kind = kind, bytes = readableByteArray(bytes))
     }
 
     private fun readableStringList(values: ReadableArray): List<String> =

@@ -88,6 +88,30 @@ public enum PrivacyPoolsSdkClient {
         try buildWithdrawalCircuitInput(request: request)
     }
 
+    public static func prepareWithdrawalCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+    ) throws -> FfiWithdrawalCircuitSessionHandle {
+        try PrivacyPoolsSdk.prepareWithdrawalCircuitSession(
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot
+        )
+    }
+
+    public static func prepareWithdrawalCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: [FfiArtifactBytes],
+    ) throws -> FfiWithdrawalCircuitSessionHandle {
+        try PrivacyPoolsSdk.prepareWithdrawalCircuitSessionFromBytes(
+            manifestJson: manifestJson,
+            artifacts: artifacts
+        )
+    }
+
+    public static func removeWithdrawalCircuitSession(handle: String) throws -> Bool {
+        try PrivacyPoolsSdk.removeWithdrawalCircuitSession(handle: handle)
+    }
+
     public static func withdrawalProof(
         backendProfile: String,
         manifestJson: String,
@@ -98,6 +122,18 @@ public enum PrivacyPoolsSdkClient {
             backendProfile: backendProfile,
             manifestJson: manifestJson,
             artifactsRoot: artifactsRoot,
+            request: request
+        )
+    }
+
+    public static func withdrawalProof(
+        backendProfile: String,
+        sessionHandle: String,
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> FfiProvingResult {
+        try proveWithdrawalWithSession(
+            backendProfile: backendProfile,
+            sessionHandle: sessionHandle,
             request: request
         )
     }
@@ -116,6 +152,18 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func startWithdrawalProofJob(
+        backendProfile: String,
+        sessionHandle: String,
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> FfiAsyncJobHandle {
+        try startProveWithdrawalJobWithSession(
+            backendProfile: backendProfile,
+            sessionHandle: sessionHandle,
+            request: request
+        )
+    }
+
     public static func verifyWithdrawal(
         backendProfile: String,
         manifestJson: String,
@@ -126,6 +174,18 @@ public enum PrivacyPoolsSdkClient {
             backendProfile: backendProfile,
             manifestJson: manifestJson,
             artifactsRoot: artifactsRoot,
+            proof: proof
+        )
+    }
+
+    public static func verifyWithdrawal(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: FfiProofBundle,
+    ) throws -> Bool {
+        try verifyWithdrawalProofWithSession(
+            backendProfile: backendProfile,
+            sessionHandle: sessionHandle,
             proof: proof
         )
     }
