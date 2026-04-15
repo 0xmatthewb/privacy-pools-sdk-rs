@@ -99,6 +99,12 @@ pub enum ChainError {
     StateRootMismatch { expected: U256, actual: U256 },
     #[error("asp root mismatch: expected {expected}, got {actual}")]
     AspRootMismatch { expected: U256, actual: U256 },
+    #[error("pool entrypoint mismatch for {pool}: expected {expected}, got {actual}")]
+    EntrypointMismatch {
+        pool: Address,
+        expected: Address,
+        actual: Address,
+    },
     #[error("submission signer mismatch: expected caller {expected}, got {actual}")]
     SignerAddressMismatch { expected: Address, actual: Address },
     #[error("transaction submission failed: {0}")]
@@ -629,6 +635,7 @@ pub async fn preflight_relay<C: ExecutionClient>(
 ) -> Result<ExecutionPreflightReport, ChainError> {
     ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
     ensure_non_zero_address(pool_address, "pool address")?;
+    verify_pool_entrypoint_address(client, pool_address, entrypoint_address).await?;
     preflight_transaction(
         client,
         plan,
@@ -697,6 +704,20 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
             actual_code_hash,
             matches_expected,
         });
+    }
+
+    if report.kind == TransactionKind::Relay {
+        let pool_address = report
+            .root_checks
+            .iter()
+            .find(|check| check.kind == RootReadKind::PoolState)
+            .map(|check| check.pool_address)
+            .ok_or_else(|| {
+                ChainError::Transport(
+                    "relay preflight report is missing a pool state root check".to_owned(),
+                )
+            })?;
+        verify_pool_entrypoint_address(client, pool_address, report.target).await?;
     }
 
     let mut root_checks = Vec::with_capacity(report.root_checks.len());
@@ -974,6 +995,23 @@ async fn read_pool_entrypoint_address<C: ExecutionClient>(
     let address = decode_address_word(encoded)?;
     ensure_non_zero_address(address, "pool entrypoint address")?;
     Ok(address)
+}
+
+async fn verify_pool_entrypoint_address<C: ExecutionClient>(
+    client: &C,
+    pool_address: Address,
+    expected_entrypoint: Address,
+) -> Result<(), ChainError> {
+    let actual_entrypoint = read_pool_entrypoint_address(client, pool_address).await?;
+    if actual_entrypoint != expected_entrypoint {
+        return Err(ChainError::EntrypointMismatch {
+            pool: pool_address,
+            expected: expected_entrypoint,
+            actual: actual_entrypoint,
+        });
+    }
+
+    Ok(())
 }
 
 fn decode_address_word(value: U256) -> Result<Address, ChainError> {
@@ -2190,6 +2228,10 @@ mod tests {
                 ),
             ]),
             roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
                 ((pool, state_root_read(pool).call_data), state_root),
                 ((pool, current_root_index_read(pool).call_data), U256::ZERO),
                 (
@@ -2227,6 +2269,88 @@ mod tests {
             .await,
             Err(ChainError::AspRootMismatch { expected, actual })
                 if expected == U256::from(999_u64) && actual == U256::from(888_u64)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_wrong_entrypoint_mapping_during_relay_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let actual_entrypoint = address!("2222222222222222222222222222222222222222");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "100".to_owned(),
+                "200".to_owned(),
+                "250".to_owned(),
+                state_root.to_string(),
+                "32".to_owned(),
+                asp_root.to_string(),
+                "32".to_owned(),
+                "300".to_owned(),
+            ],
+        };
+        let plan = plan_relay_transaction(
+            1,
+            entrypoint,
+            &Withdrawal {
+                processooor: entrypoint,
+                data: valid_relay_data_bytes(),
+            },
+            &proof,
+            U256::from(123_u64),
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([(
+                (pool, pool_entrypoint_read(pool).call_data),
+                U256::from_be_slice(actual_entrypoint.as_slice()),
+            )]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+
+        assert!(matches!(
+            preflight_relay(
+                &client, &plan, entrypoint, pool, state_root, asp_root, &policy
+            )
+            .await,
+            Err(ChainError::EntrypointMismatch {
+                pool: mismatch_pool,
+                expected,
+                actual
+            }) if mismatch_pool == pool && expected == entrypoint && actual == actual_entrypoint
         ));
     }
 
@@ -2272,7 +2396,10 @@ mod tests {
         let client = MockExecutionClient {
             chain_id: 1,
             code_hashes: std::collections::HashMap::new(),
-            roots: std::collections::HashMap::new(),
+            roots: std::collections::HashMap::from([(
+                (pool, pool_entrypoint_read(pool).call_data),
+                U256::from_be_slice(entrypoint.as_slice()),
+            )]),
             estimated_gas: 420_000,
         };
         let policy = ExecutionPolicy {
@@ -2290,6 +2417,130 @@ mod tests {
             Err(ChainError::ZeroAddress {
                 field: "execution policy caller"
             })
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_wrong_entrypoint_mapping_during_reconfirm() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let actual_entrypoint = address!("2222222222222222222222222222222222222222");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "100".to_owned(),
+                "200".to_owned(),
+                "250".to_owned(),
+                state_root.to_string(),
+                "32".to_owned(),
+                asp_root.to_string(),
+                "32".to_owned(),
+                "300".to_owned(),
+            ],
+        };
+        let plan = plan_relay_transaction(
+            1,
+            entrypoint,
+            &Withdrawal {
+                processooor: entrypoint,
+                data: valid_relay_data_bytes(),
+            },
+            &proof,
+            U256::from(123_u64),
+        )
+        .unwrap();
+        let valid_client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+        };
+        let report = preflight_relay(
+            &valid_client,
+            &plan,
+            entrypoint,
+            pool,
+            state_root,
+            asp_root,
+            &policy,
+        )
+        .await
+        .unwrap();
+
+        let mismatch_client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: valid_client.code_hashes.clone(),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(actual_entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+
+        assert!(matches!(
+            reconfirm_preflight(&mismatch_client, &plan, &report).await,
+            Err(ChainError::EntrypointMismatch {
+                pool: mismatch_pool,
+                expected,
+                actual
+            }) if mismatch_pool == pool && expected == entrypoint && actual == actual_entrypoint
         ));
     }
 
