@@ -24,6 +24,9 @@ fn run() -> Result<()> {
         Some("react-native-app-smoke-android") => react_native_app_smoke("android"),
         Some("sdk-web-package") => stage_sdk_web_package(args.collect()),
         Some("sdk-smoke") => sdk_smoke(),
+        Some("examples-check") => examples_check(),
+        Some("feature-check") => feature_check(),
+        Some("package-check") => package_check(),
         Some("dependency-check") => dependency_check(),
         Some("release-check") => release_check(args.collect()),
         Some("evidence-check") => evidence_check(args.collect()),
@@ -59,6 +62,9 @@ fn print_help() {
     println!("                   flags: --debug");
     println!("  sdk-smoke");
     println!("                   build the SDK package runtimes and run the JS integration tests");
+    println!("  examples-check   run lightweight Rust SDK examples");
+    println!("  feature-check    check supported Rust feature and wasm combinations");
+    println!("  package-check    run the workspace package dry run");
     println!("  dependency-check validate accepted dependency-risk advisories");
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
@@ -373,6 +379,54 @@ fn sdk_smoke() -> Result<()> {
     Ok(())
 }
 
+fn examples_check() -> Result<()> {
+    let workspace_root = workspace_root()?;
+    let examples_dir = workspace_root.join("crates/privacy-pools-sdk/examples");
+    let examples = discover_example_names(&examples_dir)?;
+    validate_required_examples(&examples)?;
+
+    for example in required_example_names() {
+        run_command(
+            "cargo",
+            &["run", "-p", "privacy-pools-sdk", "--example", example],
+            &workspace_root,
+            &format!("Rust SDK example `{example}` failed"),
+        )?;
+    }
+
+    println!("examples-check ok");
+    Ok(())
+}
+
+fn feature_check() -> Result<()> {
+    let workspace_root = workspace_root()?;
+
+    for command in feature_check_commands() {
+        run_command(
+            command.program,
+            command.args,
+            &workspace_root,
+            command.error_context,
+        )?;
+    }
+
+    println!("feature-check ok");
+    Ok(())
+}
+
+fn package_check() -> Result<()> {
+    let workspace_root = workspace_root()?;
+    run_command(
+        "cargo",
+        package_check_args(),
+        &workspace_root,
+        "workspace package dry run failed",
+    )?;
+
+    println!("package-check ok");
+    Ok(())
+}
+
 fn dependency_check() -> Result<()> {
     let workspace_root = workspace_root()?;
     let audit_stdout = command_stdout(
@@ -438,6 +492,112 @@ fn dependency_check() -> Result<()> {
     println!("accepted advisories: {}", advisory_ids.join(", "));
     println!("rand 0.8.5 reachable condition: `log` feature disabled");
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CommandSpec {
+    program: &'static str,
+    args: &'static [&'static str],
+    error_context: &'static str,
+}
+
+fn required_example_names() -> &'static [&'static str] {
+    &[
+        "basic",
+        "npm_migration",
+        "client_builder",
+        "withdrawal_paths",
+        "recovery_fixture",
+    ]
+}
+
+fn discover_example_names(examples_dir: &Utf8PathBuf) -> Result<Vec<String>> {
+    let mut examples = Vec::new();
+    for entry in fs::read_dir(examples_dir)
+        .with_context(|| format!("failed to read examples directory {}", examples_dir))?
+    {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", examples_dir))?;
+        let entry_path = Utf8PathBuf::from_path_buf(entry.path())
+            .map_err(|raw| anyhow::anyhow!("example path is not valid UTF-8: {:?}", raw))?;
+
+        if !entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", entry_path))?
+            .is_file()
+        {
+            continue;
+        }
+
+        if entry_path.extension() == Some("rs") {
+            examples.push(
+                entry_path
+                    .file_stem()
+                    .context("example file path has no stem")?
+                    .to_owned(),
+            );
+        }
+    }
+
+    examples.sort_unstable();
+    Ok(examples)
+}
+
+fn validate_required_examples(examples: &[String]) -> Result<()> {
+    for required in required_example_names() {
+        ensure!(
+            examples.iter().any(|example| example == required),
+            "missing required Rust SDK example `{required}`"
+        );
+    }
+
+    Ok(())
+}
+
+fn feature_check_commands() -> &'static [CommandSpec] {
+    &[
+        CommandSpec {
+            program: "cargo",
+            args: &[
+                "hack",
+                "check",
+                "-p",
+                "privacy-pools-sdk-prover",
+                "--each-feature",
+                "--no-dev-deps",
+            ],
+            error_context: "privacy-pools-sdk-prover cargo-hack feature check failed",
+        },
+        CommandSpec {
+            program: "cargo",
+            args: &[
+                "check",
+                "-p",
+                "privacy-pools-sdk-prover",
+                "--no-default-features",
+            ],
+            error_context: "privacy-pools-sdk-prover no-default-features check failed",
+        },
+        CommandSpec {
+            program: "cargo",
+            args: &["check", "-p", "privacy-pools-sdk-prover", "--all-features"],
+            error_context: "privacy-pools-sdk-prover all-features check failed",
+        },
+        CommandSpec {
+            program: "cargo",
+            args: &[
+                "check",
+                "-p",
+                "privacy-pools-sdk-web",
+                "--target",
+                "wasm32-unknown-unknown",
+            ],
+            error_context: "privacy-pools-sdk-web wasm32 check failed",
+        },
+    ]
+}
+
+fn package_check_args() -> &'static [&'static str] {
+    &["package", "--workspace", "--allow-dirty", "--no-verify"]
 }
 
 fn build_ffi_cdylib(workspace_root: &Utf8PathBuf, release: bool) -> Result<()> {
@@ -920,6 +1080,8 @@ fn evidence_check(args: Vec<String>) -> Result<()> {
         "canary-notes.md must not be empty"
     );
 
+    validate_mobile_smoke_evidence(&options.dir.join("mobile-smoke.json"), &commit)?;
+
     let expected_backend_profile = options.backend.report_label();
     let mut artifact_version = None::<String>;
     let mut zkey_sha256 = None::<String>;
@@ -1351,6 +1513,55 @@ fn validate_benchmark_report(
     })
 }
 
+fn validate_mobile_smoke_evidence(path: &Utf8PathBuf, expected_commit: &str) -> Result<()> {
+    let contents = fs::read_to_string(path).with_context(|| format!("failed to read {}", path))?;
+    let json: Value =
+        serde_json::from_str(&contents).with_context(|| format!("failed to parse {}", path))?;
+
+    validate_mobile_smoke_evidence_value(&json, path, expected_commit)
+}
+
+fn validate_mobile_smoke_evidence_value(
+    json: &Value,
+    path: &Utf8PathBuf,
+    expected_commit: &str,
+) -> Result<()> {
+    let commit = ensure_json_string(json, "commit", path)?;
+    ensure!(
+        commit == expected_commit,
+        "{} commit mismatch: expected {} but found {}",
+        path,
+        expected_commit,
+        commit
+    );
+
+    let workflow = ensure_json_string(json, "workflow", path)?;
+    ensure!(
+        workflow == "mobile-smoke",
+        "{} workflow mismatch: expected mobile-smoke but found {}",
+        path,
+        workflow
+    );
+
+    let run_url = ensure_json_string(json, "run_url", path)?;
+    ensure!(
+        run_url.starts_with("https://"),
+        "{} run_url must be an https URL",
+        path
+    );
+
+    for platform in ["ios", "android"] {
+        let status = ensure_json_string(json, platform, path)?;
+        ensure!(
+            status == "passed",
+            "{} {platform} status must be `passed`, found `{status}`",
+            path
+        );
+    }
+
+    Ok(())
+}
+
 fn ensure_json_string<'a>(json: &'a Value, field: &str, path: &Utf8PathBuf) -> Result<&'a str> {
     json.get(field)
         .and_then(Value::as_str)
@@ -1374,4 +1585,192 @@ fn ensure_json_u64(json: &Value, field: &str, path: &Utf8PathBuf) -> Result<u64>
 fn is_hex_commit(value: &str) -> bool {
     let length = value.len();
     (7..=40).contains(&length) && value.chars().all(|character| character.is_ascii_hexdigit())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn evidence_path() -> Utf8PathBuf {
+        Utf8PathBuf::from("mobile-smoke.json")
+    }
+
+    fn mobile_smoke_fixture(commit: &str) -> Value {
+        json!({
+            "commit": commit,
+            "workflow": "mobile-smoke",
+            "run_url": "https://github.com/0xbow/privacy-pools-sdk-rs/actions/runs/123",
+            "ios": "passed",
+            "android": "passed"
+        })
+    }
+
+    fn benchmark_report(commit: &str, device: &str) -> Value {
+        json!({
+            "generated_at_unix_seconds": 1,
+            "git_commit": commit,
+            "sdk_version": "0.1.0-alpha.0",
+            "backend_name": "stable",
+            "device_label": device,
+            "device_model": "fixture",
+            "os_name": "fixture-os",
+            "os_version": "fixture-version",
+            "artifact_version": "fixture-artifacts",
+            "zkey_sha256": "fixture-zkey",
+            "manifest_path": "fixtures/artifacts/sample-proving-manifest.json",
+            "artifacts_root": "fixtures/artifacts",
+            "backend_profile": "Stable",
+            "artifact_resolution_ms": 0.0,
+            "bundle_verification_ms": 0.0,
+            "session_preload_ms": 0.0,
+            "first_input_preparation_ms": 0.0,
+            "first_witness_generation_ms": 0.0,
+            "first_proof_generation_ms": 0.0,
+            "first_verification_ms": 0.0,
+            "first_prove_and_verify_ms": 0.0,
+            "iterations": 1,
+            "warmup": 0,
+            "input_preparation": { "average_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0 },
+            "witness_generation": { "average_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0 },
+            "proof_generation": { "average_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0 },
+            "verification": { "average_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0 },
+            "prove_and_verify": { "average_ms": 0.0, "min_ms": 0.0, "max_ms": 0.0 },
+            "samples": [{}]
+        })
+    }
+
+    fn write_json(path: &Utf8PathBuf, value: &Value) {
+        fs::write(path, serde_json::to_string_pretty(value).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn examples_validation_rejects_missing_required_examples() {
+        let examples = vec![
+            "basic".to_owned(),
+            "npm_migration".to_owned(),
+            "client_builder".to_owned(),
+        ];
+
+        let error = validate_required_examples(&examples)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("withdrawal_paths"));
+    }
+
+    #[test]
+    fn feature_check_invokes_targeted_feature_combinations() {
+        let commands = feature_check_commands();
+
+        assert!(commands.iter().any(|command| {
+            command.args.contains(&"hack")
+                && command.args.contains(&"--each-feature")
+                && command.args.contains(&"privacy-pools-sdk-prover")
+        }));
+        assert!(commands.iter().any(|command| {
+            command.args.contains(&"--no-default-features")
+                && command.args.contains(&"privacy-pools-sdk-prover")
+        }));
+        assert!(commands.iter().any(|command| {
+            command.args.contains(&"--all-features")
+                && command.args.contains(&"privacy-pools-sdk-prover")
+        }));
+        assert!(commands.iter().any(|command| {
+            command.args.contains(&"privacy-pools-sdk-web")
+                && command.args.contains(&"wasm32-unknown-unknown")
+        }));
+    }
+
+    #[test]
+    fn package_check_uses_workspace_dry_run() {
+        let args = package_check_args();
+
+        assert!(args.contains(&"package"));
+        assert!(args.contains(&"--workspace"));
+        assert!(args.contains(&"--allow-dirty"));
+        assert!(args.contains(&"--no-verify"));
+    }
+
+    #[test]
+    fn mobile_smoke_evidence_accepts_passed_same_commit_statuses() {
+        let commit = "abcdef0";
+        let evidence = mobile_smoke_fixture(commit);
+
+        validate_mobile_smoke_evidence_value(&evidence, &evidence_path(), commit).unwrap();
+    }
+
+    #[test]
+    fn mobile_smoke_evidence_rejects_commit_mismatch() {
+        let evidence = mobile_smoke_fixture("abcdef0");
+
+        let error = validate_mobile_smoke_evidence_value(&evidence, &evidence_path(), "1234567")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("commit mismatch"));
+    }
+
+    #[test]
+    fn mobile_smoke_evidence_rejects_failed_platform_status() {
+        let commit = "abcdef0";
+        let mut evidence = mobile_smoke_fixture(commit);
+        evidence["android"] = json!("failed");
+
+        let error = validate_mobile_smoke_evidence_value(&evidence, &evidence_path(), commit)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("android status"));
+    }
+
+    #[test]
+    fn mobile_smoke_evidence_rejects_missing_fields() {
+        let commit = "abcdef0";
+        let evidence = json!({
+            "commit": commit,
+            "workflow": "mobile-smoke",
+            "ios": "passed",
+            "android": "passed"
+        });
+
+        let error = validate_mobile_smoke_evidence_value(&evidence, &evidence_path(), commit)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("run_url"));
+    }
+
+    #[test]
+    fn evidence_check_accepts_complete_same_commit_alpha_fixture() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = Utf8PathBuf::from_path_buf(temp.path().to_path_buf()).unwrap();
+        let commit = "abcdef0";
+
+        fs::write(dir.join("commit.txt"), commit).unwrap();
+        fs::write(
+            dir.join("release-artifacts.txt"),
+            "release workflow artifacts",
+        )
+        .unwrap();
+        fs::write(dir.join("canary-notes.md"), "canary cohort passed").unwrap();
+        write_json(
+            &dir.join("mobile-smoke.json"),
+            &mobile_smoke_fixture(commit),
+        );
+        for device in ["desktop", "ios", "android"] {
+            write_json(
+                &dir.join(format!("{device}-withdraw-stable.json")),
+                &benchmark_report(commit, device),
+            );
+        }
+
+        evidence_check(vec![
+            "--channel".to_owned(),
+            "alpha".to_owned(),
+            "--dir".to_owned(),
+            dir.to_string(),
+        ])
+        .unwrap();
+    }
 }

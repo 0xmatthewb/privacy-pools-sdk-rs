@@ -34,10 +34,18 @@ jobs:
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo install --locked cargo-audit
       - run: cargo install --locked cargo-deny
+      - run: cargo install --locked cargo-hack
       - run: cargo install --locked wasm-bindgen-cli
+      - run: npm ci
+        working-directory: packages/sdk
+      - run: npx playwright install --with-deps chromium
+        working-directory: packages/sdk
       - run: cargo run -p xtask -- dependency-check
       - run: cargo deny check bans licenses sources advisories
       - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
+      - run: cargo run -p xtask -- examples-check
+      - run: cargo run -p xtask -- feature-check
+      - run: cargo run -p xtask -- package-check
       - run: cargo run -p xtask -- sdk-smoke
       - run: npm pack --dry-run --json
         working-directory: packages/sdk
