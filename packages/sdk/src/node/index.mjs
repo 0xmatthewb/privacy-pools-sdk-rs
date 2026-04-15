@@ -90,7 +90,9 @@ export class PrivacyPoolsSdkClient {
   }
 
   async getCommitmentArtifactStatuses(manifestJson, artifactsRoot) {
-    return this.getArtifactStatuses(manifestJson, artifactsRoot);
+    return parseNativeJson(
+      native.getCommitmentArtifactStatuses(manifestJson, artifactsRoot),
+    );
   }
 
   async resolveVerifiedArtifactBundle(manifestJson, artifactsRoot) {
@@ -100,7 +102,12 @@ export class PrivacyPoolsSdkClient {
   }
 
   async resolveVerifiedCommitmentArtifactBundle(manifestJson, artifactsRoot) {
-    return this.resolveVerifiedArtifactBundle(manifestJson, artifactsRoot);
+    return parseNativeJson(
+      native.resolveVerifiedCommitmentArtifactBundle(
+        manifestJson,
+        artifactsRoot,
+      ),
+    );
   }
 
   async verifyArtifactBytes(manifestJson, circuit, artifacts) {

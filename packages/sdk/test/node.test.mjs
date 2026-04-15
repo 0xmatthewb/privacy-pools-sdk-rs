@@ -281,6 +281,55 @@ test("node addon reports artifact statuses from the sample manifest", async () =
   assert.equal(statuses[0].verified, true);
 });
 
+test("node addon keeps withdrawal and commitment artifact APIs circuit scoped", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const artifactsRoot = join(fixturesRoot, "artifacts");
+
+  const withdrawalStatuses = await sdk.getArtifactStatuses(
+    withdrawalProvingManifest,
+    artifactsRoot,
+  );
+  assert.equal(withdrawalStatuses.length, 3);
+  assert.deepEqual(
+    [...new Set(withdrawalStatuses.map((status) => status.circuit))],
+    ["withdraw"],
+  );
+  assert.equal(withdrawalStatuses.every((status) => status.verified), true);
+
+  const commitmentStatuses = await sdk.getCommitmentArtifactStatuses(
+    commitmentProvingManifest,
+    artifactsRoot,
+  );
+  assert.equal(commitmentStatuses.length, 3);
+  assert.deepEqual(
+    [...new Set(commitmentStatuses.map((status) => status.circuit))],
+    ["commitment"],
+  );
+  assert.equal(commitmentStatuses.every((status) => status.verified), true);
+
+  const withdrawalBundle = await sdk.resolveVerifiedArtifactBundle(
+    withdrawalProvingManifest,
+    artifactsRoot,
+  );
+  assert.equal(withdrawalBundle.circuit, "withdraw");
+  assert.equal(withdrawalBundle.artifacts.length, 3);
+  assert.deepEqual(
+    [...new Set(withdrawalBundle.artifacts.map((artifact) => artifact.circuit))],
+    ["withdraw"],
+  );
+
+  const commitmentBundle = await sdk.resolveVerifiedCommitmentArtifactBundle(
+    commitmentProvingManifest,
+    artifactsRoot,
+  );
+  assert.equal(commitmentBundle.circuit, "commitment");
+  assert.equal(commitmentBundle.artifacts.length, 3);
+  assert.deepEqual(
+    [...new Set(commitmentBundle.artifacts.map((artifact) => artifact.circuit))],
+    ["commitment"],
+  );
+});
+
 test("node addon fails closed for invalid proving artifacts and stale sessions", async () => {
   const sdk = new PrivacyPoolsSdkClient();
   await assert.rejects(

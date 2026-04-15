@@ -372,9 +372,25 @@ pub fn build_commitment_circuit_input(request_json: String) -> NapiResult<String
 
 #[napi]
 pub fn get_artifact_statuses(manifest_json: String, artifacts_root: String) -> NapiResult<String> {
+    artifact_statuses_json(manifest_json, artifacts_root, "withdraw")
+}
+
+#[napi]
+pub fn get_commitment_artifact_statuses(
+    manifest_json: String,
+    artifacts_root: String,
+) -> NapiResult<String> {
+    artifact_statuses_json(manifest_json, artifacts_root, "commitment")
+}
+
+fn artifact_statuses_json(
+    manifest_json: String,
+    artifacts_root: String,
+    circuit: &str,
+) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
     let statuses = SDK
-        .artifact_statuses(&manifest, &artifacts_root, "withdraw")
+        .artifact_statuses(&manifest, &artifacts_root, circuit)
         .into_iter()
         .map(|status| to_js_artifact_status(&manifest.version, status))
         .collect::<Vec<_>>();
@@ -386,9 +402,25 @@ pub fn resolve_verified_artifact_bundle(
     manifest_json: String,
     artifacts_root: String,
 ) -> NapiResult<String> {
+    resolve_verified_artifact_bundle_json(manifest_json, artifacts_root, "withdraw")
+}
+
+#[napi]
+pub fn resolve_verified_commitment_artifact_bundle(
+    manifest_json: String,
+    artifacts_root: String,
+) -> NapiResult<String> {
+    resolve_verified_artifact_bundle_json(manifest_json, artifacts_root, "commitment")
+}
+
+fn resolve_verified_artifact_bundle_json(
+    manifest_json: String,
+    artifacts_root: String,
+    circuit: &str,
+) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
     let bundle = SDK
-        .resolve_verified_artifact_bundle(&manifest, &artifacts_root, "withdraw")
+        .resolve_verified_artifact_bundle(&manifest, &artifacts_root, circuit)
         .map_err(to_napi_error)?;
     to_json_string(&to_js_resolved_artifact_bundle(bundle)).map_err(to_napi_error)
 }
