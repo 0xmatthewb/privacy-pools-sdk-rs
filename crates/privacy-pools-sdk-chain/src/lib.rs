@@ -491,17 +491,8 @@ pub fn plan_withdrawal_transaction(
     withdrawal: &Withdrawal,
     proof: &ProofBundle,
 ) -> Result<TransactionPlan, ChainError> {
-    if pool_address.is_zero() {
-        return Err(ChainError::ZeroAddress {
-            field: "pool address",
-        });
-    }
-
-    if withdrawal.processooor.is_zero() {
-        return Err(ChainError::ZeroAddress {
-            field: "withdrawal processooor",
-        });
-    }
+    ensure_non_zero_address(pool_address, "pool address")?;
+    ensure_non_zero_address(withdrawal.processooor, "withdrawal processooor")?;
 
     let formatted = format_groth16_proof(proof)?;
     let calldata = Bytes::from(
@@ -529,11 +520,7 @@ pub fn plan_relay_transaction(
     proof: &ProofBundle,
     scope: U256,
 ) -> Result<TransactionPlan, ChainError> {
-    if entrypoint_address.is_zero() {
-        return Err(ChainError::ZeroAddress {
-            field: "entrypoint address",
-        });
-    }
+    ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
 
     if withdrawal.processooor != entrypoint_address {
         return Err(ChainError::RelayProcessooorMismatch {
@@ -596,6 +583,7 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
     expected_asp_root: U256,
     policy: &ExecutionPolicy,
 ) -> Result<ExecutionPreflightReport, ChainError> {
+    ensure_non_zero_address(pool_address, "pool address")?;
     let entrypoint_address = read_pool_entrypoint_address(client, pool_address).await?;
 
     preflight_transaction(
@@ -639,6 +627,8 @@ pub async fn preflight_relay<C: ExecutionClient>(
     expected_asp_root: U256,
     policy: &ExecutionPolicy,
 ) -> Result<ExecutionPreflightReport, ChainError> {
+    ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
+    ensure_non_zero_address(pool_address, "pool address")?;
     preflight_transaction(
         client,
         plan,
@@ -822,6 +812,7 @@ async fn preflight_transaction<C: ExecutionClient>(
         expected_target,
         policy.expected_chain_id,
     )?;
+    ensure_non_zero_address(policy.caller, "execution policy caller")?;
 
     let actual_chain_id = client.chain_id().await?;
     if actual_chain_id != policy.expected_chain_id {
@@ -980,7 +971,9 @@ async fn read_pool_entrypoint_address<C: ExecutionClient>(
     let encoded = client
         .read_root(&pool_entrypoint_read(pool_address))
         .await?;
-    decode_address_word(encoded)
+    let address = decode_address_word(encoded)?;
+    ensure_non_zero_address(address, "pool entrypoint address")?;
+    Ok(address)
 }
 
 fn decode_address_word(value: U256) -> Result<Address, ChainError> {
@@ -990,6 +983,13 @@ fn decode_address_word(value: U256) -> Result<Address, ChainError> {
     }
 
     Ok(Address::from_slice(&bytes[12..]))
+}
+
+fn ensure_non_zero_address(address: Address, field: &'static str) -> Result<(), ChainError> {
+    if address.is_zero() {
+        return Err(ChainError::ZeroAddress { field });
+    }
+    Ok(())
 }
 
 async fn verify_known_pool_root<C: ExecutionClient>(
@@ -2014,6 +2014,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_zero_pool_entrypoint_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let state_root = U256::from(123_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([(
+                pool,
+                b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            )]),
+            roots: std::collections::HashMap::from([(
+                (pool, pool_entrypoint_read(pool).call_data),
+                U256::ZERO,
+            )]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: None,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(
+                &client,
+                &plan,
+                pool,
+                state_root,
+                U256::from(999_u64),
+                &policy
+            )
+            .await,
+            Err(ChainError::ZeroAddress {
+                field: "pool entrypoint address"
+            })
+        ));
+    }
+
+    #[tokio::test]
     async fn rejects_malformed_pool_entrypoint_words_during_withdrawal_preflight() {
         let pool = address!("0987654321098765432109876543210987654321");
         let state_root = U256::from(123_u64);
@@ -2163,6 +2227,69 @@ mod tests {
             .await,
             Err(ChainError::AspRootMismatch { expected, actual })
                 if expected == U256::from(999_u64) && actual == U256::from(888_u64)
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_zero_policy_caller_during_relay_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(888_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "100".to_owned(),
+                "101".to_owned(),
+                "1".to_owned(),
+                "102".to_owned(),
+                "32".to_owned(),
+                "103".to_owned(),
+                "32".to_owned(),
+                "104".to_owned(),
+            ],
+        };
+        let plan = plan_relay_transaction(
+            1,
+            entrypoint,
+            &Withdrawal {
+                processooor: entrypoint,
+                data: valid_relay_data_bytes(),
+            },
+            &proof,
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::new(),
+            roots: std::collections::HashMap::new(),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: Address::ZERO,
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+        };
+
+        assert!(matches!(
+            preflight_relay(
+                &client, &plan, entrypoint, pool, state_root, asp_root, &policy
+            )
+            .await,
+            Err(ChainError::ZeroAddress {
+                field: "execution policy caller"
+            })
         ));
     }
 
