@@ -309,9 +309,10 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
     let workspace_root = workspace_root()?;
     let profile = if release { "release" } else { "debug" };
     let generated_root = workspace_root.join("packages/sdk/src/browser/generated");
+    let rustflags = wasm_remap_rustflags(&workspace_root);
     reset_directory(&generated_root)?;
 
-    run_command(
+    run_command_with_env(
         "cargo",
         &[
             "build",
@@ -323,6 +324,7 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
             if release { "--release" } else { "--quiet" },
         ],
         &workspace_root,
+        &[("RUSTFLAGS", rustflags.as_str())],
         "failed to build privacy-pools-sdk-web for wasm32-unknown-unknown",
     )?;
 
@@ -677,6 +679,33 @@ fn normalize_generated_directory(path: &Utf8PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn wasm_remap_rustflags(workspace_root: &Utf8PathBuf) -> String {
+    let mut rustflags = env::var("RUSTFLAGS").unwrap_or_default();
+    push_rustflag(
+        &mut rustflags,
+        format!("--remap-path-prefix={workspace_root}=."),
+    );
+
+    if let Some(cargo_home) = env::var("CARGO_HOME")
+        .ok()
+        .or_else(|| env::var("HOME").ok().map(|home| format!("{home}/.cargo")))
+    {
+        push_rustflag(
+            &mut rustflags,
+            format!("--remap-path-prefix={cargo_home}=~/.cargo"),
+        );
+    }
+
+    rustflags
+}
+
+fn push_rustflag(rustflags: &mut String, flag: String) {
+    if !rustflags.is_empty() {
+        rustflags.push(' ');
+    }
+    rustflags.push_str(&flag);
 }
 
 fn strip_wasm_custom_sections(path: &Utf8PathBuf) -> Result<()> {
