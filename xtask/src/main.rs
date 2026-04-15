@@ -352,6 +352,8 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
         "failed to generate browser WASM bindings; install wasm-bindgen-cli and ensure it is on PATH",
     )?;
 
+    strip_wasm_custom_sections(&generated_root.join("privacy_pools_sdk_web_bg.wasm"))?;
+
     println!("staged browser WASM bindings into packages/sdk/src/browser/generated");
     Ok(())
 }
@@ -675,6 +677,67 @@ fn normalize_generated_directory(path: &Utf8PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn strip_wasm_custom_sections(path: &Utf8PathBuf) -> Result<()> {
+    let bytes = fs::read(path).with_context(|| format!("failed to read generated wasm {path}"))?;
+    ensure!(
+        bytes.len() >= 8 && &bytes[..4] == b"\0asm",
+        "generated wasm {path} has an invalid header"
+    );
+
+    let mut stripped = bytes[..8].to_vec();
+    let mut cursor = 8;
+
+    while cursor < bytes.len() {
+        let section_id = bytes[cursor];
+        cursor += 1;
+
+        let length_start = cursor;
+        let payload_len = read_wasm_u32(&bytes, &mut cursor)? as usize;
+        let length_end = cursor;
+        let payload_start = cursor;
+        let payload_end = payload_start
+            .checked_add(payload_len)
+            .filter(|end| *end <= bytes.len())
+            .with_context(|| format!("generated wasm {path} has a truncated section"))?;
+
+        if section_id != 0 {
+            stripped.push(section_id);
+            stripped.extend_from_slice(&bytes[length_start..length_end]);
+            stripped.extend_from_slice(&bytes[payload_start..payload_end]);
+        }
+
+        cursor = payload_end;
+    }
+
+    if stripped.len() != bytes.len() {
+        fs::write(path, stripped)
+            .with_context(|| format!("failed to write stripped generated wasm {path}"))?;
+    }
+
+    Ok(())
+}
+
+fn read_wasm_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32> {
+    let mut result = 0u32;
+
+    for byte_index in 0..5 {
+        ensure!(
+            *cursor < bytes.len(),
+            "generated wasm has a truncated unsigned LEB128 value"
+        );
+
+        let byte = bytes[*cursor];
+        *cursor += 1;
+        result |= ((byte & 0x7f) as u32) << (byte_index * 7);
+
+        if byte & 0x80 == 0 {
+            return Ok(result);
+        }
+    }
+
+    bail!("generated wasm has an invalid unsigned LEB128 value")
 }
 
 fn strip_trailing_whitespace(contents: &str) -> String {
