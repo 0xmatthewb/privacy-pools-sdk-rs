@@ -30,7 +30,7 @@
     "build:web": "node ./scripts/build-web.mjs",
     "build:web:debug": "node ./scripts/build-web.mjs --debug",
     "build:web:release": "node ./scripts/build-web.mjs --release",
-    "check:generated": "npm run build:web && git diff --exit-code -- src/browser/generated && test -z \"$(git ls-files --others --exclude-standard -- src/browser/generated)\"",
+    "check:generated": "npm run build:web && node ./scripts/check-generated.mjs",
     "test": "npm run test:ci",
     "test:browser": "playwright test",
     "test:ci": "npm run build:native && npm run check:generated && npm run test:node && npm run test:browser",
