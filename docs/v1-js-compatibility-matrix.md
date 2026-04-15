@@ -28,9 +28,9 @@ verification, or recovery implementations.
 | `CommitmentService` | implemented wrapper | Uses Rust-backed commitment construction, proving, and verification. |
 | `WithdrawalService` | implemented wrapper | Uses Rust-backed withdrawal proving/verification; callers must provide withdrawal data or a prepared Rust-shaped request. |
 | `AccountService` | partial wrapper | Exposes Rust-backed recovery checkpointing, recovery keyset derivation, account-state replay, and spendable commitment selection from an explicit recovered-state DTO. Legacy JS account mutation/sync paths still throw `CompatibilityError`. |
-| `DataService` | implemented wrapper pending CI | Exposes public chain event fetching through caller-provided RPC/client transport, plus Rust-backed recovery checkpointing and account-state replay. Event fetching returns public deposit, withdrawal, and ragequit DTOs only; recovered state and secrets remain caller-owned local data. |
+| `DataService` | implemented wrapper | Exposes public chain event fetching through caller-provided RPC/client transport, plus Rust-backed recovery checkpointing and account-state replay. Event fetching returns public deposit, withdrawal, and ragequit DTOs only; recovered state and secrets remain caller-owned local data. |
 | `ContractInteractionsService` | implemented wrapper | Node and browser expose Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers. RPC preflight/submission remains an app-owned transport concern so the SDK does not take raw private keys or sign transactions. |
-| `BlockchainProvider` | implemented wrapper pending CI | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` reads public balances through caller-provided or lazily created `viem` public-client transport. |
+| `BlockchainProvider` | implemented wrapper | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` reads public balances through caller-provided or lazily created `viem` public-client transport. |
 | `DEFAULT_LOG_FETCH_CONFIG` | implemented constant | Matches v1 log-fetch defaults for callers that still import the constant. |
 | `generateMasterKeys` | implemented wrapper | Delegates to `deriveMasterKeys`. |
 | `generateDepositSecrets` | implemented wrapper | Delegates to Rust-backed deposit secret derivation. |

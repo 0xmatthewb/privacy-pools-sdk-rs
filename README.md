@@ -31,8 +31,6 @@ Current first-class surfaces:
 
 Remaining package milestones:
 
-- green CI confirmation for the newly added v1 public event-fetch facade and
-  account-data wrappers
 - green manual/nightly mobile app-process smoke confirmation for React Native
   iOS and Android simulator/emulator prove/verify coverage
 - broader release-mode benchmark evidence across runtime surfaces

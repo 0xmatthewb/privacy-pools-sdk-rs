@@ -14,16 +14,6 @@ plan.
 
 ## In Progress
 
-- CI confirmation for the latest browser/Node v1 facade coverage. A
-  compatibility matrix, contract tests, Rust-backed crypto/proof/recovery
-  wrappers, public event-fetch wrappers, browser Rust/WASM offline contract
-  planning, and typed compatibility boundaries now exist; the remaining work is
-  a green CI run for the new event-fetch coverage added after the last green
-  branch head.
-- The latest facade additions fetch only public deposit, withdrawal, and
-  ragequit logs through caller-provided RPC/client transport, then feed those
-  public DTOs into Rust-backed recovery helpers. They do not fetch, transmit,
-  log, or retain mnemonics, nullifier secrets, witnesses, or proofs.
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
   app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
@@ -124,6 +114,10 @@ plan.
   Groth16 formatting, and current-root wrappers in Node and browser/WASM. RPC
   preflight/submission remains app-owned transport rather than bundled SDK
   behavior.
+- The JS package exposes public deposit, withdrawal, and ragequit log fetching
+  through caller-provided RPC/client transport, then feeds those public DTOs
+  into Rust-backed recovery helpers. It does not fetch, transmit, log, or retain
+  mnemonics, nullifier secrets, witnesses, or proofs.
 - The fast React Native consumer smoke app now typechecks the reusable withdrawal
   circuit session APIs instead of only importing the older path-based proving
   and verification methods.
@@ -138,21 +132,11 @@ plan.
   prove/verify smoke is wired for iOS and Android in the manual/nightly
   `mobile-smoke` workflow, but should remain partially complete until that
   workflow is green.
-- The runtime matrix is now documented explicitly, Node is shipped, browser
-  proving is available, and network-backed public event fetching is implemented,
-  but the latest facade additions still need a green CI run before being marked
-  fully complete.
-- The JS package has branch-head Rust-backed offline contract planning,
-  root-read, Groth16 formatting, current-root, and public event-fetch wrappers
-  used by the v1 facade, but only the public event-fetch additions still need a
-  green CI run after this branch head.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
 
 ## Not Yet Completed
 
-- Browser/Node package parity with the website-used v1 network/event account-data
-  facade is implemented at branch head but still needs green CI confirmation.
 - Mobile app-level smoke coverage still needs green confirmation from the
   `mobile-smoke` workflow for the newly wired React Native iOS and Android
   app-process prove/verify jobs.
