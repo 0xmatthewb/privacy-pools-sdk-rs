@@ -70,6 +70,8 @@ pub enum ChainError {
     RelayProcessooorMismatch { expected: Address, actual: Address },
     #[error("relay withdrawal data is invalid: {0}")]
     InvalidRelayData(String),
+    #[error("{field} must be non-zero")]
+    ZeroAddress { field: &'static str },
     #[error("invalid rpc url: {0}")]
     InvalidRpcUrl(String),
     #[error("invalid root response length: expected at least 32 bytes, got {0}")]
@@ -489,6 +491,18 @@ pub fn plan_withdrawal_transaction(
     withdrawal: &Withdrawal,
     proof: &ProofBundle,
 ) -> Result<TransactionPlan, ChainError> {
+    if pool_address.is_zero() {
+        return Err(ChainError::ZeroAddress {
+            field: "pool address",
+        });
+    }
+
+    if withdrawal.processooor.is_zero() {
+        return Err(ChainError::ZeroAddress {
+            field: "withdrawal processooor",
+        });
+    }
+
     let formatted = format_groth16_proof(proof)?;
     let calldata = Bytes::from(
         IPrivacyPool::withdrawCall {
@@ -515,6 +529,12 @@ pub fn plan_relay_transaction(
     proof: &ProofBundle,
     scope: U256,
 ) -> Result<TransactionPlan, ChainError> {
+    if entrypoint_address.is_zero() {
+        return Err(ChainError::ZeroAddress {
+            field: "entrypoint address",
+        });
+    }
+
     if withdrawal.processooor != entrypoint_address {
         return Err(ChainError::RelayProcessooorMismatch {
             expected: entrypoint_address,
@@ -1428,6 +1448,53 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_address_withdrawals() {
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["9".to_owned(); 8],
+        };
+
+        assert!(matches!(
+            plan_withdrawal_transaction(
+                1,
+                Address::ZERO,
+                &Withdrawal {
+                    processooor: address!("1111111111111111111111111111111111111111"),
+                    data: bytes!("1234"),
+                },
+                &proof,
+            ),
+            Err(ChainError::ZeroAddress {
+                field: "pool address"
+            })
+        ));
+
+        assert!(matches!(
+            plan_withdrawal_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &Withdrawal {
+                    processooor: Address::ZERO,
+                    data: bytes!("1234"),
+                },
+                &proof,
+            ),
+            Err(ChainError::ZeroAddress {
+                field: "withdrawal processooor"
+            })
+        ));
+    }
+
+    #[test]
     fn rejects_zero_value_relay_transactions() {
         let entrypoint = address!("1234567890123456789012345678901234567890");
         let proof = ProofBundle {
@@ -1508,6 +1575,48 @@ mod tests {
             Err(ChainError::RelayProcessooorMismatch { expected, actual })
                 if expected == entrypoint
                     && actual == address!("1111111111111111111111111111111111111111")
+        ));
+    }
+
+    #[test]
+    fn rejects_zero_address_relay_targets() {
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec![
+                "10".to_owned(),
+                "11".to_owned(),
+                "1".to_owned(),
+                "12".to_owned(),
+                "32".to_owned(),
+                "13".to_owned(),
+                "32".to_owned(),
+                "14".to_owned(),
+            ],
+        };
+
+        assert!(matches!(
+            plan_relay_transaction(
+                1,
+                Address::ZERO,
+                &Withdrawal {
+                    processooor: Address::ZERO,
+                    data: valid_relay_data_bytes(),
+                },
+                &proof,
+                U256::from(123_u64),
+            ),
+            Err(ChainError::ZeroAddress {
+                field: "entrypoint address"
+            })
         ));
     }
 
