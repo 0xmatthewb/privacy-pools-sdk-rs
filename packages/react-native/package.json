@@ -1,5 +1,5 @@
 {
-  "name": "@0xbow/privacy-pools-sdk",
+  "name": "@0xmatthewb/privacy-pools-sdk-react-native",
   "version": "0.1.0-alpha.1",
   "private": false,
   "description": "React Native package for the Privacy Pools SDK",

@@ -1,4 +1,4 @@
-# @0xbow/privacy-pools-sdk
+# @0xmatthewb/privacy-pools-sdk-react-native
 
 React Native package for the Privacy Pools SDK.
 

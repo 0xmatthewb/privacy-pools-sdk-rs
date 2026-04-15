@@ -43,7 +43,7 @@ import {
   unregisterSigner,
   verifyArtifactBytes,
   verifyWithdrawalProof,
-} from "@0xbow/privacy-pools-sdk";
+} from "@0xmatthewb/privacy-pools-sdk-react-native";
 
 const address = "0x1111111111111111111111111111111111111111";
 const otherAddress = "0x2222222222222222222222222222222222222222";

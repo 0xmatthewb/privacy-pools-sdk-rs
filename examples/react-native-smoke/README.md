@@ -1,7 +1,7 @@
 # React Native Smoke App
 
 This lightweight sample app exercises the published
-`@0xbow/privacy-pools-sdk` package from a consumer-style React Native project.
+`@0xmatthewb/privacy-pools-sdk-react-native` package from a consumer-style React Native project.
 
 It is intentionally small:
 

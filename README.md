@@ -21,7 +21,7 @@ verification, account recovery, transaction planning, and mobile bindings.
 ## SDK Surfaces
 
 The SDK is available as a Rust crate, generated iOS and Android bindings, and a
-React Native package published as `@0xbow/privacy-pools-sdk`.
+React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`.
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
