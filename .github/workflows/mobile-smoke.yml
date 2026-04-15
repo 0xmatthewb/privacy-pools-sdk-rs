@@ -66,3 +66,24 @@ jobs:
       - run: test -f packages/react-native/android/src/main/jniLibs/x86_64/libprivacy_pools_sdk_ffi.so
       - run: npm pack --dry-run --json
         working-directory: packages/react-native
+
+  evidence:
+    needs:
+      - react-native-release-ios
+      - react-native-release-android
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          cat > mobile-smoke.json <<JSON
+          {
+            "commit": "${{ github.sha }}",
+            "workflow": "mobile-smoke",
+            "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "ios": "passed",
+            "android": "passed"
+          }
+          JSON
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mobile-smoke-evidence
+          path: mobile-smoke.json
