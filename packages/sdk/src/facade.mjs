@@ -41,6 +41,21 @@ export const DEFAULT_LOG_FETCH_CONFIG = Object.freeze({
   retryBaseDelayMs: 1000,
 });
 
+const EVENT_ABI = Object.freeze({
+  deposits:
+    "event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _merkleRoot)",
+  withdrawals:
+    "event Withdrawn(address indexed _processooor, uint256 _value, uint256 _spentNullifier, uint256 _newCommitment)",
+  ragequits:
+    "event Ragequit(address indexed _ragequitter, uint256 _commitment, uint256 _label, uint256 _value)",
+});
+
+const EVENT_KIND = Object.freeze({
+  Deposits: "deposits",
+  Withdrawals: "withdrawals",
+  Ragequits: "ragequits",
+});
+
 export class SDKError extends Error {
   constructor(message, code = ErrorCode.CompatibilityUnsupported, details = undefined) {
     super(message);
@@ -115,17 +130,25 @@ export class InvalidRpcUrl extends CompatibilityError {
 
 export function createRuntimeFacade(PrivacyPoolsSdkClient) {
   class BlockchainProvider {
-    constructor(rpcUrl) {
+    constructor(rpcUrl, options = {}) {
       if (!rpcUrl || !String(rpcUrl).startsWith("http")) {
         throw new InvalidRpcUrl(String(rpcUrl ?? ""));
       }
       this.rpcUrl = String(rpcUrl);
+      this.client = options.client;
+      this.chain = options.chain;
     }
 
-    async getBalance() {
-      throw unsupported(
-        "BlockchainProvider.getBalance requires app-owned RPC transport; this facade does not bundle viem",
-      );
+    async getBalance(address) {
+      try {
+        const client = this.client ?? await createViemPublicClient({
+          chain: this.chain,
+          rpcUrl: this.rpcUrl,
+        });
+        return client.getBalance({ address });
+      } catch (error) {
+        throw new DataError("failed to read account balance", errorDetails(error));
+      }
     }
   }
 
@@ -424,21 +447,27 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
   }
 
   class DataService {
-    constructor(...args) {
-      this.args = args;
-      this.client = extractClient(args, PrivacyPoolsSdkClient);
+    constructor(chainConfigs = [], logFetchConfig = new Map(), options = {}) {
+      this.args = [chainConfigs, logFetchConfig, options];
+      this.client = extractClient([options], PrivacyPoolsSdkClient);
+      this.chainConfigs = normalizeChainConfigs(chainConfigs);
+      this.logFetchConfig = logFetchConfig;
+      this.rpcClients = new Map();
     }
 
-    async getDeposits() {
-      throw unsupported("DataService event fetching is not yet exposed through the JS facade");
+    async getDeposits(pool) {
+      const logs = await this.#fetchPoolLogs(EVENT_KIND.Deposits, pool);
+      return logs.map(toDepositEvent);
     }
 
-    async getWithdrawals() {
-      throw unsupported("DataService event fetching is not yet exposed through the JS facade");
+    async getWithdrawals(pool, fromBlock = pool?.deploymentBlock ?? pool?.deployment_block) {
+      const logs = await this.#fetchPoolLogs(EVENT_KIND.Withdrawals, pool, fromBlock);
+      return logs.map(toWithdrawalEvent);
     }
 
-    async getRagequits() {
-      throw unsupported("DataService event fetching is not yet exposed through the JS facade");
+    async getRagequits(pool, fromBlock = pool?.deploymentBlock ?? pool?.deployment_block) {
+      const logs = await this.#fetchPoolLogs(EVENT_KIND.Ragequits, pool, fromBlock);
+      return logs.map(toRagequitEvent);
     }
 
     async checkpointRecovery(events, policy = defaultRecoveryPolicy()) {
@@ -477,6 +506,69 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         normalizePoolRecoveryInputs(pools),
         normalizeRecoveryPolicy(policy),
       );
+    }
+
+    async #fetchPoolLogs(kind, pool, fromBlockOverride = undefined) {
+      const chainId = normalizeChainId(pool?.chainId ?? pool?.chain_id);
+      const chainConfig = this.#chainConfigFor(chainId);
+      const logConfig = normalizeLogFetchConfig(
+        logFetchConfigForChain(this.logFetchConfig, chainId),
+      );
+      const address = normalizePoolAddress(pool, chainConfig);
+      const fromBlock = normalizeBlockNumber(
+        fromBlockOverride ??
+          pool?.deploymentBlock ??
+          pool?.deployment_block ??
+          chainConfig.startBlock,
+      );
+
+      try {
+        const client = await this.#clientFor(chainConfig);
+        const toBlock = normalizeBlockNumber(await client.getBlockNumber());
+        const event = await getEventAbi(kind);
+        const ranges = generateBlockRanges(fromBlock, toBlock, logConfig.blockChunkSize);
+        const chunks = await mapWithConcurrency(
+          ranges,
+          logConfig.concurrency,
+          async (range) => {
+            if (logConfig.chunkDelayMs > 0) {
+              await sleep(logConfig.chunkDelayMs);
+            }
+            return fetchLogsWithRetry(client, address, event, range, logConfig);
+          },
+        );
+        return chunks.flat();
+      } catch (error) {
+        if (error instanceof SDKError) {
+          throw error;
+        }
+        throw new DataError(`failed to fetch ${kind} events`, {
+          ...errorDetails(error),
+          chainId,
+          poolAddress: address,
+        });
+      }
+    }
+
+    #chainConfigFor(chainId) {
+      const chainConfig = this.chainConfigs.find((config) => config.chainId === chainId);
+      if (!chainConfig) {
+        throw new DataError(`chain ${chainId} is not configured`, { chainId });
+      }
+      return chainConfig;
+    }
+
+    async #clientFor(chainConfig) {
+      if (chainConfig.client) {
+        return chainConfig.client;
+      }
+      const cached = this.rpcClients.get(chainConfig.chainId);
+      if (cached) {
+        return cached;
+      }
+      const client = await createViemPublicClient(chainConfig);
+      this.rpcClients.set(chainConfig.chainId, client);
+      return client;
     }
   }
 
@@ -821,6 +913,273 @@ function defaultRecoveryPolicy() {
   };
 }
 
+let viemModulePromise;
+const parsedEventAbi = new Map();
+
+async function loadViem() {
+  viemModulePromise ??= import("viem");
+  return viemModulePromise;
+}
+
+async function createViemPublicClient(config) {
+  if (!config.rpcUrl || !String(config.rpcUrl).startsWith("http")) {
+    throw new InvalidRpcUrl(String(config.rpcUrl ?? ""));
+  }
+  const { createPublicClient, http } = await loadViem();
+  return createPublicClient({
+    chain: config.chain,
+    transport: http(config.rpcUrl),
+  });
+}
+
+async function getEventAbi(kind) {
+  const cached = parsedEventAbi.get(kind);
+  if (cached) {
+    return cached;
+  }
+  const signature = EVENT_ABI[kind];
+  if (!signature) {
+    throw new DataError(`unsupported event kind ${kind}`, { kind });
+  }
+  const { parseAbiItem } = await loadViem();
+  const event = parseAbiItem(signature);
+  parsedEventAbi.set(kind, event);
+  return event;
+}
+
+function normalizeChainConfigs(chainConfigs) {
+  return (chainConfigs ?? []).map((config) => {
+    const chainId = normalizeChainId(config.chainId ?? config.chain_id);
+    const rpcUrl = String(config.rpcUrl ?? config.rpc_url ?? "");
+    if (!config.client && !rpcUrl.startsWith("http")) {
+      throw new InvalidRpcUrl(rpcUrl);
+    }
+    return {
+      ...config,
+      chainId,
+      rpcUrl,
+      startBlock: normalizeBlockNumber(config.startBlock ?? config.start_block ?? 0n),
+    };
+  });
+}
+
+function normalizeLogFetchConfig(config = {}) {
+  return {
+    ...DEFAULT_LOG_FETCH_CONFIG,
+    ...config,
+    blockChunkSize: Number(config.blockChunkSize ?? DEFAULT_LOG_FETCH_CONFIG.blockChunkSize),
+    concurrency: Math.max(
+      1,
+      Number(config.concurrency ?? DEFAULT_LOG_FETCH_CONFIG.concurrency),
+    ),
+    chunkDelayMs: Number(config.chunkDelayMs ?? DEFAULT_LOG_FETCH_CONFIG.chunkDelayMs),
+    maxRetries: Number(config.maxRetries ?? DEFAULT_LOG_FETCH_CONFIG.maxRetries),
+    retryBaseDelayMs: Number(
+      config.retryBaseDelayMs ?? DEFAULT_LOG_FETCH_CONFIG.retryBaseDelayMs,
+    ),
+  };
+}
+
+function logFetchConfigForChain(configs, chainId) {
+  if (configs instanceof Map) {
+    return configs.get(chainId) ?? {};
+  }
+  return configs?.[chainId] ?? configs?.[String(chainId)] ?? {};
+}
+
+function normalizeChainId(value) {
+  if (value === undefined || value === null) {
+    throw new DataError("pool chainId is required");
+  }
+  return Number(value);
+}
+
+function normalizePoolAddress(pool, chainConfig) {
+  const address =
+    pool?.address ??
+    pool?.poolAddress ??
+    pool?.pool_address ??
+    pool?.privacyPoolAddress ??
+    chainConfig.privacyPoolAddress ??
+    chainConfig.privacy_pool_address;
+  if (!address) {
+    throw new DataError("pool address is required", {
+      chainId: chainConfig.chainId,
+    });
+  }
+  return String(address);
+}
+
+function normalizeBlockNumber(value) {
+  if (value === undefined || value === null) {
+    return 0n;
+  }
+  return typeof value === "bigint" ? value : BigInt(value);
+}
+
+function generateBlockRanges(fromBlock, toBlock, chunkSize) {
+  if (fromBlock > toBlock) {
+    return [];
+  }
+  const ranges = [];
+  let current = fromBlock;
+  const size = BigInt(Math.max(1, Number(chunkSize)));
+  while (current <= toBlock) {
+    const end = current + size - 1n;
+    ranges.push({
+      fromBlock: current,
+      toBlock: end > toBlock ? toBlock : end,
+    });
+    current = end + 1n;
+  }
+  return ranges;
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+async function fetchLogsWithRetry(client, address, event, range, config) {
+  const maxRetries = config.retryOnFailure ? config.maxRetries : 0;
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await client.getLogs({
+        address,
+        event,
+        fromBlock: range.fromBlock,
+        toBlock: range.toBlock,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxRetries) {
+        await sleep(config.retryBaseDelayMs * 2 ** attempt);
+      }
+    }
+  }
+  throw lastError;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toDepositEvent(log) {
+  const args = log?.args;
+  if (!args) {
+    throw new DataError("invalid deposit log: missing args");
+  }
+  const depositor = args._depositor;
+  const commitment = requiredEventField(args._commitment, "deposit commitment");
+  const label = requiredEventField(args._label, "deposit label");
+  const value = args._value ?? 0n;
+  const precommitment = requiredEventField(args._merkleRoot, "deposit precommitment");
+  const blockNumber = requiredEventField(log.blockNumber, "deposit blockNumber");
+  const transactionHash = requiredEventField(log.transactionHash, "deposit transactionHash");
+  if (!depositor) {
+    throw new DataError("invalid deposit log: missing depositor");
+  }
+  return {
+    depositor: String(depositor).toLowerCase(),
+    commitment: BigInt(commitment),
+    commitmentHash: BigInt(commitment),
+    label: BigInt(label),
+    value: BigInt(value),
+    precommitment: BigInt(precommitment),
+    precommitmentHash: BigInt(precommitment),
+    blockNumber: BigInt(blockNumber),
+    block_number: Number(blockNumber),
+    transactionHash: String(transactionHash),
+    transaction_hash: String(transactionHash),
+  };
+}
+
+function toWithdrawalEvent(log) {
+  const args = log?.args;
+  if (!args) {
+    throw new DataError("invalid withdrawal log: missing args");
+  }
+  const withdrawn = requiredEventField(args._value, "withdrawal value");
+  const spentNullifier = requiredEventField(
+    args._spentNullifier,
+    "withdrawal spentNullifier",
+  );
+  const newCommitment = requiredEventField(
+    args._newCommitment,
+    "withdrawal newCommitment",
+  );
+  const blockNumber = requiredEventField(log.blockNumber, "withdrawal blockNumber");
+  const transactionHash = requiredEventField(
+    log.transactionHash,
+    "withdrawal transactionHash",
+  );
+  return {
+    withdrawn: BigInt(withdrawn),
+    withdrawnValue: BigInt(withdrawn),
+    spentNullifier: BigInt(spentNullifier),
+    spentNullifierHash: BigInt(spentNullifier),
+    newCommitment: BigInt(newCommitment),
+    newCommitmentHash: BigInt(newCommitment),
+    blockNumber: BigInt(blockNumber),
+    block_number: Number(blockNumber),
+    transactionHash: String(transactionHash),
+    transaction_hash: String(transactionHash),
+  };
+}
+
+function toRagequitEvent(log) {
+  const args = log?.args;
+  if (!args) {
+    throw new DataError("invalid ragequit log: missing args");
+  }
+  const ragequitter = args._ragequitter;
+  const commitment = requiredEventField(args._commitment, "ragequit commitment");
+  const label = requiredEventField(args._label, "ragequit label");
+  const value = args._value ?? 0n;
+  const blockNumber = requiredEventField(log.blockNumber, "ragequit blockNumber");
+  const transactionHash = requiredEventField(log.transactionHash, "ragequit transactionHash");
+  if (!ragequitter) {
+    throw new DataError("invalid ragequit log: missing ragequitter");
+  }
+  return {
+    ragequitter: String(ragequitter).toLowerCase(),
+    commitment: BigInt(commitment),
+    commitmentHash: BigInt(commitment),
+    label: BigInt(label),
+    value: BigInt(value),
+    blockNumber: BigInt(blockNumber),
+    block_number: Number(blockNumber),
+    transactionHash: String(transactionHash),
+    transaction_hash: String(transactionHash),
+  };
+}
+
+function requiredEventField(value, name) {
+  if (value === undefined || value === null) {
+    throw new DataError(`invalid event log: missing ${name}`);
+  }
+  return value;
+}
+
+function errorDetails(error) {
+  return {
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
 function normalizeRecoveryPolicy(policy) {
   return {
     compatibilityMode:
@@ -865,11 +1224,13 @@ function normalizePoolRecoveryInputs(pools) {
 
 function normalizeDepositEvent(event) {
   return {
-    commitmentHash: decimalString(event.commitmentHash ?? event.commitment_hash),
+    commitmentHash: decimalString(
+      event.commitmentHash ?? event.commitment_hash ?? event.commitment,
+    ),
     label: decimalString(event.label),
     value: decimalString(event.value),
     precommitmentHash: decimalString(
-      event.precommitmentHash ?? event.precommitment_hash,
+      event.precommitmentHash ?? event.precommitment_hash ?? event.precommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
@@ -878,12 +1239,18 @@ function normalizeDepositEvent(event) {
 
 function normalizeWithdrawalEvent(event) {
   return {
-    withdrawnValue: decimalString(event.withdrawnValue ?? event.withdrawn_value),
+    withdrawnValue: decimalString(
+      event.withdrawnValue ?? event.withdrawn_value ?? event.withdrawn,
+    ),
     spentNullifierHash: decimalString(
-      event.spentNullifierHash ?? event.spent_nullifier_hash,
+      event.spentNullifierHash ??
+        event.spent_nullifier_hash ??
+        event.spentNullifier,
     ),
     newCommitmentHash: decimalString(
-      event.newCommitmentHash ?? event.new_commitment_hash,
+      event.newCommitmentHash ??
+        event.new_commitment_hash ??
+        event.newCommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
@@ -892,7 +1259,9 @@ function normalizeWithdrawalEvent(event) {
 
 function normalizeRagequitEvent(event) {
   return {
-    commitmentHash: decimalString(event.commitmentHash ?? event.commitment_hash),
+    commitmentHash: decimalString(
+      event.commitmentHash ?? event.commitment_hash ?? event.commitment,
+    ),
     label: decimalString(event.label),
     value: decimalString(event.value),
     blockNumber: Number(event.blockNumber ?? event.block_number),

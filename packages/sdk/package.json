@@ -46,5 +46,8 @@
   ],
   "devDependencies": {
     "@playwright/test": "^1.59.1"
+  },
+  "dependencies": {
+    "viem": "2.22.14"
   }
 }

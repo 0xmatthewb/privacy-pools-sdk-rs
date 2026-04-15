@@ -236,16 +236,132 @@ test("unsupported v1 legacy services fail with typed compatibility errors", asyn
     () => new nodeEntry.BlockchainProvider("file:///tmp/rpc"),
     nodeEntry.InvalidRpcUrl,
   );
-  await assert.rejects(
-    () =>
-      new nodeEntry.BlockchainProvider("http://127.0.0.1:8545").getBalance(
-        "0x1111111111111111111111111111111111111111",
-      ),
+  const provider = new nodeEntry.BlockchainProvider("http://127.0.0.1:8545", {
+    client: {
+      getBalance: async ({ address }) => {
+        assert.equal(address, "0x1111111111111111111111111111111111111111");
+        return 123n;
+      },
+    },
+  });
+  assert.equal(
+    await provider.getBalance("0x1111111111111111111111111111111111111111"),
+    123n,
+  );
+  assert.throws(
+    () => new nodeEntry.AccountService().sync(),
     nodeEntry.CompatibilityError,
   );
+});
+
+test("DataService fetches public pool events through caller RPC transport", async () => {
+  const poolAddress = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const pool = { chainId: 1, address: poolAddress, deploymentBlock: 10n };
+
+  for (const entry of [nodeEntry, browserEntry]) {
+    const calls = [];
+    const fakeClient = {
+      getBlockNumber: async () => 15n,
+      getLogs: async ({ event, fromBlock, toBlock, address }) => {
+        calls.push({ name: event.name, fromBlock, toBlock, address });
+        assert.equal(address, poolAddress);
+        if (event.name === "Deposited") {
+          return [
+            {
+              args: {
+                _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                _commitment: 11n,
+                _label: 12n,
+                _value: 13n,
+                _merkleRoot: 14n,
+              },
+              blockNumber: 10n,
+              transactionHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000010",
+            },
+          ];
+        }
+        if (event.name === "Withdrawn") {
+          return [
+            {
+              args: {
+                _value: 5n,
+                _spentNullifier: 6n,
+                _newCommitment: 7n,
+              },
+              blockNumber: 12n,
+              transactionHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000012",
+            },
+          ];
+        }
+        if (event.name === "Ragequit") {
+          return [
+            {
+              args: {
+                _ragequitter: "0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                _commitment: 21n,
+                _label: 22n,
+                _value: 23n,
+              },
+              blockNumber: 14n,
+              transactionHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000014",
+            },
+          ];
+        }
+        throw new Error(`unexpected event ${event.name}`);
+      },
+    };
+    const dataService = new entry.DataService(
+      [
+        {
+          chainId: 1,
+          rpcUrl: "http://127.0.0.1:8545",
+          startBlock: 10n,
+          client: fakeClient,
+        },
+      ],
+      new Map([
+        [
+          1,
+          {
+            blockChunkSize: 20,
+            concurrency: 1,
+            retryOnFailure: false,
+          },
+        ],
+      ]),
+    );
+
+    const deposits = await dataService.getDeposits(pool);
+    assert.equal(deposits[0].depositor, "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    assert.equal(deposits[0].commitment, 11n);
+    assert.equal(deposits[0].commitmentHash, 11n);
+    assert.equal(deposits[0].precommitment, 14n);
+
+    const withdrawals = await dataService.getWithdrawals(pool, 11n);
+    assert.equal(withdrawals[0].withdrawn, 5n);
+    assert.equal(withdrawals[0].spentNullifierHash, 6n);
+    assert.equal(withdrawals[0].newCommitment, 7n);
+
+    const ragequits = await dataService.getRagequits(pool, 13n);
+    assert.equal(ragequits[0].ragequitter, "0xcccccccccccccccccccccccccccccccccccccccc");
+    assert.equal(ragequits[0].commitmentHash, 21n);
+    assert.equal(ragequits[0].value, 23n);
+    assert.deepEqual(
+      calls.map((call) => [call.name, call.fromBlock, call.toBlock]),
+      [
+        ["Deposited", 10n, 15n],
+        ["Withdrawn", 11n, 15n],
+        ["Ragequit", 13n, 15n],
+      ],
+    );
+  }
+
   await assert.rejects(
-    () => new nodeEntry.DataService([]).getDeposits({}),
-    nodeEntry.CompatibilityError,
+    () => new nodeEntry.DataService([]).getDeposits(pool),
+    nodeEntry.DataError,
   );
 });
 

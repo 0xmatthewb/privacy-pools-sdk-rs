@@ -22,6 +22,10 @@ Current status:
   with a default capacity of four sessions; call `clearCircuitSessionCache()` on
   a client or `clearBrowserCircuitSessionCache()` from the runtime to release
   cached browser session artifacts and their matching Rust/WASM sessions
+- the v1 facade can fetch public deposit, withdrawal, and ragequit logs through
+  caller-provided RPC/client transport, then pass those public event DTOs into
+  Rust-backed recovery helpers; mnemonics, nullifier secrets, witnesses, and
+  proofs stay local to the caller process
 
 This package does not reimplement protocol logic in JavaScript. The Node runtime
 delegates to Rust for key derivation, commitments, Merkle helpers, artifact

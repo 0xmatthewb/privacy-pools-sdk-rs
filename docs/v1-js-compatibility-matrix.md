@@ -28,9 +28,9 @@ verification, or recovery implementations.
 | `CommitmentService` | implemented wrapper | Uses Rust-backed commitment construction, proving, and verification. |
 | `WithdrawalService` | implemented wrapper | Uses Rust-backed withdrawal proving/verification; callers must provide withdrawal data or a prepared Rust-shaped request. |
 | `AccountService` | partial wrapper | Exposes Rust-backed recovery checkpointing, recovery keyset derivation, account-state replay, and spendable commitment selection from an explicit recovered-state DTO. Legacy JS account mutation/sync paths still throw `CompatibilityError`. |
-| `DataService` | partial wrapper | Exposes Rust-backed recovery checkpointing and account-state replay over caller-supplied events. v1 event-fetch methods still throw `CompatibilityError` until wired to explicit RPC/event transport. |
-| `ContractInteractionsService` | partial wrapper | Node exposes Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers. Browser Rust/WASM offline planning is implemented at branch head and should move to complete status after CI is green. RPC preflight/submission remains an app-owned transport concern. |
-| `BlockchainProvider` | compatibility shell | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` throws `CompatibilityError` because this SDK does not bundle `viem` RPC transport in the facade. |
+| `DataService` | implemented wrapper pending CI | Exposes public chain event fetching through caller-provided RPC/client transport, plus Rust-backed recovery checkpointing and account-state replay. Event fetching returns public deposit, withdrawal, and ragequit DTOs only; recovered state and secrets remain caller-owned local data. |
+| `ContractInteractionsService` | implemented wrapper | Node and browser expose Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers. RPC preflight/submission remains an app-owned transport concern so the SDK does not take raw private keys or sign transactions. |
+| `BlockchainProvider` | implemented wrapper pending CI | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` reads public balances through caller-provided or lazily created `viem` public-client transport. |
 | `DEFAULT_LOG_FETCH_CONFIG` | implemented constant | Matches v1 log-fetch defaults for callers that still import the constant. |
 | `generateMasterKeys` | implemented wrapper | Delegates to `deriveMasterKeys`. |
 | `generateDepositSecrets` | implemented wrapper | Delegates to Rust-backed deposit secret derivation. |
@@ -42,7 +42,7 @@ verification, or recovery implementations.
 | `hashPrecommitment` | implemented wrapper | Async intentional divergence; delegates through Rust-backed commitment construction and returns the Rust-computed precommitment hash. |
 | `checkpointRecovery` | implemented wrapper | Delegates to Rust recovery checkpointing; accepts camelCase and snake_case event/policy DTOs through facade normalization. |
 | `deriveRecoveryKeyset`, `recoverAccountState`, `recoverAccountStateWithKeyset` | implemented wrapper | Delegates to Rust recovery replay in Node and browser/WASM. Returned recovered-state DTOs contain spendable nullifier/secret material and are not retained by facade services; callers pass state explicitly to `AccountService.getSpendableCommitments(state)`. |
-| `formatGroth16ProofBundle`, transaction/root helpers | partial wrapper | Node delegates to Rust/mobile-equivalent bindings; browser exports fail closed until the same safe binding surface is available there. |
+| `formatGroth16ProofBundle`, transaction/root helpers | implemented wrapper | Node delegates to native Rust bindings, and browser delegates to Rust/WASM bindings. Both surfaces keep proof formatting and transaction calldata planning local. |
 | Error classes | implemented wrappers | Export v1 names and `CompatibilityError` with stable `code` values. |
 
 ## Intentional Divergences
@@ -58,6 +58,6 @@ verification, or recovery implementations.
 
 ## Follow-Up Bindings
 
-The next facade pass should replace the remaining compatibility shells with
-explicit network event ingestion and app-owned RPC preflight/submission
-adapters once those APIs are exposed through the JS package.
+The next facade pass should focus on app-owned RPC preflight/submission adapters
+only if they preserve the current signing boundary: the SDK may plan calldata,
+but applications must own wallet transport, user consent, and signing.

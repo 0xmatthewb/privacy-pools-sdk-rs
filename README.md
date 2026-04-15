@@ -29,11 +29,13 @@ Current first-class surfaces:
 - generated Android bindings
 - React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`
 
-Remaining browser/Node package milestone:
+Remaining package milestones:
 
-- network/event-backed v1 account-data behavior, recovered account-state DTOs,
-  and browser-safe contract planning beyond the current Rust-backed facade
-  wrappers and typed compatibility boundaries
+- green CI confirmation for the newly added v1 public event-fetch facade and
+  account-data wrappers
+- green manual/nightly mobile app-process smoke confirmation for React Native
+  iOS and Android simulator/emulator prove/verify coverage
+- broader release-mode benchmark evidence across runtime surfaces
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -46,6 +48,9 @@ At the protocol layer, the SDK derives keys, commitments, nullifiers, and
 LeanIMT witnesses in the shapes expected by the deployed Privacy Pools circuits.
 It resolves pinned circuit artifacts, builds `withdraw` inputs, generates proofs
 locally, and verifies those proofs before any execution flow moves forward.
+Mnemonics, nullifier secrets, witnesses, and proof material stay in the client
+process; the JS network facade only fetches public chain logs through
+application-provided RPC/client transport.
 
 At the application layer, it reconstructs account state from onchain events,
 including legacy migration cases, plans withdraw and relay transactions against

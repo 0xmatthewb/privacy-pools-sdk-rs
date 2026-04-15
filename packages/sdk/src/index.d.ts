@@ -72,6 +72,38 @@ export type PoolEvent = {
   commitmentHash: string;
 };
 
+export type ChainConfig = {
+  chainId: number;
+  chain_id?: number;
+  privacyPoolAddress?: string;
+  privacy_pool_address?: string;
+  startBlock?: number | bigint | string;
+  start_block?: number | bigint | string;
+  rpcUrl?: string;
+  rpc_url?: string;
+  client?: {
+    getBlockNumber(): Promise<bigint | number | string>;
+    getLogs(args: {
+      address: string;
+      event: unknown;
+      fromBlock: bigint;
+      toBlock: bigint;
+    }): Promise<unknown[]>;
+    getBalance?(args: { address: string }): Promise<bigint>;
+  };
+};
+
+export type PoolInfo = {
+  chainId: number;
+  chain_id?: number;
+  address?: string;
+  poolAddress?: string;
+  pool_address?: string;
+  privacyPoolAddress?: string;
+  deploymentBlock?: number | bigint | string;
+  deployment_block?: number | bigint | string;
+};
+
 export type RecoveryPolicy = {
   compatibilityMode?: "strict" | "legacy";
   compatibility_mode?: "strict" | "legacy";
@@ -92,37 +124,45 @@ export type RecoveryKeyset = {
 };
 
 export type DepositEvent = {
-  commitmentHash: RecoveryField;
+  depositor?: string;
+  commitment?: RecoveryField;
+  commitmentHash?: RecoveryField;
   commitment_hash?: RecoveryField;
   label: RecoveryField;
   value: RecoveryField;
-  precommitmentHash: RecoveryField;
+  precommitment?: RecoveryField;
+  precommitmentHash?: RecoveryField;
   precommitment_hash?: RecoveryField;
-  blockNumber: number;
+  blockNumber: number | bigint;
   block_number?: number;
   transactionHash: string;
   transaction_hash?: string;
 };
 
 export type WithdrawalEvent = {
-  withdrawnValue: RecoveryField;
+  withdrawn?: RecoveryField;
+  withdrawnValue?: RecoveryField;
   withdrawn_value?: RecoveryField;
-  spentNullifierHash: RecoveryField;
+  spentNullifier?: RecoveryField;
+  spentNullifierHash?: RecoveryField;
   spent_nullifier_hash?: RecoveryField;
-  newCommitmentHash: RecoveryField;
+  newCommitment?: RecoveryField;
+  newCommitmentHash?: RecoveryField;
   new_commitment_hash?: RecoveryField;
-  blockNumber: number;
+  blockNumber: number | bigint;
   block_number?: number;
   transactionHash: string;
   transaction_hash?: string;
 };
 
 export type RagequitEvent = {
-  commitmentHash: RecoveryField;
+  ragequitter?: string;
+  commitment?: RecoveryField;
+  commitmentHash?: RecoveryField;
   commitment_hash?: RecoveryField;
   label: RecoveryField;
   value: RecoveryField;
-  blockNumber: number;
+  blockNumber: number | bigint;
   block_number?: number;
   transactionHash: string;
   transaction_hash?: string;
@@ -405,7 +445,13 @@ export class Circuits {
 }
 
 export class BlockchainProvider {
-  constructor(rpcUrl: string);
+  constructor(
+    rpcUrl: string,
+    options?: {
+      chain?: unknown;
+      client?: { getBalance(args: { address: string }): Promise<bigint> };
+    },
+  );
   getBalance(address: string): Promise<bigint>;
 }
 
@@ -468,10 +514,20 @@ export class AccountService {
 }
 
 export class DataService {
-  constructor(...args: unknown[]);
-  getDeposits(...args: unknown[]): Promise<never>;
-  getWithdrawals(...args: unknown[]): Promise<never>;
-  getRagequits(...args: unknown[]): Promise<never>;
+  constructor(
+    chainConfigs?: ChainConfig[],
+    logFetchConfig?: Map<number, Partial<LogFetchConfig>> | Record<string, Partial<LogFetchConfig>>,
+    options?: { client?: PrivacyPoolsSdkClient },
+  );
+  getDeposits(pool: PoolInfo): Promise<DepositEvent[]>;
+  getWithdrawals(
+    pool: PoolInfo,
+    fromBlock?: number | bigint | string,
+  ): Promise<WithdrawalEvent[]>;
+  getRagequits(
+    pool: PoolInfo,
+    fromBlock?: number | bigint | string,
+  ): Promise<RagequitEvent[]>;
   checkpointRecovery(
     events: PoolEvent[],
     policy?: RecoveryPolicy,
