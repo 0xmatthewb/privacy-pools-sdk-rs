@@ -21,8 +21,8 @@ plan.
   event/RPC transport and JS bindings for recovered account state.
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
-  app-process smoke jobs are wired in the native release lanes and should move
-  to completed only after CI is green.
+  app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
+  workflow and should move to completed only after that workflow is green.
 - React Native iOS and Android app-process smoke harnesses now install the
   packed package tarball into generated consumer apps, copy deterministic
   fixture artifacts into app storage, and run native prepare/prove/verify
@@ -125,8 +125,9 @@ plan.
 
 - The mobile surfaces share the Rust session/caching model, and the shared FFI
   layer now runs full real prove/verify fixtures. React Native app-process
-  prove/verify smoke is wired for iOS and Android release lanes, but should
-  remain partially complete until those CI jobs are green.
+  prove/verify smoke is wired for iOS and Android in the manual/nightly
+  `mobile-smoke` workflow, but should remain partially complete until that
+  workflow is green.
 - The runtime matrix is now documented explicitly, Node is shipped, and browser
   proving is available, but the browser/Node package still needs network-backed
   v1 account-data behavior and recovered account-state DTO exports.
@@ -137,8 +138,9 @@ plan.
 
 - Browser/Node package parity with the website-used v1 network/event account-data
   facade is not complete yet.
-- Mobile app-level smoke coverage still needs green CI confirmation for the
-  newly wired React Native iOS and Android app-process prove/verify jobs.
+- Mobile app-level smoke coverage still needs green confirmation from the
+  `mobile-smoke` workflow for the newly wired React Native iOS and Android
+  app-process prove/verify jobs.
 
 ## Browser Proving Acceptance
 

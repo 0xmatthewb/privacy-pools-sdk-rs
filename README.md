@@ -108,6 +108,11 @@ cargo run -p xtask -- react-native-app-smoke-android
 cargo run -p xtask -- sdk-smoke
 ```
 
+The regular CI workflow runs the fast Rust, SDK, browser-worker, React Native
+package, and React Native typecheck gates on every push. The real simulator and
+emulator app-process mobile smokes run in the manual/nightly `mobile-smoke`
+workflow because they are intentionally heavyweight release/promotion gates.
+
 Further documentation:
 
 - [`docs/benchmarking.md`](docs/benchmarking.md)
