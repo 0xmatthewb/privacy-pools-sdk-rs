@@ -686,17 +686,18 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
     let mut code_hash_checks = Vec::with_capacity(report.code_hash_checks.len());
     for check in &report.code_hash_checks {
         let actual_code_hash = client.code_hash(check.address).await?;
-        let matches_expected = check
-            .expected_code_hash
-            .map(|expected| expected == actual_code_hash);
-
-        if let Some(false) = matches_expected {
-            return Err(ChainError::CodeHashMismatch {
-                address: check.address,
-                expected: check.expected_code_hash.expect("checked some above"),
-                actual: actual_code_hash,
-            });
-        }
+        let matches_expected = if let Some(expected_code_hash) = check.expected_code_hash {
+            if expected_code_hash != actual_code_hash {
+                return Err(ChainError::CodeHashMismatch {
+                    address: check.address,
+                    expected: expected_code_hash,
+                    actual: actual_code_hash,
+                });
+            }
+            Some(true)
+        } else {
+            None
+        };
 
         code_hash_checks.push(CodeHashCheck {
             address: check.address,
@@ -846,15 +847,18 @@ async fn preflight_transaction<C: ExecutionClient>(
     let mut code_hash_checks = Vec::with_capacity(code_expectations.len());
     for (address, expected_code_hash) in code_expectations {
         let actual_code_hash = client.code_hash(address).await?;
-        let matches_expected = expected_code_hash.map(|expected| expected == actual_code_hash);
-
-        if let Some(false) = matches_expected {
-            return Err(ChainError::CodeHashMismatch {
-                address,
-                expected: expected_code_hash.expect("checked some above"),
-                actual: actual_code_hash,
-            });
-        }
+        let matches_expected = if let Some(expected_code_hash) = expected_code_hash {
+            if expected_code_hash != actual_code_hash {
+                return Err(ChainError::CodeHashMismatch {
+                    address,
+                    expected: expected_code_hash,
+                    actual: actual_code_hash,
+                });
+            }
+            Some(true)
+        } else {
+            None
+        };
 
         code_hash_checks.push(CodeHashCheck {
             address,
