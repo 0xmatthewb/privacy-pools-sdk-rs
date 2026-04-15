@@ -84,6 +84,98 @@ export type RecoveryCheckpoint = {
   commitmentsSeen: number;
 };
 
+export type RecoveryField = string | bigint;
+
+export type RecoveryKeyset = {
+  safe: MasterKeys | V1MasterKeys;
+  legacy?: MasterKeys | V1MasterKeys;
+};
+
+export type DepositEvent = {
+  commitmentHash: RecoveryField;
+  commitment_hash?: RecoveryField;
+  label: RecoveryField;
+  value: RecoveryField;
+  precommitmentHash: RecoveryField;
+  precommitment_hash?: RecoveryField;
+  blockNumber: number;
+  block_number?: number;
+  transactionHash: string;
+  transaction_hash?: string;
+};
+
+export type WithdrawalEvent = {
+  withdrawnValue: RecoveryField;
+  withdrawn_value?: RecoveryField;
+  spentNullifierHash: RecoveryField;
+  spent_nullifier_hash?: RecoveryField;
+  newCommitmentHash: RecoveryField;
+  new_commitment_hash?: RecoveryField;
+  blockNumber: number;
+  block_number?: number;
+  transactionHash: string;
+  transaction_hash?: string;
+};
+
+export type RagequitEvent = {
+  commitmentHash: RecoveryField;
+  commitment_hash?: RecoveryField;
+  label: RecoveryField;
+  value: RecoveryField;
+  blockNumber: number;
+  block_number?: number;
+  transactionHash: string;
+  transaction_hash?: string;
+};
+
+export type PoolRecoveryInput = {
+  scope: RecoveryField;
+  depositEvents?: DepositEvent[];
+  deposit_events?: DepositEvent[];
+  withdrawalEvents?: WithdrawalEvent[];
+  withdrawal_events?: WithdrawalEvent[];
+  ragequitEvents?: RagequitEvent[];
+  ragequit_events?: RagequitEvent[];
+};
+
+export type RecoveredCommitment = {
+  hash: string;
+  value: string;
+  label: string;
+  nullifier: string;
+  secret: string;
+  blockNumber: number;
+  transactionHash: string;
+  isMigration: boolean;
+};
+
+export type RecoveredPoolAccount = {
+  label: string;
+  deposit: RecoveredCommitment;
+  children: RecoveredCommitment[];
+  ragequit?: RagequitEvent;
+  isMigrated: boolean;
+};
+
+export type RecoveredScope = {
+  scope: string;
+  accounts: RecoveredPoolAccount[];
+};
+
+export type SpendableScope = {
+  scope: string;
+  commitments: RecoveredCommitment[];
+};
+
+export type RecoveredAccountState = {
+  safeMasterKeys: MasterKeys;
+  legacyMasterKeys?: MasterKeys;
+  safeScopes: RecoveredScope[];
+  legacyScopes: RecoveredScope[];
+  safeSpendableCommitments: SpendableScope[];
+  legacySpendableCommitments: SpendableScope[];
+};
+
 export type LogFetchConfig = {
   blockChunkSize: number;
   concurrency: number;
@@ -350,12 +442,29 @@ export class PrivacyPoolSDK {
 
 export class AccountService {
   constructor(...args: unknown[]);
-  getSpendableCommitments(): never;
+  getSpendableCommitments(
+    state: RecoveredAccountState,
+    mode?: "safe" | "legacy",
+  ): SpendableScope[];
   sync(): never;
   checkpointRecovery(
     events: PoolEvent[],
     policy?: RecoveryPolicy,
   ): Promise<RecoveryCheckpoint>;
+  deriveRecoveryKeyset(
+    mnemonic: string,
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryKeyset>;
+  recoverAccountState(
+    mnemonic: string,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
+  recoverAccountStateWithKeyset(
+    keyset: RecoveryKeyset,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
 }
 
 export class DataService {
@@ -367,6 +476,20 @@ export class DataService {
     events: PoolEvent[],
     policy?: RecoveryPolicy,
   ): Promise<RecoveryCheckpoint>;
+  deriveRecoveryKeyset(
+    mnemonic: string,
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryKeyset>;
+  recoverAccountState(
+    mnemonic: string,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
+  recoverAccountStateWithKeyset(
+    keyset: RecoveryKeyset,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
 }
 
 export class ContractInteractionsService {
@@ -552,6 +675,20 @@ export class PrivacyPoolsSdkClient {
     events: PoolEvent[],
     policy?: RecoveryPolicy,
   ): Promise<RecoveryCheckpoint>;
+  deriveRecoveryKeyset(
+    mnemonic: string,
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveryKeyset>;
+  recoverAccountState(
+    mnemonic: string,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
+  recoverAccountStateWithKeyset(
+    keyset: RecoveryKeyset,
+    pools: PoolRecoveryInput[],
+    policy?: RecoveryPolicy,
+  ): Promise<RecoveredAccountState>;
 }
 
 export function createPrivacyPoolsSdkClient(): PrivacyPoolsSdkClient;
@@ -601,6 +738,20 @@ export function checkpointRecovery(
   events: PoolEvent[],
   policy?: RecoveryPolicy,
 ): Promise<RecoveryCheckpoint>;
+export function deriveRecoveryKeyset(
+  mnemonic: string,
+  policy?: RecoveryPolicy,
+): Promise<RecoveryKeyset>;
+export function recoverAccountState(
+  mnemonic: string,
+  pools: PoolRecoveryInput[],
+  policy?: RecoveryPolicy,
+): Promise<RecoveredAccountState>;
+export function recoverAccountStateWithKeyset(
+  keyset: RecoveryKeyset,
+  pools: PoolRecoveryInput[],
+  policy?: RecoveryPolicy,
+): Promise<RecoveredAccountState>;
 export function formatGroth16ProofBundle(
   proof: ProofBundle,
 ): Promise<FormattedGroth16Proof>;

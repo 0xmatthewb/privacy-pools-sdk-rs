@@ -327,6 +327,32 @@ export class PrivacyPoolsSdkClient {
       native.checkpointRecovery(JSON.stringify(events), JSON.stringify(policy)),
     );
   }
+
+  async deriveRecoveryKeyset(mnemonic, policy) {
+    return parseNativeJson(
+      native.deriveRecoveryKeyset(mnemonic, JSON.stringify(policy)),
+    );
+  }
+
+  async recoverAccountState(mnemonic, pools, policy) {
+    return parseNativeJson(
+      native.recoverAccountState(
+        mnemonic,
+        JSON.stringify(pools),
+        JSON.stringify(policy),
+      ),
+    );
+  }
+
+  async recoverAccountStateWithKeyset(keyset, pools, policy) {
+    return parseNativeJson(
+      native.recoverAccountStateWithKeyset(
+        JSON.stringify(keyset),
+        JSON.stringify(pools),
+        JSON.stringify(policy),
+      ),
+    );
+  }
 }
 
 export function createPrivacyPoolsSdkClient() {
@@ -362,6 +388,7 @@ export const {
   calculateContext,
   checkpointRecovery,
   circuitToAsset,
+  deriveRecoveryKeyset,
   formatGroth16ProofBundle,
   generateDepositSecrets,
   generateMasterKeys,
@@ -375,6 +402,8 @@ export const {
   planRagequitTransaction,
   planRelayTransaction,
   planWithdrawalTransaction,
+  recoverAccountState,
+  recoverAccountStateWithKeyset,
 } = facade;
 
 function encodeArtifactBytes(artifacts) {

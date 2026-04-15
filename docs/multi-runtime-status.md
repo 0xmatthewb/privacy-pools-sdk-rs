@@ -14,11 +14,11 @@ plan.
 
 ## In Progress
 
-- browser/Node v1 facade parity for network/event-backed account-data behavior,
-  recovered account-state DTOs, and browser-safe contract planning. A
-  compatibility matrix, contract tests, Rust-backed crypto/proof wrappers, and
-  typed compatibility boundaries now exist; the remaining work is explicit
-  event/RPC transport and JS bindings for recovered account state.
+- browser/Node v1 facade parity for network/event-backed account-data behavior
+  and browser-safe contract planning. A compatibility matrix, contract tests,
+  Rust-backed crypto/proof/recovery wrappers, and typed compatibility
+  boundaries now exist; the remaining work is explicit event/RPC transport and
+  browser-safe contract planning.
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
   app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
@@ -110,6 +110,11 @@ plan.
   wrappers for `Circuits`, `PrivacyPoolSDK`, commitment/withdrawal services,
   crypto helpers including `hashPrecommitment`, log-fetch constants, and typed
   compatibility errors.
+- The JS package now exposes Rust-backed recovery keyset and account-state DTO
+  wrappers in Node, browser, and browser-worker runtimes. Recovered state is
+  returned to the caller and must be passed explicitly to spendable commitment
+  helpers so facade services do not retain nullifier/secret material
+  implicitly.
 - The Node JS package now exposes Rust-backed offline contract planning,
   root-read, Groth16 formatting, current-root, and recovery checkpoint wrappers
   used by the v1 facade; browser contract planning remains fail-closed until a
@@ -130,7 +135,7 @@ plan.
   workflow is green.
 - The runtime matrix is now documented explicitly, Node is shipped, and browser
   proving is available, but the browser/Node package still needs network-backed
-  v1 account-data behavior and recovered account-state DTO exports.
+  v1 account-data behavior.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
 

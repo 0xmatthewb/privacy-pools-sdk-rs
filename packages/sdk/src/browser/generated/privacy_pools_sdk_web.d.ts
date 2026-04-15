@@ -13,9 +13,13 @@ export function buildWithdrawalWitnessInputJson(request_json: string): string;
 
 export function calculateWithdrawalContextJson(withdrawal_json: string, scope: string): string;
 
+export function checkpointRecoveryJson(events_json: string, policy_json: string): string;
+
 export function deriveDepositSecretsJson(master_keys_json: string, scope: string, index: string): string;
 
 export function deriveMasterKeysJson(mnemonic: string): string;
+
+export function deriveRecoveryKeysetJson(mnemonic: string, policy_json: string): string;
 
 export function deriveWithdrawalSecretsJson(master_keys_json: string, label: string, index: string): string;
 
@@ -33,6 +37,8 @@ export function getStableBackendName(): string;
 
 export function getVersion(): string;
 
+export function isCurrentStateRoot(expected_root: string, current_root: string): boolean;
+
 export function prepareCommitmentCircuitSessionFromBytes(manifest_json: string, artifacts: Array<any>): string;
 
 export function prepareWithdrawalCircuitSessionFromBytes(manifest_json: string, artifacts: Array<any>): string;
@@ -44,6 +50,10 @@ export function proveCommitmentWithWitnessJson(manifest_json: string, artifacts_
 export function proveWithdrawalWithSessionWitnessJson(session_handle: string, witness_json: string): string;
 
 export function proveWithdrawalWithWitnessJson(manifest_json: string, artifacts_json: string, witness_json: string): string;
+
+export function recoverAccountStateJson(mnemonic: string, pools_json: string, policy_json: string): string;
+
+export function recoverAccountStateWithKeysetJson(keyset_json: string, pools_json: string, policy_json: string): string;
 
 export function removeCommitmentCircuitSession(session_handle: string): boolean;
 
@@ -73,8 +83,10 @@ export interface InitOutput {
     readonly buildWithdrawalCircuitInputJson: (a: number, b: number) => [number, number, number, number];
     readonly buildWithdrawalWitnessInputJson: (a: number, b: number) => [number, number, number, number];
     readonly calculateWithdrawalContextJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly checkpointRecoveryJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly deriveDepositSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly deriveMasterKeysJson: (a: number, b: number) => [number, number, number, number];
+    readonly deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly deriveWithdrawalSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly fastBackendSupportedOnTarget: () => number;
     readonly generateMerkleProofJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
@@ -83,12 +95,15 @@ export interface InitOutput {
     readonly getCommitmentJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
     readonly getStableBackendName: () => [number, number];
     readonly getVersion: () => [number, number];
+    readonly isCurrentStateRoot: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly prepareCommitmentCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
     readonly prepareWithdrawalCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
     readonly proveCommitmentWithSessionWitnessJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly proveCommitmentWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly proveWithdrawalWithSessionWitnessJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly proveWithdrawalWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly recoverAccountStateJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly removeCommitmentCircuitSession: (a: number, b: number) => [number, number, number];
     readonly removeWithdrawalCircuitSession: (a: number, b: number) => [number, number, number];
     readonly resolveVerifiedArtifactBundleJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];

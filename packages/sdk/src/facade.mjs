@@ -369,12 +369,19 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
       this.client = extractClient(args, PrivacyPoolsSdkClient);
     }
 
-    getSpendableCommitments() {
-      throw unsupported("AccountService recovery state is not yet exposed through the JS facade");
+    getSpendableCommitments(state, mode = "safe") {
+      if (!state) {
+        throw unsupported(
+          "AccountService.getSpendableCommitments requires an explicit recovered account state",
+        );
+      }
+      return mode === "legacy"
+        ? state.legacySpendableCommitments ?? []
+        : state.safeSpendableCommitments ?? [];
     }
 
     sync() {
-      throw unsupported("AccountService sync requires the Rust-backed recovery JS facade");
+      throw unsupported("AccountService sync requires app-owned event/RPC transport");
     }
 
     async checkpointRecovery(events, policy = defaultRecoveryPolicy()) {
@@ -382,6 +389,35 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         this.client,
         "checkpointRecovery",
         normalizePoolEvents(events),
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async deriveRecoveryKeyset(mnemonic, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "deriveRecoveryKeyset",
+        mnemonic,
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async recoverAccountState(mnemonic, pools, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "recoverAccountState",
+        mnemonic,
+        normalizePoolRecoveryInputs(pools),
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async recoverAccountStateWithKeyset(keyset, pools, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "recoverAccountStateWithKeyset",
+        normalizeRecoveryKeyset(keyset),
+        normalizePoolRecoveryInputs(pools),
         normalizeRecoveryPolicy(policy),
       );
     }
@@ -410,6 +446,35 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         this.client,
         "checkpointRecovery",
         normalizePoolEvents(events),
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async deriveRecoveryKeyset(mnemonic, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "deriveRecoveryKeyset",
+        mnemonic,
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async recoverAccountState(mnemonic, pools, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "recoverAccountState",
+        mnemonic,
+        normalizePoolRecoveryInputs(pools),
+        normalizeRecoveryPolicy(policy),
+      );
+    }
+
+    async recoverAccountStateWithKeyset(keyset, pools, policy = defaultRecoveryPolicy()) {
+      return callClient(
+        this.client,
+        "recoverAccountStateWithKeyset",
+        normalizeRecoveryKeyset(keyset),
+        normalizePoolRecoveryInputs(pools),
         normalizeRecoveryPolicy(policy),
       );
     }
@@ -536,6 +601,33 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         createClient(),
         "checkpointRecovery",
         normalizePoolEvents(events),
+        normalizeRecoveryPolicy(policy),
+      ),
+    deriveRecoveryKeyset: async (mnemonic, policy = defaultRecoveryPolicy()) =>
+      callClient(
+        createClient(),
+        "deriveRecoveryKeyset",
+        mnemonic,
+        normalizeRecoveryPolicy(policy),
+      ),
+    recoverAccountState: async (mnemonic, pools, policy = defaultRecoveryPolicy()) =>
+      callClient(
+        createClient(),
+        "recoverAccountState",
+        mnemonic,
+        normalizePoolRecoveryInputs(pools),
+        normalizeRecoveryPolicy(policy),
+      ),
+    recoverAccountStateWithKeyset: async (
+      keyset,
+      pools,
+      policy = defaultRecoveryPolicy(),
+    ) =>
+      callClient(
+        createClient(),
+        "recoverAccountStateWithKeyset",
+        normalizeRecoveryKeyset(keyset),
+        normalizePoolRecoveryInputs(pools),
         normalizeRecoveryPolicy(policy),
       ),
     formatGroth16ProofBundle: async (proof) =>
@@ -745,6 +837,75 @@ function normalizePoolEvents(events) {
     poolAddress: event.poolAddress ?? event.pool_address,
     commitmentHash: event.commitmentHash ?? event.commitment_hash,
   }));
+}
+
+function normalizeRecoveryKeyset(keyset) {
+  return {
+    safe: normalizeMasterKeys(keyset.safe),
+    legacy: keyset.legacy ? normalizeMasterKeys(keyset.legacy) : undefined,
+  };
+}
+
+function normalizePoolRecoveryInputs(pools) {
+  return pools.map((pool) => ({
+    scope: decimalString(pool.scope),
+    depositEvents: (pool.depositEvents ?? pool.deposit_events ?? []).map(
+      normalizeDepositEvent,
+    ),
+    withdrawalEvents: (
+      pool.withdrawalEvents ??
+      pool.withdrawal_events ??
+      []
+    ).map(normalizeWithdrawalEvent),
+    ragequitEvents: (pool.ragequitEvents ?? pool.ragequit_events ?? []).map(
+      normalizeRagequitEvent,
+    ),
+  }));
+}
+
+function normalizeDepositEvent(event) {
+  return {
+    commitmentHash: decimalString(event.commitmentHash ?? event.commitment_hash),
+    label: decimalString(event.label),
+    value: decimalString(event.value),
+    precommitmentHash: decimalString(
+      event.precommitmentHash ?? event.precommitment_hash,
+    ),
+    blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
+  };
+}
+
+function normalizeWithdrawalEvent(event) {
+  return {
+    withdrawnValue: decimalString(event.withdrawnValue ?? event.withdrawn_value),
+    spentNullifierHash: decimalString(
+      event.spentNullifierHash ?? event.spent_nullifier_hash,
+    ),
+    newCommitmentHash: decimalString(
+      event.newCommitmentHash ?? event.new_commitment_hash,
+    ),
+    blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
+  };
+}
+
+function normalizeRagequitEvent(event) {
+  return {
+    commitmentHash: decimalString(event.commitmentHash ?? event.commitment_hash),
+    label: decimalString(event.label),
+    value: decimalString(event.value),
+    blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
+  };
+}
+
+function normalizeBytes32(value) {
+  const stringValue = String(value);
+  if (stringValue.startsWith("0x")) {
+    return `0x${stringValue.slice(2).padStart(64, "0")}`;
+  }
+  return `0x${BigInt(stringValue).toString(16).padStart(64, "0")}`;
 }
 
 async function hashPrecommitmentWithClient(client, nullifier, secret) {

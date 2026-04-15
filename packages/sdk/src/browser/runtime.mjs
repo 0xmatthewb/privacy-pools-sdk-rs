@@ -98,6 +98,45 @@ export async function buildCommitmentCircuitInput(request) {
   );
 }
 
+export async function checkpointRecovery(events, policy) {
+  return invokeJson(
+    "checkpointRecoveryJson",
+    JSON.stringify(events),
+    JSON.stringify(policy),
+  );
+}
+
+export async function deriveRecoveryKeyset(mnemonic, policy) {
+  return invokeJson(
+    "deriveRecoveryKeysetJson",
+    mnemonic,
+    JSON.stringify(policy),
+  );
+}
+
+export async function recoverAccountState(mnemonic, pools, policy) {
+  return invokeJson(
+    "recoverAccountStateJson",
+    mnemonic,
+    JSON.stringify(pools),
+    JSON.stringify(policy),
+  );
+}
+
+export async function recoverAccountStateWithKeyset(keyset, pools, policy) {
+  return invokeJson(
+    "recoverAccountStateWithKeysetJson",
+    JSON.stringify(keyset),
+    JSON.stringify(pools),
+    JSON.stringify(policy),
+  );
+}
+
+export async function isCurrentStateRoot(expectedRoot, currentRoot) {
+  const wasm = await getWasmModule();
+  return wasm.isCurrentStateRoot(String(expectedRoot), String(currentRoot));
+}
+
 export async function verifyArtifactBytes(manifestJson, circuit, artifacts) {
   const wasm = await getWasmModule();
   const normalizedArtifacts = normalizeArtifactInputs(artifacts);

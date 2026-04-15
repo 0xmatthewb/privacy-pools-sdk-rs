@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{Address, B256, U256};
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 #[cfg(target_arch = "wasm32")]
@@ -12,6 +12,11 @@ use privacy_pools_sdk_core::{
     MerkleProof, ProofBundle, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
 };
 use privacy_pools_sdk_prover::{self as prover, ProverBackend, ProvingResult};
+use privacy_pools_sdk_recovery::{
+    CompatibilityMode, DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent,
+    RecoveredAccountState, RecoveredCommitment, RecoveredPoolAccount, RecoveredScope,
+    RecoveryCheckpoint, RecoveryKeyset, RecoveryPolicy, SpendableScope, WithdrawalEvent,
+};
 use privacy_pools_sdk_verifier::PreparedVerifier;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -151,6 +156,125 @@ struct JsCommitmentCircuitInput {
 struct JsArtifactBytes {
     kind: String,
     bytes_base64: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveryKeyset {
+    safe: JsMasterKeys,
+    legacy: Option<JsMasterKeys>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsDepositEvent {
+    commitment_hash: String,
+    label: String,
+    value: String,
+    precommitment_hash: String,
+    block_number: u64,
+    transaction_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsWithdrawalEvent {
+    withdrawn_value: String,
+    spent_nullifier_hash: String,
+    new_commitment_hash: String,
+    block_number: u64,
+    transaction_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRagequitEvent {
+    commitment_hash: String,
+    label: String,
+    value: String,
+    block_number: u64,
+    transaction_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsPoolEvent {
+    block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
+    pool_address: String,
+    commitment_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsPoolRecoveryInput {
+    scope: String,
+    deposit_events: Vec<JsDepositEvent>,
+    withdrawal_events: Vec<JsWithdrawalEvent>,
+    ragequit_events: Vec<JsRagequitEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveryPolicy {
+    compatibility_mode: String,
+    fail_closed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveryCheckpoint {
+    latest_block: u64,
+    commitments_seen: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveredCommitment {
+    hash: String,
+    value: String,
+    label: String,
+    nullifier: String,
+    secret: String,
+    block_number: u64,
+    transaction_hash: String,
+    is_migration: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveredPoolAccount {
+    label: String,
+    deposit: JsRecoveredCommitment,
+    children: Vec<JsRecoveredCommitment>,
+    ragequit: Option<JsRagequitEvent>,
+    is_migrated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveredScope {
+    scope: String,
+    accounts: Vec<JsRecoveredPoolAccount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsSpendableScope {
+    scope: String,
+    commitments: Vec<JsRecoveredCommitment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRecoveredAccountState {
+    safe_master_keys: JsMasterKeys,
+    legacy_master_keys: Option<JsMasterKeys>,
+    safe_scopes: Vec<JsRecoveredScope>,
+    legacy_scopes: Vec<JsRecoveredScope>,
+    safe_spendable_commitments: Vec<JsSpendableScope>,
+    legacy_spendable_commitments: Vec<JsSpendableScope>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -366,6 +490,54 @@ pub fn build_commitment_witness_input_json(request_json: &str) -> Result<String>
     let request = from_js_commitment_witness_request(&request)?;
     let input = circuits::build_commitment_circuit_input(&request)?;
     prover::serialize_commitment_circuit_input(&input).map_err(Into::into)
+}
+
+pub fn checkpoint_recovery_json(events_json: &str, policy_json: &str) -> Result<String> {
+    let events = parse_json::<Vec<JsPoolEvent>>(events_json).and_then(from_js_pool_events)?;
+    let policy = parse_json::<JsRecoveryPolicy>(policy_json)
+        .and_then(|policy| from_js_recovery_policy(&policy))?;
+    let checkpoint = privacy_pools_sdk_recovery::checkpoint(&events, policy)?;
+    to_json_string(&to_js_recovery_checkpoint(&checkpoint))
+}
+
+pub fn derive_recovery_keyset_json(mnemonic: &str, policy_json: &str) -> Result<String> {
+    let policy = parse_json::<JsRecoveryPolicy>(policy_json)
+        .and_then(|policy| from_js_recovery_policy(&policy))?;
+    let keyset = privacy_pools_sdk_recovery::derive_recovery_keyset(mnemonic, policy)?;
+    to_json_string(&to_js_recovery_keyset(&keyset))
+}
+
+pub fn recover_account_state_json(
+    mnemonic: &str,
+    pools_json: &str,
+    policy_json: &str,
+) -> Result<String> {
+    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(pools_json)
+        .and_then(from_js_pool_recovery_inputs)?;
+    let policy = parse_json::<JsRecoveryPolicy>(policy_json)
+        .and_then(|policy| from_js_recovery_policy(&policy))?;
+    let state = privacy_pools_sdk_recovery::recover_account_state(mnemonic, &pools, policy)?;
+    to_json_string(&to_js_recovered_account_state(&state))
+}
+
+pub fn recover_account_state_with_keyset_json(
+    keyset_json: &str,
+    pools_json: &str,
+    policy_json: &str,
+) -> Result<String> {
+    let keyset = parse_json::<JsRecoveryKeyset>(keyset_json)
+        .and_then(|keyset| from_js_recovery_keyset(&keyset))?;
+    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(pools_json)
+        .and_then(from_js_pool_recovery_inputs)?;
+    let policy = parse_json::<JsRecoveryPolicy>(policy_json)
+        .and_then(|policy| from_js_recovery_policy(&policy))?;
+    let state =
+        privacy_pools_sdk_recovery::recover_account_state_with_keyset(&keyset, &pools, policy)?;
+    to_json_string(&to_js_recovered_account_state(&state))
+}
+
+pub fn is_current_state_root(expected_root: &str, current_root: &str) -> Result<bool> {
+    Ok(parse_field(expected_root)? == parse_field(current_root)?)
 }
 
 pub fn verify_artifact_bytes_json(
@@ -699,6 +871,53 @@ pub fn wasm_build_commitment_witness_input_json(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = checkpointRecoveryJson)]
+pub fn wasm_checkpoint_recovery_json(
+    events_json: &str,
+    policy_json: &str,
+) -> std::result::Result<String, JsValue> {
+    checkpoint_recovery_json(events_json, policy_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = deriveRecoveryKeysetJson)]
+pub fn wasm_derive_recovery_keyset_json(
+    mnemonic: &str,
+    policy_json: &str,
+) -> std::result::Result<String, JsValue> {
+    derive_recovery_keyset_json(mnemonic, policy_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = recoverAccountStateJson)]
+pub fn wasm_recover_account_state_json(
+    mnemonic: &str,
+    pools_json: &str,
+    policy_json: &str,
+) -> std::result::Result<String, JsValue> {
+    recover_account_state_json(mnemonic, pools_json, policy_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = recoverAccountStateWithKeysetJson)]
+pub fn wasm_recover_account_state_with_keyset_json(
+    keyset_json: &str,
+    pools_json: &str,
+    policy_json: &str,
+) -> std::result::Result<String, JsValue> {
+    recover_account_state_with_keyset_json(keyset_json, pools_json, policy_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = isCurrentStateRoot)]
+pub fn wasm_is_current_state_root(
+    expected_root: &str,
+    current_root: &str,
+) -> std::result::Result<bool, JsValue> {
+    is_current_state_root(expected_root, current_root).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = verifyArtifactBytesJson)]
 pub fn wasm_verify_artifact_bytes_json(
     manifest_json: &str,
@@ -905,6 +1124,10 @@ fn parse_address(value: &str) -> Result<Address> {
 
 fn parse_field(value: &str) -> Result<U256> {
     U256::from_str(value).with_context(|| format!("invalid field element `{value}`"))
+}
+
+fn parse_b256(value: &str) -> Result<B256> {
+    B256::from_str(value).with_context(|| format!("invalid bytes32 `{value}`"))
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
@@ -1203,6 +1426,199 @@ fn to_js_verified_artifact_bundle(
                 filename: artifact.descriptor().filename.clone(),
                 sha256: artifact.descriptor().sha256.clone(),
             })
+            .collect(),
+    }
+}
+
+fn from_js_pool_events(events: Vec<JsPoolEvent>) -> Result<Vec<PoolEvent>> {
+    events
+        .into_iter()
+        .map(|event| {
+            Ok(PoolEvent {
+                block_number: event.block_number,
+                transaction_index: event.transaction_index,
+                log_index: event.log_index,
+                pool_address: parse_address(&event.pool_address)?,
+                commitment_hash: parse_field(&event.commitment_hash)?,
+            })
+        })
+        .collect()
+}
+
+fn from_js_recovery_policy(policy: &JsRecoveryPolicy) -> Result<RecoveryPolicy> {
+    let compatibility_mode = match policy.compatibility_mode.as_str() {
+        "strict" => CompatibilityMode::Strict,
+        "legacy" => CompatibilityMode::Legacy,
+        other => bail!("invalid compatibility mode: {other}"),
+    };
+    Ok(RecoveryPolicy {
+        compatibility_mode,
+        fail_closed: policy.fail_closed,
+    })
+}
+
+fn to_js_recovery_checkpoint(checkpoint: &RecoveryCheckpoint) -> JsRecoveryCheckpoint {
+    JsRecoveryCheckpoint {
+        latest_block: checkpoint.latest_block,
+        commitments_seen: u64::try_from(checkpoint.commitments_seen).unwrap_or(u64::MAX),
+    }
+}
+
+fn from_js_recovery_keyset(keyset: &JsRecoveryKeyset) -> Result<RecoveryKeyset> {
+    Ok(RecoveryKeyset {
+        safe: to_master_keys(&keyset.safe)?,
+        legacy: keyset.legacy.as_ref().map(to_master_keys).transpose()?,
+    })
+}
+
+fn to_js_recovery_keyset(keyset: &RecoveryKeyset) -> JsRecoveryKeyset {
+    JsRecoveryKeyset {
+        safe: to_js_master_keys(&keyset.safe),
+        legacy: keyset.legacy.as_ref().map(to_js_master_keys),
+    }
+}
+
+fn from_js_pool_recovery_inputs(
+    inputs: Vec<JsPoolRecoveryInput>,
+) -> Result<Vec<PoolRecoveryInput>> {
+    inputs
+        .into_iter()
+        .map(|input| {
+            Ok(PoolRecoveryInput {
+                scope: parse_field(&input.scope)?,
+                deposit_events: input
+                    .deposit_events
+                    .iter()
+                    .map(from_js_deposit_event)
+                    .collect::<Result<Vec<_>>>()?,
+                withdrawal_events: input
+                    .withdrawal_events
+                    .iter()
+                    .map(from_js_withdrawal_event)
+                    .collect::<Result<Vec<_>>>()?,
+                ragequit_events: input
+                    .ragequit_events
+                    .iter()
+                    .map(from_js_ragequit_event)
+                    .collect::<Result<Vec<_>>>()?,
+            })
+        })
+        .collect()
+}
+
+fn from_js_deposit_event(event: &JsDepositEvent) -> Result<DepositEvent> {
+    Ok(DepositEvent {
+        commitment_hash: parse_field(&event.commitment_hash)?,
+        label: parse_field(&event.label)?,
+        value: parse_field(&event.value)?,
+        precommitment_hash: parse_field(&event.precommitment_hash)?,
+        block_number: event.block_number,
+        transaction_hash: parse_b256(&event.transaction_hash)?,
+    })
+}
+
+fn from_js_withdrawal_event(event: &JsWithdrawalEvent) -> Result<WithdrawalEvent> {
+    Ok(WithdrawalEvent {
+        withdrawn_value: parse_field(&event.withdrawn_value)?,
+        spent_nullifier_hash: parse_field(&event.spent_nullifier_hash)?,
+        new_commitment_hash: parse_field(&event.new_commitment_hash)?,
+        block_number: event.block_number,
+        transaction_hash: parse_b256(&event.transaction_hash)?,
+    })
+}
+
+fn from_js_ragequit_event(event: &JsRagequitEvent) -> Result<RagequitEvent> {
+    Ok(RagequitEvent {
+        commitment_hash: parse_field(&event.commitment_hash)?,
+        label: parse_field(&event.label)?,
+        value: parse_field(&event.value)?,
+        block_number: event.block_number,
+        transaction_hash: parse_b256(&event.transaction_hash)?,
+    })
+}
+
+fn to_js_ragequit_event(event: &RagequitEvent) -> JsRagequitEvent {
+    JsRagequitEvent {
+        commitment_hash: field_label(event.commitment_hash),
+        label: field_label(event.label),
+        value: field_label(event.value),
+        block_number: event.block_number,
+        transaction_hash: event.transaction_hash.to_string(),
+    }
+}
+
+fn to_js_recovered_commitment(commitment: &RecoveredCommitment) -> JsRecoveredCommitment {
+    JsRecoveredCommitment {
+        hash: field_label(commitment.hash),
+        value: field_label(commitment.value),
+        label: field_label(commitment.label),
+        nullifier: field_label(commitment.nullifier),
+        secret: field_label(commitment.secret),
+        block_number: commitment.block_number,
+        transaction_hash: commitment.transaction_hash.to_string(),
+        is_migration: commitment.is_migration,
+    }
+}
+
+fn to_js_recovered_pool_account(account: &RecoveredPoolAccount) -> JsRecoveredPoolAccount {
+    JsRecoveredPoolAccount {
+        label: field_label(account.label),
+        deposit: to_js_recovered_commitment(&account.deposit),
+        children: account
+            .children
+            .iter()
+            .map(to_js_recovered_commitment)
+            .collect(),
+        ragequit: account.ragequit.as_ref().map(to_js_ragequit_event),
+        is_migrated: account.is_migrated,
+    }
+}
+
+fn to_js_recovered_scope(scope: &RecoveredScope) -> JsRecoveredScope {
+    JsRecoveredScope {
+        scope: field_label(scope.scope),
+        accounts: scope
+            .accounts
+            .iter()
+            .map(to_js_recovered_pool_account)
+            .collect(),
+    }
+}
+
+fn to_js_spendable_scope(scope: &SpendableScope) -> JsSpendableScope {
+    JsSpendableScope {
+        scope: field_label(scope.scope),
+        commitments: scope
+            .commitments
+            .iter()
+            .map(to_js_recovered_commitment)
+            .collect(),
+    }
+}
+
+fn to_js_recovered_account_state(state: &RecoveredAccountState) -> JsRecoveredAccountState {
+    let safe_spendable_commitments = state.safe_spendable_commitments();
+    let legacy_spendable_commitments = state.legacy_spendable_commitments();
+    JsRecoveredAccountState {
+        safe_master_keys: to_js_master_keys(&state.safe_master_keys),
+        legacy_master_keys: state.legacy_master_keys.as_ref().map(to_js_master_keys),
+        safe_scopes: state
+            .safe_scopes
+            .iter()
+            .map(to_js_recovered_scope)
+            .collect(),
+        legacy_scopes: state
+            .legacy_scopes
+            .iter()
+            .map(to_js_recovered_scope)
+            .collect(),
+        safe_spendable_commitments: safe_spendable_commitments
+            .iter()
+            .map(to_js_spendable_scope)
+            .collect(),
+        legacy_spendable_commitments: legacy_spendable_commitments
+            .iter()
+            .map(to_js_spendable_scope)
             .collect(),
     }
 }

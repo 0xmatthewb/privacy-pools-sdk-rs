@@ -27,8 +27,8 @@ verification, or recovery implementations.
 | `PrivacyPoolSDK` | implemented wrapper | Delegates commitment/withdrawal proof methods to service wrappers. |
 | `CommitmentService` | implemented wrapper | Uses Rust-backed commitment construction, proving, and verification. |
 | `WithdrawalService` | implemented wrapper | Uses Rust-backed withdrawal proving/verification; callers must provide withdrawal data or a prepared Rust-shaped request. |
-| `AccountService` | partial wrapper | Exposes Rust-backed recovery checkpointing; legacy JS account mutation/sync paths still throw `CompatibilityError` until recovered account-state DTO bindings are exposed. |
-| `DataService` | partial wrapper | Exposes Rust-backed recovery checkpointing; v1 event-fetch methods still throw `CompatibilityError` until wired to explicit RPC/event transport. |
+| `AccountService` | partial wrapper | Exposes Rust-backed recovery checkpointing, recovery keyset derivation, account-state replay, and spendable commitment selection from an explicit recovered-state DTO. Legacy JS account mutation/sync paths still throw `CompatibilityError`. |
+| `DataService` | partial wrapper | Exposes Rust-backed recovery checkpointing and account-state replay over caller-supplied events. v1 event-fetch methods still throw `CompatibilityError` until wired to explicit RPC/event transport. |
 | `ContractInteractionsService` | partial wrapper | Node exposes Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers; browser contract planning remains a typed compatibility boundary until a browser-safe Rust binding is added. |
 | `BlockchainProvider` | compatibility shell | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` throws `CompatibilityError` because this SDK does not bundle `viem` RPC transport in the facade. |
 | `DEFAULT_LOG_FETCH_CONFIG` | implemented constant | Matches v1 log-fetch defaults for callers that still import the constant. |
@@ -41,6 +41,7 @@ verification, or recovery implementations.
 | `bigintToHash`, `bigintToHex` | JS shape helper | Pure representation helpers; no protocol hashing. |
 | `hashPrecommitment` | implemented wrapper | Async intentional divergence; delegates through Rust-backed commitment construction and returns the Rust-computed precommitment hash. |
 | `checkpointRecovery` | implemented wrapper | Delegates to Rust recovery checkpointing; accepts camelCase and snake_case event/policy DTOs through facade normalization. |
+| `deriveRecoveryKeyset`, `recoverAccountState`, `recoverAccountStateWithKeyset` | implemented wrapper | Delegates to Rust recovery replay in Node and browser/WASM. Returned recovered-state DTOs contain spendable nullifier/secret material and are not retained by facade services; callers pass state explicitly to `AccountService.getSpendableCommitments(state)`. |
 | `formatGroth16ProofBundle`, transaction/root helpers | partial wrapper | Node delegates to Rust/mobile-equivalent bindings; browser exports fail closed until the same safe binding surface is available there. |
 | Error classes | implemented wrappers | Export v1 names and `CompatibilityError` with stable `code` values. |
 
@@ -58,6 +59,5 @@ verification, or recovery implementations.
 ## Follow-Up Bindings
 
 The next facade pass should replace the remaining compatibility shells with
-Rust-backed bindings for recovered account-state DTOs, network event ingestion,
-and browser-safe contract/execution planning once those APIs are exposed through
-the JS package.
+explicit network event ingestion and browser-safe contract/execution planning
+once those APIs are exposed through the JS package.

@@ -44,6 +44,7 @@ const expectedFacadeExports = [
   "bigintToHex",
   "calculateContext",
   "checkpointRecovery",
+  "deriveRecoveryKeyset",
   "formatGroth16ProofBundle",
   "generateDepositSecrets",
   "generateMasterKeys",
@@ -57,6 +58,8 @@ const expectedFacadeExports = [
   "planRagequitTransaction",
   "planRelayTransaction",
   "planWithdrawalTransaction",
+  "recoverAccountState",
+  "recoverAccountStateWithKeyset",
 ];
 const expectedObjectExports = [
   "CircuitName",
@@ -122,6 +125,65 @@ test("v1 crypto helpers delegate to Rust-backed client methods", async () => {
   );
   assert.equal(context, cryptoFixture.context);
   assert.equal(nodeEntry.bigintToHex(255n), "0xff");
+});
+
+test("recovery facade exposes Rust-backed account-state DTOs", async () => {
+  for (const entry of [nodeEntry, browserEntry]) {
+    const policy = { compatibilityMode: "strict", failClosed: true };
+    const keyset = await entry.deriveRecoveryKeyset(cryptoFixture.mnemonic, policy);
+    assert.equal(
+      keyset.safe.masterNullifier,
+      cryptoFixture.keys.masterNullifier,
+    );
+    assert.equal(keyset.legacy, null);
+
+    const poolInputs = await buildStrictRecoveryPool(entry);
+    const recovered = await entry.recoverAccountState(
+      cryptoFixture.mnemonic,
+      poolInputs,
+      policy,
+    );
+    assert.equal(
+      recovered.safeMasterKeys.masterSecret,
+      cryptoFixture.keys.masterSecret,
+    );
+    assert.equal(recovered.safeScopes.length, 1);
+    assert.equal(recovered.safeScopes[0].scope, cryptoFixture.scope);
+    assert.equal(recovered.safeScopes[0].accounts.length, 1);
+    assert.equal(
+      recovered.safeScopes[0].accounts[0].deposit.hash,
+      cryptoFixture.commitment.hash,
+    );
+    assert.equal(recovered.safeSpendableCommitments.length, 1);
+    assert.equal(
+      recovered.safeSpendableCommitments[0].commitments[0].hash,
+      cryptoFixture.commitment.hash,
+    );
+
+    const recoveredWithKeyset = await entry.recoverAccountStateWithKeyset(
+      keyset,
+      poolInputs,
+      policy,
+    );
+    assert.deepEqual(recoveredWithKeyset, recovered);
+
+    const accountService = new entry.AccountService({
+      client: entry.createPrivacyPoolsSdkClient(),
+    });
+    assert.throws(
+      () => accountService.getSpendableCommitments(),
+      entry.CompatibilityError,
+    );
+    const serviceState = await accountService.recoverAccountState(
+      cryptoFixture.mnemonic,
+      poolInputs,
+      policy,
+    );
+    assert.equal(
+      accountService.getSpendableCommitments(serviceState)[0].commitments[0].hash,
+      serviceState.safeSpendableCommitments[0].commitments[0].hash,
+    );
+  }
 });
 
 test("Circuits returns only manifest-verified artifact bytes", async () => {
@@ -242,6 +304,39 @@ function readFixtureText(path) {
 
 function readFixtureJson(path) {
   return JSON.parse(readFixtureText(path));
+}
+
+async function buildStrictRecoveryPool(entry) {
+  const masterKeys = await entry.generateMasterKeys(cryptoFixture.mnemonic);
+  const depositSecrets = await entry.generateDepositSecrets(
+    masterKeys,
+    cryptoFixture.scope,
+    0n,
+  );
+  const commitment = await entry.getCommitment(
+    withdrawalFixture.existingValue,
+    cryptoFixture.label,
+    depositSecrets.nullifier,
+    depositSecrets.secret,
+  );
+  return [
+    {
+      scope: cryptoFixture.scope,
+      depositEvents: [
+        {
+          commitmentHash: commitment.hash,
+          label: cryptoFixture.label,
+          value: withdrawalFixture.existingValue,
+          precommitmentHash: commitment.preimage.precommitment.hash,
+          blockNumber: 10,
+          transactionHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+        },
+      ],
+      withdrawalEvents: [],
+      ragequitEvents: [],
+    },
+  ];
 }
 
 function createFixtureServer() {

@@ -4,9 +4,11 @@ import {
   buildCommitmentCircuitInput,
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
+  checkpointRecovery as runtimeCheckpointRecovery,
   clearBrowserCircuitSessionCache,
   deriveDepositSecrets,
   deriveMasterKeys,
+  deriveRecoveryKeyset as runtimeDeriveRecoveryKeyset,
   deriveWithdrawalSecrets,
   fastBackendSupportedOnTarget,
   generateMerkleProof as runtimeGenerateMerkleProof,
@@ -16,6 +18,7 @@ import {
   getRuntimeCapabilities,
   getStableBackendName,
   getVersion,
+  isCurrentStateRoot as runtimeIsCurrentStateRoot,
   prepareCommitmentCircuitSession,
   prepareCommitmentCircuitSessionFromBytes,
   prepareWithdrawalCircuitSession,
@@ -24,6 +27,8 @@ import {
   proveCommitmentWithSession,
   proveWithdrawal,
   proveWithdrawalWithSession,
+  recoverAccountState as runtimeRecoverAccountState,
+  recoverAccountStateWithKeyset as runtimeRecoverAccountStateWithKeyset,
   removeCommitmentCircuitSession,
   removeWithdrawalCircuitSession,
   resolveVerifiedCommitmentArtifactBundle,
@@ -93,6 +98,26 @@ export class PrivacyPoolsSdkClient {
 
   async buildCommitmentCircuitInput(request) {
     return buildCommitmentCircuitInput(request);
+  }
+
+  async checkpointRecovery(events, policy) {
+    return runtimeCheckpointRecovery(events, policy);
+  }
+
+  async deriveRecoveryKeyset(mnemonic, policy) {
+    return runtimeDeriveRecoveryKeyset(mnemonic, policy);
+  }
+
+  async recoverAccountState(mnemonic, pools, policy) {
+    return runtimeRecoverAccountState(mnemonic, pools, policy);
+  }
+
+  async recoverAccountStateWithKeyset(keyset, pools, policy) {
+    return runtimeRecoverAccountStateWithKeyset(keyset, pools, policy);
+  }
+
+  async isCurrentStateRoot(expectedRoot, currentRoot) {
+    return runtimeIsCurrentStateRoot(expectedRoot, currentRoot);
   }
 
   async getArtifactStatuses(manifestJson, artifactsRoot) {
@@ -241,6 +266,7 @@ export const {
   calculateContext,
   checkpointRecovery,
   circuitToAsset,
+  deriveRecoveryKeyset,
   formatGroth16ProofBundle,
   generateDepositSecrets,
   generateMasterKeys,
@@ -254,6 +280,8 @@ export const {
   planRagequitTransaction,
   planRelayTransaction,
   planWithdrawalTransaction,
+  recoverAccountState,
+  recoverAccountStateWithKeyset,
 } = facade;
 
 export function createWorkerClient(worker) {
@@ -338,6 +366,26 @@ class WorkerPrivacyPoolsSdkClient {
 
   async buildCommitmentCircuitInput(request) {
     return this.#send("buildCommitmentCircuitInput", [request]);
+  }
+
+  async checkpointRecovery(events, policy) {
+    return this.#send("checkpointRecovery", [events, policy]);
+  }
+
+  async deriveRecoveryKeyset(mnemonic, policy) {
+    return this.#send("deriveRecoveryKeyset", [mnemonic, policy]);
+  }
+
+  async recoverAccountState(mnemonic, pools, policy) {
+    return this.#send("recoverAccountState", [mnemonic, pools, policy]);
+  }
+
+  async recoverAccountStateWithKeyset(keyset, pools, policy) {
+    return this.#send("recoverAccountStateWithKeyset", [keyset, pools, policy]);
+  }
+
+  async isCurrentStateRoot(expectedRoot, currentRoot) {
+    return this.#send("isCurrentStateRoot", [expectedRoot, currentRoot]);
   }
 
   async getArtifactStatuses(manifestJson, artifactsRoot) {
