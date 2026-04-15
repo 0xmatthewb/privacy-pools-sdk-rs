@@ -1,3 +1,4 @@
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -26,6 +27,27 @@ pub struct ArtifactDescriptor {
 pub struct ArtifactManifest {
     pub version: String,
     pub artifacts: Vec<ArtifactDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactManifestMetadata {
+    pub ceremony: Option<String>,
+    pub build: Option<String>,
+    pub repository: Option<String>,
+    pub commit: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedArtifactManifestPayload {
+    pub manifest: ArtifactManifest,
+    pub metadata: ArtifactManifestMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignedArtifactManifest {
+    pub payload: SignedArtifactManifestPayload,
+    pub signature: String,
+    pub public_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,6 +156,10 @@ pub enum ArtifactError {
         expected: String,
         actual: String,
     },
+    #[error("invalid signed artifact manifest: {0}")]
+    InvalidSignedManifest(String),
+    #[error("artifact manifest signature verification failed")]
+    InvalidManifestSignature,
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -331,6 +357,33 @@ pub fn verify_artifact_file(resolved: &ResolvedArtifact) -> Result<(), ArtifactE
     verify_artifact_bytes(&resolved.descriptor, &bytes)
 }
 
+pub fn verify_signed_manifest_bytes(
+    payload_json: &[u8],
+    signature_hex: &str,
+    public_key_hex: &str,
+) -> Result<SignedArtifactManifestPayload, ArtifactError> {
+    let signature_bytes = decode_fixed_hex::<64>(signature_hex)?;
+    let public_key_bytes = decode_fixed_hex::<32>(public_key_hex)?;
+    let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
+        .map_err(|error| ArtifactError::InvalidSignedManifest(error.to_string()))?;
+    let signature = Signature::from_bytes(&signature_bytes);
+
+    verifying_key
+        .verify(payload_json, &signature)
+        .map_err(|_| ArtifactError::InvalidManifestSignature)?;
+
+    serde_json::from_slice(payload_json)
+        .map_err(|error| ArtifactError::InvalidSignedManifest(error.to_string()))
+}
+
+fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], ArtifactError> {
+    let bytes = hex::decode(value.trim_start_matches("0x"))
+        .map_err(|error| ArtifactError::InvalidSignedManifest(error.to_string()))?;
+    bytes.try_into().map_err(|bytes: Vec<u8>| {
+        ArtifactError::InvalidSignedManifest(format!("expected {N} bytes, got {}", bytes.len()))
+    })
+}
+
 pub fn artifact_status(root: impl AsRef<Path>, descriptor: &ArtifactDescriptor) -> ArtifactStatus {
     let path = root.as_ref().join(&descriptor.filename);
     let exists = path.exists();
@@ -366,6 +419,7 @@ pub fn artifact_statuses(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
     use std::path::PathBuf;
 
     #[test]
@@ -383,6 +437,64 @@ mod tests {
         verify_artifact_bytes(&resolved.descriptor, bytes).unwrap();
         verify_artifact_file(&resolved).unwrap();
         assert!(resolved.path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn verifies_signed_manifest_payload_bytes() {
+        let payload = SignedArtifactManifestPayload {
+            manifest: ArtifactManifest {
+                version: "1.2.0".to_owned(),
+                artifacts: vec![ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "withdraw.wasm".to_owned(),
+                    sha256: hex::encode(Sha256::digest(b"artifact bytes")),
+                }],
+            },
+            metadata: ArtifactManifestMetadata {
+                ceremony: Some("test ceremony".to_owned()),
+                build: Some("ci release".to_owned()),
+                repository: Some("0xbow/privacy-pools-sdk-rs".to_owned()),
+                commit: Some("abc123".to_owned()),
+            },
+        };
+        let payload_json = serde_json::to_vec(&payload).unwrap();
+        let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
+        let signature = signing_key.sign(&payload_json);
+        let signature_hex = hex::encode(signature.to_bytes());
+        let public_key_hex = hex::encode(signing_key.verifying_key().to_bytes());
+
+        let verified =
+            verify_signed_manifest_bytes(&payload_json, &signature_hex, &public_key_hex).unwrap();
+        assert_eq!(verified, payload);
+
+        let mut modified_payload = payload_json.clone();
+        modified_payload.push(b' ');
+        assert!(matches!(
+            verify_signed_manifest_bytes(&modified_payload, &signature_hex, &public_key_hex),
+            Err(ArtifactError::InvalidManifestSignature)
+        ));
+
+        let wrong_key = SigningKey::from_bytes(&[8_u8; 32]);
+        assert!(matches!(
+            verify_signed_manifest_bytes(
+                &payload_json,
+                &signature_hex,
+                &hex::encode(wrong_key.verifying_key().to_bytes())
+            ),
+            Err(ArtifactError::InvalidManifestSignature)
+        ));
+
+        let mut wrong_signature = signature.to_bytes();
+        wrong_signature[0] ^= 1;
+        assert!(matches!(
+            verify_signed_manifest_bytes(
+                &payload_json,
+                &hex::encode(wrong_signature),
+                &public_key_hex
+            ),
+            Err(ArtifactError::InvalidManifestSignature)
+        ));
     }
 
     #[test]

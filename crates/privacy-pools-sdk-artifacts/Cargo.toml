@@ -17,6 +17,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+ed25519-dalek.workspace = true
 hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
