@@ -94,13 +94,13 @@ pub struct PoolRecoveryInput {
     pub ragequit_events: Vec<RagequitEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveryKeyset {
     pub safe: MasterKeys,
     pub legacy: Option<MasterKeys>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredCommitment {
     pub hash: FieldElement,
     pub value: FieldElement,
@@ -112,7 +112,7 @@ pub struct RecoveredCommitment {
     pub is_migration: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredPoolAccount {
     pub label: FieldElement,
     pub deposit: RecoveredCommitment,
@@ -121,13 +121,13 @@ pub struct RecoveredPoolAccount {
     pub is_migrated: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredScope {
     pub scope: Scope,
     pub accounts: Vec<RecoveredPoolAccount>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredAccountState {
     pub safe_master_keys: MasterKeys,
     pub legacy_master_keys: Option<MasterKeys>,
@@ -135,7 +135,7 @@ pub struct RecoveredAccountState {
     pub legacy_scopes: Vec<RecoveredScope>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpendableScope {
     pub scope: Scope,
     pub commitments: Vec<RecoveredCommitment>,
@@ -1453,14 +1453,14 @@ mod tests {
         assert_ne!(keyset.safe.master_nullifier, legacy.master_nullifier);
         assert_ne!(keyset.safe.master_secret, legacy.master_secret);
         assert_eq!(
-            legacy.master_nullifier,
+            legacy.master_nullifier.dangerously_expose_field(),
             U256::from_str(
                 "16629217087516280053769625512741000936965671973118241282486996830438009025879"
             )
             .unwrap()
         );
         assert_eq!(
-            legacy.master_secret,
+            legacy.master_secret.dangerously_expose_field(),
             U256::from_str(
                 "9843793310547505184827673578253843418217689387365691544946232242162772441433"
             )

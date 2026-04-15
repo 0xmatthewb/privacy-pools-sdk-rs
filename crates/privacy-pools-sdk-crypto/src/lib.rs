@@ -60,12 +60,12 @@ pub fn generate_deposit_secrets(
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
         Nullifier::new(poseidon_hash(&[
-            keys.master_nullifier.expose_secret(),
+            keys.master_nullifier.dangerously_expose_field(),
             scope,
             index,
         ])?),
         Secret::new(poseidon_hash(&[
-            keys.master_secret.expose_secret(),
+            keys.master_secret.dangerously_expose_field(),
             scope,
             index,
         ])?),
@@ -79,12 +79,12 @@ pub fn generate_withdrawal_secrets(
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
         Nullifier::new(poseidon_hash(&[
-            keys.master_nullifier.expose_secret(),
+            keys.master_nullifier.dangerously_expose_field(),
             label,
             index,
         ])?),
         Secret::new(poseidon_hash(&[
-            keys.master_secret.expose_secret(),
+            keys.master_secret.dangerously_expose_field(),
             label,
             index,
         ])?),
@@ -97,12 +97,15 @@ pub fn hash_precommitment(
 ) -> Result<FieldElement, CryptoError> {
     let nullifier = nullifier.into();
     let secret = secret.into();
-    poseidon_hash(&[nullifier.expose_secret(), secret.expose_secret()])
+    poseidon_hash(&[
+        nullifier.dangerously_expose_field(),
+        secret.dangerously_expose_field(),
+    ])
 }
 
 pub fn hash_nullifier(nullifier: impl Into<Nullifier>) -> Result<FieldElement, CryptoError> {
     let nullifier = nullifier.into();
-    poseidon_hash(&[nullifier.expose_secret()])
+    poseidon_hash(&[nullifier.dangerously_expose_field()])
 }
 
 pub fn build_commitment(
@@ -113,9 +116,9 @@ pub fn build_commitment(
 ) -> Result<Commitment, CryptoError> {
     let nullifier = nullifier.into();
     let secret = secret.into();
-    validate_non_zero(nullifier.expose_secret(), "nullifier")?;
+    validate_non_zero(nullifier.dangerously_expose_field(), "nullifier")?;
     validate_non_zero(label, "label")?;
-    validate_non_zero(secret.expose_secret(), "secret")?;
+    validate_non_zero(secret.dangerously_expose_field(), "secret")?;
 
     let precommitment_hash = hash_precommitment(nullifier.clone(), secret.clone())?;
     let hash = poseidon_hash(&[value, label, precommitment_hash])?;
@@ -255,11 +258,11 @@ mod tests {
         let keys = generate_master_keys(mnemonic).unwrap();
 
         assert_eq!(
-            keys.master_nullifier,
+            keys.master_nullifier.dangerously_expose_field(),
             U256::from_str(fixture["keys"]["masterNullifier"].as_str().unwrap()).unwrap()
         );
         assert_eq!(
-            keys.master_secret,
+            keys.master_secret.dangerously_expose_field(),
             U256::from_str(fixture["keys"]["masterSecret"].as_str().unwrap()).unwrap()
         );
 
@@ -269,22 +272,22 @@ mod tests {
         let (deposit_nullifier, deposit_secret) =
             generate_deposit_secrets(&keys, scope, U256::ZERO).unwrap();
         assert_eq!(
-            deposit_nullifier,
+            deposit_nullifier.dangerously_expose_field(),
             U256::from_str(fixture["depositSecrets"]["nullifier"].as_str().unwrap()).unwrap()
         );
         assert_eq!(
-            deposit_secret,
+            deposit_secret.dangerously_expose_field(),
             U256::from_str(fixture["depositSecrets"]["secret"].as_str().unwrap()).unwrap()
         );
 
         let (withdraw_nullifier, withdraw_secret) =
             generate_withdrawal_secrets(&keys, label, U256::from(1)).unwrap();
         assert_eq!(
-            withdraw_nullifier,
+            withdraw_nullifier.dangerously_expose_field(),
             U256::from_str(fixture["withdrawalSecrets"]["nullifier"].as_str().unwrap()).unwrap()
         );
         assert_eq!(
-            withdraw_secret,
+            withdraw_secret.dangerously_expose_field(),
             U256::from_str(fixture["withdrawalSecrets"]["secret"].as_str().unwrap()).unwrap()
         );
 
@@ -340,11 +343,11 @@ mod tests {
         let legacy_keys = generate_legacy_master_keys(mnemonic).unwrap();
 
         assert_eq!(
-            legacy_keys.master_nullifier,
+            legacy_keys.master_nullifier.dangerously_expose_field(),
             U256::from_str(fixture["keys"]["masterNullifier"].as_str().unwrap()).unwrap()
         );
         assert_eq!(
-            legacy_keys.master_secret,
+            legacy_keys.master_secret.dangerously_expose_field(),
             U256::from_str(fixture["keys"]["masterSecret"].as_str().unwrap()).unwrap()
         );
         assert_ne!(legacy_keys.master_nullifier, safe_keys.master_nullifier);

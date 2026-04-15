@@ -9,8 +9,11 @@ use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_sol_types::{SolValue, sol};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
+
+pub mod wire;
 
 sol! {
     struct RelayDataAbi {
@@ -29,37 +32,40 @@ pub type Scope = U256;
 ///
 /// Nullifiers are spend-enabling protocol material until they are hashed for
 /// public signals. `Nullifier` deliberately does not expose its inner value
-/// through `Debug`. Use [`Nullifier::expose_secret`],
+/// through `Debug`. Use [`Nullifier::dangerously_expose_field`],
 /// [`Nullifier::to_decimal_string`], or [`Nullifier::to_hex_32`] only at
 /// explicit hashing, circuit, or serialization boundaries.
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Nullifier(U256);
+#[derive(Clone, Default)]
+pub struct Nullifier(Zeroizing<[u8; 32]>);
 
 impl Nullifier {
     /// Wraps a field element as nullifier material.
-    pub const fn new(value: U256) -> Self {
-        Self(value)
+    pub fn new(value: U256) -> Self {
+        Self(Zeroizing::new(field_to_be_bytes(value)))
     }
 
     /// Explicitly exposes the raw field element.
-    pub const fn expose_secret(&self) -> U256 {
-        self.0
+    ///
+    /// The deliberately noisy name marks this as a declassification boundary:
+    /// callers should only use it for hashing, proving, verification, or
+    /// compatibility wire exports.
+    pub fn dangerously_expose_field(&self) -> U256 {
+        field_from_be_bytes(*self.0)
     }
 
     /// Returns true when the nullifier field element is zero.
     pub fn is_zero(&self) -> bool {
-        self.0.is_zero()
+        self.0.iter().all(|byte| *byte == 0)
     }
 
     /// Serializes the nullifier as a decimal string for circuit and FFI payloads.
     pub fn to_decimal_string(&self) -> String {
-        self.0.to_string()
+        self.dangerously_expose_field().to_string()
     }
 
     /// Serializes the nullifier as a fixed-width 32-byte hex string.
     pub fn to_hex_32(&self) -> String {
-        field_to_hex_32(self.0)
+        field_to_hex_32(self.dangerously_expose_field())
     }
 }
 
@@ -75,29 +81,13 @@ impl From<&Nullifier> for Nullifier {
     }
 }
 
-impl From<Nullifier> for U256 {
-    fn from(value: Nullifier) -> Self {
-        value.0
+impl PartialEq for Nullifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_ref().ct_eq(other.0.as_ref()).into()
     }
 }
 
-impl From<&Nullifier> for U256 {
-    fn from(value: &Nullifier) -> Self {
-        value.0
-    }
-}
-
-impl PartialEq<U256> for Nullifier {
-    fn eq(&self, other: &U256) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialEq<Nullifier> for U256 {
-    fn eq(&self, other: &Nullifier) -> bool {
-        *self == other.0
-    }
-}
+impl Eq for Nullifier {}
 
 impl fmt::Debug for Nullifier {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -107,49 +97,46 @@ impl fmt::Debug for Nullifier {
 
 impl Zeroize for Nullifier {
     fn zeroize(&mut self) {
-        self.0 = U256::ZERO;
-    }
-}
-
-impl Drop for Nullifier {
-    fn drop(&mut self) {
-        self.zeroize();
+        self.0.zeroize();
     }
 }
 
 /// A redacted field element used for secret protocol material.
 ///
 /// `Secret` deliberately does not expose its inner value through `Debug`.
-/// Use [`Secret::expose_secret`] or [`Secret::to_decimal_string`] only at
-/// explicit serialization, hashing, or signing boundaries.
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Secret(U256);
+/// Use [`Secret::dangerously_expose_field`] or [`Secret::to_decimal_string`]
+/// only at explicit serialization, hashing, or signing boundaries.
+#[derive(Clone, Default)]
+pub struct Secret(Zeroizing<[u8; 32]>);
 
 impl Secret {
     /// Wraps a field element as secret material.
-    pub const fn new(value: U256) -> Self {
-        Self(value)
+    pub fn new(value: U256) -> Self {
+        Self(Zeroizing::new(field_to_be_bytes(value)))
     }
 
     /// Explicitly exposes the raw field element.
-    pub const fn expose_secret(&self) -> U256 {
-        self.0
+    ///
+    /// The deliberately noisy name marks this as a declassification boundary:
+    /// callers should only use it for hashing, proving, verification, or
+    /// compatibility wire exports.
+    pub fn dangerously_expose_field(&self) -> U256 {
+        field_from_be_bytes(*self.0)
     }
 
     /// Returns true when the secret field element is zero.
     pub fn is_zero(&self) -> bool {
-        self.0.is_zero()
+        self.0.iter().all(|byte| *byte == 0)
     }
 
     /// Serializes the secret as a decimal string for circuit and FFI payloads.
     pub fn to_decimal_string(&self) -> String {
-        self.0.to_string()
+        self.dangerously_expose_field().to_string()
     }
 
     /// Serializes the secret as a fixed-width 32-byte hex string.
     pub fn to_hex_32(&self) -> String {
-        field_to_hex_32(self.0)
+        field_to_hex_32(self.dangerously_expose_field())
     }
 }
 
@@ -159,23 +146,19 @@ impl From<U256> for Secret {
     }
 }
 
-impl From<Secret> for U256 {
-    fn from(value: Secret) -> Self {
-        value.0
+impl From<&Secret> for Secret {
+    fn from(value: &Secret) -> Self {
+        value.clone()
     }
 }
 
-impl PartialEq<U256> for Secret {
-    fn eq(&self, other: &U256) -> bool {
-        self.0 == *other
+impl PartialEq for Secret {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_ref().ct_eq(other.0.as_ref()).into()
     }
 }
 
-impl PartialEq<Secret> for U256 {
-    fn eq(&self, other: &Secret) -> bool {
-        *self == other.0
-    }
-}
+impl Eq for Secret {}
 
 impl fmt::Debug for Secret {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -185,18 +168,12 @@ impl fmt::Debug for Secret {
 
 impl Zeroize for Secret {
     fn zeroize(&mut self) {
-        self.0 = U256::ZERO;
-    }
-}
-
-impl Drop for Secret {
-    fn drop(&mut self) {
-        self.zeroize();
+        self.0.zeroize();
     }
 }
 
 /// Root Privacy Pools key material derived from a mnemonic.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MasterKeys {
     /// Secret seed used to derive nullifiers.
     pub master_nullifier: Secret,
@@ -205,7 +182,7 @@ pub struct MasterKeys {
 }
 
 /// The nullifier and secret preimage used to build a commitment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Precommitment {
     /// Poseidon hash of the nullifier and secret.
     pub hash: FieldElement,
@@ -216,7 +193,7 @@ pub struct Precommitment {
 }
 
 /// Full preimage for a Privacy Pools commitment.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitmentPreimage {
     /// Deposited value.
     pub value: FieldElement,
@@ -227,16 +204,11 @@ pub struct CommitmentPreimage {
 }
 
 /// A Privacy Pools commitment plus the preimage needed by client-side proving.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commitment {
     /// Commitment hash inserted into the pool tree.
     pub hash: FieldElement,
     /// Poseidon hash of the commitment nullifier and secret.
-    #[serde(
-        alias = "precommitmentHash",
-        alias = "nullifier_hash",
-        alias = "nullifierHash"
-    )]
     pub precommitment_hash: FieldElement,
     /// Client-side preimage for witness construction.
     pub preimage: CommitmentPreimage,
@@ -353,7 +325,7 @@ pub struct CircuitMerkleWitness {
     pub depth: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalWitnessRequest {
     pub commitment: Commitment,
     pub withdrawal: Withdrawal,
@@ -365,7 +337,7 @@ pub struct WithdrawalWitnessRequest {
     pub new_secret: Secret,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitmentWitnessRequest {
     pub commitment: Commitment,
 }
@@ -377,7 +349,7 @@ pub struct CommitmentWitnessRequest {
 /// helps Rust application code describe the protocol operation it is preparing.
 pub type RagequitWitnessRequest = CommitmentWitnessRequest;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitmentCircuitInput {
     pub value: FieldElement,
     pub label: FieldElement,
@@ -385,37 +357,23 @@ pub struct CommitmentCircuitInput {
     pub secret: Secret,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalCircuitInput {
-    #[serde(rename = "withdrawnValue")]
     pub withdrawn_value: FieldElement,
-    #[serde(rename = "stateRoot")]
     pub state_root: FieldElement,
-    #[serde(rename = "stateTreeDepth")]
     pub state_tree_depth: usize,
-    #[serde(rename = "ASPRoot")]
     pub asp_root: FieldElement,
-    #[serde(rename = "ASPTreeDepth")]
     pub asp_tree_depth: usize,
     pub context: FieldElement,
     pub label: FieldElement,
-    #[serde(rename = "existingValue")]
     pub existing_value: FieldElement,
-    #[serde(rename = "existingNullifier")]
     pub existing_nullifier: Nullifier,
-    #[serde(rename = "existingSecret")]
     pub existing_secret: Secret,
-    #[serde(rename = "newNullifier")]
     pub new_nullifier: Nullifier,
-    #[serde(rename = "newSecret")]
     pub new_secret: Secret,
-    #[serde(rename = "stateSiblings")]
     pub state_siblings: Vec<FieldElement>,
-    #[serde(rename = "stateIndex")]
     pub state_index: usize,
-    #[serde(rename = "ASPSiblings")]
     pub asp_siblings: Vec<FieldElement>,
-    #[serde(rename = "ASPIndex")]
     pub asp_index: usize,
 }
 
@@ -480,12 +438,59 @@ pub struct RootRead {
     pub call_data: Bytes,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionPolicyMode {
+    #[default]
+    Strict,
+    InsecureDev,
+}
+
+impl ExecutionPolicyMode {
+    pub const fn is_strict(&self) -> bool {
+        matches!(self, Self::Strict)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPolicy {
     pub expected_chain_id: u64,
     pub caller: Address,
     pub expected_pool_code_hash: Option<B256>,
     pub expected_entrypoint_code_hash: Option<B256>,
+    #[serde(default, skip_serializing_if = "ExecutionPolicyMode::is_strict")]
+    pub mode: ExecutionPolicyMode,
+}
+
+impl ExecutionPolicy {
+    pub const fn strict(
+        expected_chain_id: u64,
+        caller: Address,
+        pool_code_hash: B256,
+        entrypoint_code_hash: B256,
+    ) -> Self {
+        Self {
+            expected_chain_id,
+            caller,
+            expected_pool_code_hash: Some(pool_code_hash),
+            expected_entrypoint_code_hash: Some(entrypoint_code_hash),
+            mode: ExecutionPolicyMode::Strict,
+        }
+    }
+
+    pub const fn insecure_dev(expected_chain_id: u64, caller: Address) -> Self {
+        Self {
+            expected_chain_id,
+            caller,
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+            mode: ExecutionPolicyMode::InsecureDev,
+        }
+    }
+
+    pub const fn is_insecure_dev(&self) -> bool {
+        matches!(self.mode, ExecutionPolicyMode::InsecureDev)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -552,6 +557,12 @@ pub struct RelayExecutionConfig {
 pub enum CoreError {
     #[error("failed to parse decimal field element: {0}")]
     InvalidDecimalField(String),
+    #[error("failed to parse address: {0}")]
+    InvalidAddress(String),
+    #[error("failed to parse hex bytes: {0}")]
+    InvalidHexBytes(String),
+    #[error("commitment nullifier hash compatibility field must match precommitment hash")]
+    MismatchedCommitmentCompatibilityHash,
     #[error("field element cannot be zero: {0}")]
     ZeroValue(&'static str),
     #[error(
@@ -572,8 +583,16 @@ pub fn field_to_decimal(value: FieldElement) -> String {
     value.to_string()
 }
 
+pub fn field_to_be_bytes(value: FieldElement) -> [u8; 32] {
+    value.to_be_bytes::<32>()
+}
+
+pub fn field_from_be_bytes(bytes: [u8; 32]) -> FieldElement {
+    U256::from_be_slice(&bytes)
+}
+
 pub fn field_to_hex_32(value: FieldElement) -> String {
-    format!("0x{}", hex::encode(value.to_be_bytes::<32>()))
+    format!("0x{}", hex::encode(field_to_be_bytes(value)))
 }
 
 #[cfg(test)]
@@ -586,7 +605,7 @@ mod tests {
         let secret = Secret::new(U256::from(42_u64));
 
         assert_eq!(format!("{secret:?}"), "Secret([redacted])");
-        assert_eq!(secret.expose_secret(), U256::from(42_u64));
+        assert_eq!(secret.dangerously_expose_field(), U256::from(42_u64));
         assert_eq!(secret.to_decimal_string(), "42");
     }
 
@@ -595,7 +614,7 @@ mod tests {
         let mut secret = Secret::new(U256::from(42_u64));
         secret.zeroize();
 
-        assert_eq!(secret.expose_secret(), U256::ZERO);
+        assert_eq!(secret.dangerously_expose_field(), U256::ZERO);
     }
 
     #[test]
@@ -603,7 +622,7 @@ mod tests {
         let nullifier = Nullifier::new(U256::from(42_u64));
 
         assert_eq!(format!("{nullifier:?}"), "Nullifier([redacted])");
-        assert_eq!(nullifier.expose_secret(), U256::from(42_u64));
+        assert_eq!(nullifier.dangerously_expose_field(), U256::from(42_u64));
         assert_eq!(nullifier.to_decimal_string(), "42");
     }
 
@@ -612,7 +631,7 @@ mod tests {
         let mut nullifier = Nullifier::new(U256::from(42_u64));
         nullifier.zeroize();
 
-        assert_eq!(nullifier.expose_secret(), U256::ZERO);
+        assert_eq!(nullifier.dangerously_expose_field(), U256::ZERO);
     }
 
     #[test]
@@ -656,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn commitment_prefers_precommitment_hash_and_accepts_old_alias() {
+    fn commitment_wire_exports_v1_compatibility_hashes() {
         let commitment = Commitment {
             hash: U256::from(1_u64),
             precommitment_hash: U256::from(2_u64),
@@ -671,19 +690,50 @@ mod tests {
             },
         };
 
-        let mut json = serde_json::to_value(&commitment).expect("commitment serializes");
-        assert!(json.get("precommitment_hash").is_some());
-        assert!(json.get("nullifier_hash").is_none());
+        let wire = wire::WireCommitment::from(&commitment);
+        let json = serde_json::to_value(&wire).expect("wire commitment serializes");
+        assert_eq!(json["precommitmentHash"], "2");
+        assert_eq!(json["nullifierHash"], "2");
 
-        let precommitment_hash = json
-            .as_object_mut()
-            .expect("commitment json is an object")
-            .remove("precommitment_hash")
-            .expect("precommitment hash exists");
-        json.as_object_mut()
-            .expect("commitment json is an object")
-            .insert("nullifier_hash".to_owned(), precommitment_hash);
-        let decoded: Commitment = serde_json::from_value(json).expect("old alias decodes");
+        let decoded: Commitment = serde_json::from_value::<wire::WireCommitment>(json)
+            .expect("wire commitment decodes")
+            .try_into()
+            .expect("wire commitment converts");
         assert_eq!(decoded, commitment);
+
+        let legacy_json = serde_json::json!({
+            "hash": "1",
+            "nullifier_hash": "2",
+            "value": "3",
+            "label": "4",
+            "nullifier": "5",
+            "secret": "6"
+        });
+        let decoded: Commitment = serde_json::from_value::<wire::WireCommitment>(legacy_json)
+            .expect("legacy wire commitment decodes")
+            .try_into()
+            .expect("legacy wire commitment converts");
+        assert_eq!(decoded, commitment);
+    }
+
+    #[test]
+    fn field_bytes_roundtrip_big_endian_boundaries() {
+        let values = [
+            U256::ZERO,
+            U256::from(1_u64),
+            U256::from_be_slice(&[0, 0, 0, 7]),
+            U256::MAX,
+            U256::from_str(
+                "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+            )
+            .expect("bn254 scalar field modulus parses"),
+        ];
+
+        for value in values {
+            let bytes = field_to_be_bytes(value);
+            assert_eq!(field_from_be_bytes(bytes), value);
+            assert_eq!(Secret::new(value).dangerously_expose_field(), value);
+            assert_eq!(Nullifier::new(value).dangerously_expose_field(), value);
+        }
     }
 }
