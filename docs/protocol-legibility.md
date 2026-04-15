@@ -41,6 +41,12 @@ The lower-level `commitment` name remains visible around the circuit artifact an
 cryptographic state object so agents can still map Rust code back to deployed
 circuits, public signals, and npm v1.2.0 compatibility behavior.
 
+The Rust API does not keep unreleased compatibility aliases such as
+`get_commitment`, `create_deposit_commitment`, or `calculate_context`. Those
+names may remain on JS, Node, browser, FFI, or mobile package surfaces when they
+serve npm/mobile migration, but Rust callers should use `build_commitment`,
+`prepare_deposit`, and `calculate_withdrawal_context`.
+
 One important distinction is now explicit in Rust names: a commitment's
 `precommitment_hash` is `Poseidon(nullifier, secret)`, while the spent
 nullifier hash used by withdrawal/ragequit public signals is

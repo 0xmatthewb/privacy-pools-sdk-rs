@@ -17,6 +17,9 @@ verification, or recovery implementations.
 - Browser and facade helper functions are async because Rust/WASM initialization
   and native addon calls are async. This is an intentional divergence from v1
   sync crypto helpers.
+- Compatibility names in this matrix apply to JS, Node, browser, FFI, mobile,
+  and serialized payloads. The unreleased Rust API keeps protocol-legible names
+  instead of aliases; see `docs/rust-migration-from-npm.md`.
 
 ## Exports
 

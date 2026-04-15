@@ -40,6 +40,8 @@ Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
 correction proposed in
 [`0xbow-io/privacy-pools-core#122`](https://github.com/0xbow-io/privacy-pools-core/pull/122).
+Rust callers should use the protocol-legible Rust API rather than unreleased
+alias names; the npm migration guide maps familiar JS names to Rust names.
 
 ## Capabilities
 
@@ -141,6 +143,9 @@ workflow because they are intentionally heavyweight release/promotion gates.
 Further documentation:
 
 - [`docs/benchmarking.md`](docs/benchmarking.md)
+- [`docs/feature-matrix.md`](docs/feature-matrix.md)
+- [`docs/crates-publish-order.md`](docs/crates-publish-order.md)
+- [`docs/rust-migration-from-npm.md`](docs/rust-migration-from-npm.md)
 - [`docs/release-process.md`](docs/release-process.md)
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
