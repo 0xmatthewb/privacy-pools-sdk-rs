@@ -47,6 +47,10 @@ plan.
 - The browser runtime now supports real proof verification and verification
   session reuse against manifest-bound `vkey` artifacts through the shared Rust
   verifier layer.
+- Artifact/session safety coverage now includes fail-closed tests for incomplete
+  bundles, unexpected bundle bytes, unknown circuits, tampered browser
+  artifacts, tampered browser proofs, stale browser sessions, stale Node
+  sessions, and invalid Node proving artifacts.
 - The Rust protocol/core crates still keep the workspace `unsafe_code = forbid`
   posture. The only exception is the thin Node addon wrapper crate, which needs
   generated `unsafe` for N-API module registration.
@@ -76,7 +80,9 @@ plan.
 
 The proving stack is still native-oriented. The workspace now contains a
 browser-focused Rust binding crate plus real browser helper, artifact, and
-verification APIs, but the prover dependencies still rely on the native
-`rust-witness` toolchain. Browser support should stay on the same Rust-first
-foundation, and it still needs a WASM-capable prover path before real local
-browser proving can ship safely.
+verification APIs, but the compiled witness path still relies on the
+`rust-witness` transpilation pipeline. A direct `wasm32-unknown-unknown` prover
+build currently tries to compile generated C/WASI support for the browser target
+and fails before producing a usable browser prover. Browser support should stay
+on the same Rust-first foundation, but local browser proving needs a dedicated
+WASM-capable witness execution strategy before it can ship safely.

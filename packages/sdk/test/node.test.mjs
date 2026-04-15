@@ -33,6 +33,12 @@ const sampleProvingManifest = readFileSync(
 const sampleArtifact = readFileSync(
   join(fixturesRoot, "artifacts", "sample-artifact.bin"),
 );
+const browserVerificationProof = JSON.parse(
+  readFileSync(
+    join(fixturesRoot, "vectors", "browser-verification-proof.json"),
+    "utf8",
+  ),
+);
 
 test("node runtime reports capabilities", () => {
   assert.deepEqual(getRuntimeCapabilities(), {
@@ -163,3 +169,62 @@ test("node addon reports artifact statuses from the sample manifest", async () =
   assert.equal(statuses[0].kind, "wasm");
   assert.equal(statuses[0].verified, true);
 });
+
+test("node addon fails closed for stale sessions and invalid proving artifacts", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const session = await sdk.prepareWithdrawalCircuitSessionFromBytes(
+    sampleProvingManifest,
+    [
+      { kind: "wasm", bytes: sampleArtifact },
+      { kind: "zkey", bytes: sampleArtifact },
+      { kind: "vkey", bytes: sampleArtifact },
+    ],
+  );
+  assert.equal(session.circuit, "withdraw");
+
+  const request = await buildWithdrawalRequest(sdk);
+  await assert.rejects(
+    () => sdk.proveWithdrawalWithSession("stable", session.handle, request),
+    /invalid zkey|unexpected end of zkey header|missing Groth16 header/,
+  );
+
+  assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
+  await assert.rejects(
+    () =>
+      sdk.verifyWithdrawalProofWithSession(
+        "stable",
+        session.handle,
+        browserVerificationProof,
+      ),
+    /withdrawal circuit session handle not found/,
+  );
+});
+
+async function buildWithdrawalRequest(sdk) {
+  const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
+  const depositSecrets = await sdk.deriveDepositSecrets(
+    keys,
+    cryptoFixture.scope,
+    "0",
+  );
+  const commitment = await sdk.getCommitment(
+    withdrawalFixture.existingValue,
+    withdrawalFixture.label,
+    depositSecrets.nullifier,
+    depositSecrets.secret,
+  );
+
+  return {
+    commitment,
+    withdrawal: {
+      processooor: "0x1111111111111111111111111111111111111111",
+      data: "0x1234",
+    },
+    scope: cryptoFixture.scope,
+    withdrawalAmount: withdrawalFixture.withdrawalAmount,
+    stateWitness: withdrawalFixture.stateWitness,
+    aspWitness: withdrawalFixture.aspWitness,
+    newNullifier: withdrawalFixture.newNullifier,
+    newSecret: withdrawalFixture.newSecret,
+  };
+}

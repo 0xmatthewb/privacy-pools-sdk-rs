@@ -475,6 +475,96 @@ mod tests {
     }
 
     #[test]
+    fn rejects_incomplete_bundle_bytes() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let error = manifest
+            .verify_bundle_bytes(
+                "withdraw",
+                [
+                    ArtifactBytes {
+                        kind: ArtifactKind::Wasm,
+                        bytes: bytes.clone(),
+                    },
+                    ArtifactBytes {
+                        kind: ArtifactKind::Zkey,
+                        bytes,
+                    },
+                ],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ArtifactError::MissingArtifact {
+                circuit,
+                kind: ArtifactKind::Vkey,
+            } if circuit == "withdraw"
+        ));
+    }
+
+    #[test]
+    fn rejects_unexpected_bundle_bytes() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let error = manifest
+            .verify_bundle_bytes(
+                "withdraw",
+                [
+                    ArtifactBytes {
+                        kind: ArtifactKind::Wasm,
+                        bytes: bytes.clone(),
+                    },
+                    ArtifactBytes {
+                        kind: ArtifactKind::Zkey,
+                        bytes,
+                    },
+                ],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ArtifactError::UnexpectedArtifactBytes {
+                circuit,
+                kind: ArtifactKind::Zkey,
+            } if circuit == "withdraw"
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_bundle_circuit() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let error = manifest
+            .verify_bundle_bytes(
+                "relay",
+                [ArtifactBytes {
+                    kind: ArtifactKind::Wasm,
+                    bytes,
+                }],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ArtifactError::MissingCircuit(circuit) if circuit == "relay"
+        ));
+    }
+
+    #[test]
     fn verified_bundle_fails_closed_on_hash_mismatch() {
         let manifest = ArtifactManifest {
             version: "0.1.0-alpha.1".to_owned(),

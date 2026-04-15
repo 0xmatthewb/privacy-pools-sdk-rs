@@ -207,6 +207,66 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
   }
 });
 
+test("browser runtime fails closed on artifact, proof, and session mismatches", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const server = createFixtureServer();
+  await server.start();
+
+  try {
+    const tamperedArtifact = Uint8Array.from(sampleArtifact);
+    tamperedArtifact[0] ^= 0xff;
+    await assert.rejects(
+      () =>
+        sdk.verifyArtifactBytes(sampleManifest, "withdraw", [
+          { kind: "wasm", bytes: tamperedArtifact },
+        ]),
+      /sha256 mismatch/,
+    );
+
+    const tamperedProof = JSON.parse(JSON.stringify(browserVerificationProof));
+    tamperedProof.publicSignals[0] = "9";
+    assert.equal(
+      await sdk.verifyWithdrawalProof(
+        "stable",
+        browserVerificationManifest,
+        server.rootUrl,
+        tamperedProof,
+      ),
+      false,
+    );
+
+    await assert.rejects(
+      () =>
+        sdk.verifyWithdrawalProof(
+          "fast",
+          browserVerificationManifest,
+          server.rootUrl,
+          browserVerificationProof,
+        ),
+      (error) =>
+        error instanceof BrowserRuntimeUnavailableError &&
+        error.message.includes("stable backend"),
+    );
+
+    const session = await sdk.prepareWithdrawalCircuitSession(
+      browserVerificationManifest,
+      server.rootUrl,
+    );
+    assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
+    await assert.rejects(
+      () =>
+        sdk.verifyWithdrawalProofWithSession(
+          "stable",
+          session.handle,
+          browserVerificationProof,
+        ),
+      /unknown browser withdrawal circuit session/,
+    );
+  } finally {
+    await server.stop();
+  }
+});
+
 test("browser worker client performs real wasm-backed helper calls", async () => {
   const worker = new Worker(new URL("../src/browser/worker.mjs", import.meta.url), {
     type: "module",
