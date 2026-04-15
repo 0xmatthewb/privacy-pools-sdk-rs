@@ -32,6 +32,10 @@ serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true, features = ["js"] }
+uuid = { workspace = true, features = ["js"] }
+
 [build-dependencies]
 camino.workspace = true
 rust-witness.workspace = true
