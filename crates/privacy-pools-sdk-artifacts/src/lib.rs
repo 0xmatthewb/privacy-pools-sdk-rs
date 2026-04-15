@@ -98,6 +98,8 @@ pub enum ArtifactError {
     MissingCircuit(String),
     #[error("missing artifact `{kind:?}` for circuit `{circuit}`")]
     MissingArtifact { circuit: String, kind: ArtifactKind },
+    #[error("duplicate artifact descriptor for `{kind:?}` in circuit `{circuit}`")]
+    DuplicateArtifactDescriptor { circuit: String, kind: ArtifactKind },
     #[error("duplicate artifact bytes supplied for `{kind:?}` in circuit `{circuit}`")]
     DuplicateArtifactBytes { circuit: String, kind: ArtifactKind },
     #[error("artifact file does not exist: {0}")]
@@ -120,13 +122,24 @@ impl ArtifactManifest {
         circuit: &str,
         kind: ArtifactKind,
     ) -> Result<&ArtifactDescriptor, ArtifactError> {
-        self.artifacts
+        let mut matches = self
+            .artifacts
             .iter()
-            .find(|artifact| artifact.circuit == circuit && artifact.kind == kind)
+            .filter(|artifact| artifact.circuit == circuit && artifact.kind == kind);
+        let descriptor = matches
+            .next()
             .ok_or_else(|| ArtifactError::MissingArtifact {
                 circuit: circuit.to_owned(),
                 kind,
-            })
+            })?;
+        if matches.next().is_some() {
+            return Err(ArtifactError::DuplicateArtifactDescriptor {
+                circuit: circuit.to_owned(),
+                kind,
+            });
+        }
+
+        Ok(descriptor)
     }
 
     pub fn resolve_path(&self, root: impl AsRef<Path>, descriptor: &ArtifactDescriptor) -> PathBuf {
@@ -161,10 +174,7 @@ impl ArtifactManifest {
         root: impl AsRef<Path>,
         circuit: &str,
     ) -> Result<ResolvedArtifactBundle, ArtifactError> {
-        let descriptors = self.descriptors_for_circuit(circuit);
-        if descriptors.is_empty() {
-            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
-        }
+        let descriptors = self.validated_descriptors_for_circuit(circuit)?;
 
         let artifacts = descriptors
             .into_iter()
@@ -187,10 +197,7 @@ impl ArtifactManifest {
         root: impl AsRef<Path>,
         circuit: &str,
     ) -> Result<VerifiedArtifactBundle, ArtifactError> {
-        let descriptors = self.descriptors_for_circuit(circuit);
-        if descriptors.is_empty() {
-            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
-        }
+        let descriptors = self.validated_descriptors_for_circuit(circuit)?;
 
         let artifacts = descriptors
             .into_iter()
@@ -218,10 +225,7 @@ impl ArtifactManifest {
         circuit: &str,
         artifacts: impl IntoIterator<Item = ArtifactBytes>,
     ) -> Result<VerifiedArtifactBundle, ArtifactError> {
-        let descriptors = self.descriptors_for_circuit(circuit);
-        if descriptors.is_empty() {
-            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
-        }
+        let descriptors = self.validated_descriptors_for_circuit(circuit)?;
 
         let mut supplied = HashMap::new();
         for artifact in artifacts {
@@ -260,6 +264,28 @@ impl ArtifactManifest {
             circuit: circuit.to_owned(),
             artifacts: verified,
         })
+    }
+
+    fn validated_descriptors_for_circuit(
+        &self,
+        circuit: &str,
+    ) -> Result<Vec<&ArtifactDescriptor>, ArtifactError> {
+        let descriptors = self.descriptors_for_circuit(circuit);
+        if descriptors.is_empty() {
+            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
+        }
+
+        let mut seen = HashMap::<ArtifactKind, ()>::new();
+        for descriptor in &descriptors {
+            if seen.insert(descriptor.kind, ()).is_some() {
+                return Err(ArtifactError::DuplicateArtifactDescriptor {
+                    circuit: circuit.to_owned(),
+                    kind: descriptor.kind,
+                });
+            }
+        }
+
+        Ok(descriptors)
     }
 }
 
@@ -581,5 +607,41 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(error, ArtifactError::HashMismatch { .. }));
+    }
+
+    #[test]
+    fn rejects_duplicate_artifact_descriptors() {
+        let manifest = ArtifactManifest {
+            version: "0.1.0-alpha.1".to_owned(),
+            artifacts: vec![
+                ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "sample-artifact.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+                ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Wasm,
+                    filename: "sample-artifact-copy.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+            ],
+        };
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+
+        let error = manifest
+            .resolve_verified_bundle(root, "withdraw")
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ArtifactError::DuplicateArtifactDescriptor {
+                circuit,
+                kind: ArtifactKind::Wasm,
+            } if circuit == "withdraw"
+        ));
     }
 }
