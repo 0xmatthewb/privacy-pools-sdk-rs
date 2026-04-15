@@ -1,6 +1,7 @@
 [package]
 name = "privacy-pools-sdk-node"
 version = "0.1.0"
+description = "Node native addon package surface for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

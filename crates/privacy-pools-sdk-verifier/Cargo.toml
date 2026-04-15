@@ -12,6 +12,10 @@ readme = "../../README.md"
 keywords = ["privacy", "zero-knowledge", "ethereum", "sdk"]
 categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 ark-bls12-381.workspace = true
 ark-bn254.workspace = true

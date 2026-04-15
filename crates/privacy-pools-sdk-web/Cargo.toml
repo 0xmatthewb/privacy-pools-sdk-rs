@@ -1,6 +1,7 @@
 [package]
 name = "privacy-pools-sdk-web"
 version = "0.1.0"
+description = "Browser WebAssembly package surface for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

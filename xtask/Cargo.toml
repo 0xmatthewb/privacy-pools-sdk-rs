@@ -1,6 +1,7 @@
 [package]
 name = "xtask"
 version = "0.1.0"
+description = "Workspace automation tasks for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,7 @@
 [package]
 name = "privacy-pools-sdk-cli"
 version = "0.1.0"
+description = "Local development CLI for the Privacy Pools Rust SDK"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
