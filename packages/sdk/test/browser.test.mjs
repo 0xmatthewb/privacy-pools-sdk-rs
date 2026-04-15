@@ -63,6 +63,7 @@ test("browser runtime reports browser verification capabilities", () => {
 test("browser wasm runtime matches reference helper vectors", async () => {
   const sdk = new PrivacyPoolsSdkClient();
 
+  assert.deepEqual(await sdk.getRuntimeCapabilities(), getRuntimeCapabilities());
   assert.equal(await sdk.getStableBackendName(), "Arkworks");
   assert.equal(await sdk.fastBackendSupportedOnTarget(), false);
 
@@ -276,6 +277,8 @@ test("browser worker client performs real wasm-backed helper calls", async () =>
   await server.start();
 
   try {
+    assert.deepEqual(await sdk.getRuntimeCapabilities(), getRuntimeCapabilities());
+
     const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
     assert.equal(keys.masterNullifier, cryptoFixture.keys.masterNullifier);
 

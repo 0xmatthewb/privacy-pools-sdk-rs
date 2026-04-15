@@ -51,6 +51,8 @@ test("node runtime reports capabilities", () => {
 
 test("node addon matches reference crypto vectors", async () => {
   const sdk = new PrivacyPoolsSdkClient();
+  assert.deepEqual(await sdk.getRuntimeCapabilities(), getRuntimeCapabilities());
+
   const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
   assert.equal(keys.masterNullifier, cryptoFixture.keys.masterNullifier);
   assert.equal(keys.masterSecret, cryptoFixture.keys.masterSecret);

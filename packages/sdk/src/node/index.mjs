@@ -14,6 +14,10 @@ export function createWorkerClient() {
 }
 
 export class PrivacyPoolsSdkClient {
+  async getRuntimeCapabilities() {
+    return getRuntimeCapabilities();
+  }
+
   async getVersion() {
     return unwrapNativeValue(native.getVersion());
   }

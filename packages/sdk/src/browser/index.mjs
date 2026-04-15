@@ -27,6 +27,10 @@ import {
 export { BrowserRuntimeUnavailableError, getRuntimeCapabilities };
 
 export class PrivacyPoolsSdkClient {
+  async getRuntimeCapabilities() {
+    return getRuntimeCapabilities();
+  }
+
   async getVersion() {
     return getVersion();
   }
@@ -146,6 +150,10 @@ class WorkerPrivacyPoolsSdkClient {
 
       pending.reject(deserializeWorkerError(message.error));
     });
+  }
+
+  async getRuntimeCapabilities() {
+    return this.#send("getRuntimeCapabilities");
   }
 
   async getVersion() {

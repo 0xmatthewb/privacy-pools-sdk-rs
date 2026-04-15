@@ -144,6 +144,7 @@ export type RuntimeCapabilities = {
 export class BrowserRuntimeUnavailableError extends Error {}
 
 export class PrivacyPoolsSdkClient {
+  getRuntimeCapabilities(): Promise<RuntimeCapabilities>;
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
   fastBackendSupportedOnTarget(): Promise<boolean>;
