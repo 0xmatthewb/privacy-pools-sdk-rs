@@ -51,6 +51,11 @@ plan.
   bundles, unexpected bundle bytes, unknown circuits, tampered browser
   artifacts, tampered browser proofs, stale browser sessions, stale Node
   sessions, and invalid Node proving artifacts.
+- The unified JS client classes now expose runtime capabilities consistently
+  across browser, browser worker, and Node runtimes.
+- The React Native consumer smoke app now typechecks the reusable withdrawal
+  circuit session APIs instead of only importing the older path-based proving
+  and verification methods.
 - The Rust protocol/core crates still keep the workspace `unsafe_code = forbid`
   posture. The only exception is the thin Node addon wrapper crate, which needs
   generated `unsafe` for N-API module registration.
@@ -81,8 +86,11 @@ plan.
 The proving stack is still native-oriented. The workspace now contains a
 browser-focused Rust binding crate plus real browser helper, artifact, and
 verification APIs, but the compiled witness path still relies on the
-`rust-witness` transpilation pipeline. A direct `wasm32-unknown-unknown` prover
-build currently tries to compile generated C/WASI support for the browser target
-and fails before producing a usable browser prover. Browser support should stay
-on the same Rust-first foundation, but local browser proving needs a dedicated
-WASM-capable witness execution strategy before it can ship safely.
+`rust-witness` transpilation pipeline. The prover crate now has the WASM-target
+randomness feature wiring needed to get past the initial `getrandom`/`uuid`
+browser build failure, but a direct `wasm32-unknown-unknown` prover build still
+tries to compile generated C/WASI support for the browser target and fails on
+missing C runtime headers such as `stdio.h` and `math.h` before producing a
+usable browser prover. Browser support should stay on the same Rust-first
+foundation, but local browser proving needs a dedicated WASM-capable witness
+execution strategy before it can ship safely.
