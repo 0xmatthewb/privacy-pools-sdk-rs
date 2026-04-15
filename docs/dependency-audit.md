@@ -15,6 +15,8 @@ proving stack (`circom-prover` and arkworks) and the Ethereum client stack
 
 The repo treats these warnings as explicit residual risk, not silent ignores:
 
+- `deny.toml` suppresses the accepted advisory IDs that do not have a safe
+  semver-compatible fix yet
 - `xtask dependency-check` verifies that the advisory set is exactly the one
   listed above
 - the check fails if a new advisory appears, if one of the accepted warnings

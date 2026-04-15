@@ -35,6 +35,19 @@ jobs:
       - run: npm pack --dry-run --json
         working-directory: packages/react-native
 
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - run: cargo run -p xtask -- sdk-smoke
+      - run: npm pack --dry-run --json
+        working-directory: packages/sdk
+
   react-native-sample-app:
     runs-on: ubuntu-latest
     steps:
