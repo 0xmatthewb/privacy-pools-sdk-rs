@@ -1358,6 +1358,50 @@ mod tests {
     }
 
     #[test]
+    fn rejects_witness_indices_outside_declared_depth() {
+        let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let commitment_hash = commitment.hash;
+        let request = core::WithdrawalWitnessRequest {
+            commitment,
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(789_u64),
+            withdrawal_amount: U256::from(400_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: commitment_hash,
+                leaf: commitment_hash,
+                index: 4,
+                siblings: vec![U256::ZERO; 32],
+                depth: 1,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(456_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 0,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+
+        assert!(matches!(
+            sdk.build_withdrawal_circuit_input(&request),
+            Err(SdkError::Tree(tree::TreeError::InvalidCircuitWitnessIndex { index, depth }))
+                if index == 4 && depth == 1
+        ));
+    }
+
+    #[test]
     fn rejects_inconsistent_commitment_fields_before_execution() {
         let sdk = PrivacyPoolsSdk::default();
         let commitment = crypto::get_commitment(

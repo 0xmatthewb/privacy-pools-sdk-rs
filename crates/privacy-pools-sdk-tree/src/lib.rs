@@ -12,6 +12,8 @@ pub enum TreeError {
     LeafNotFound,
     #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
     InvalidCircuitWitnessShape { expected: usize, actual: usize },
+    #[error("circuit witness index {index} exceeds declared depth {depth}")]
+    InvalidCircuitWitnessIndex { index: usize, depth: usize },
     #[error("circuit depth {depth} is smaller than proof depth {proof_depth}")]
     InvalidCircuitDepth { depth: usize, proof_depth: usize },
     #[error("circuit depth {depth} exceeds protocol maximum {max_depth}")]
@@ -95,11 +97,20 @@ pub fn compute_circuit_root(witness: &CircuitMerkleWitness) -> Result<FieldEleme
     }
 
     let mut node = witness.leaf;
-    for (level, sibling) in witness.siblings.iter().copied().enumerate() {
-        if sibling.is_zero() {
-            continue;
-        }
+    if witness.depth < usize::BITS as usize && (witness.index >> witness.depth) != 0 {
+        return Err(TreeError::InvalidCircuitWitnessIndex {
+            index: witness.index,
+            depth: witness.depth,
+        });
+    }
 
+    for (level, sibling) in witness
+        .siblings
+        .iter()
+        .copied()
+        .take(witness.depth)
+        .enumerate()
+    {
         let is_right = ((witness.index >> level) & 1) == 1;
         node = if is_right {
             poseidon_hash(&[sibling, node])?
@@ -322,5 +333,40 @@ mod tests {
         witness.root += U256::from(1_u64);
 
         assert!(!verify_circuit_witness(&witness).unwrap());
+    }
+
+    #[test]
+    fn zero_siblings_within_depth_are_hashed_not_ignored() {
+        let witness = CircuitMerkleWitness {
+            root: U256::ZERO,
+            leaf: U256::from(44_u64),
+            index: 0,
+            siblings: {
+                let mut siblings = vec![U256::ZERO; DEFAULT_CIRCUIT_DEPTH];
+                siblings[0] = U256::ZERO;
+                siblings
+            },
+            depth: 1,
+        };
+
+        let expected = poseidon_hash(&[U256::from(44_u64), U256::ZERO]).unwrap();
+        assert_eq!(compute_circuit_root(&witness).unwrap(), expected);
+    }
+
+    #[test]
+    fn rejects_indices_outside_declared_depth() {
+        let witness = CircuitMerkleWitness {
+            root: U256::from(44_u64),
+            leaf: U256::from(44_u64),
+            index: 4,
+            siblings: vec![U256::ZERO; DEFAULT_CIRCUIT_DEPTH],
+            depth: 1,
+        };
+
+        assert!(matches!(
+            compute_circuit_root(&witness),
+            Err(TreeError::InvalidCircuitWitnessIndex { index, depth })
+                if index == 4 && depth == 1
+        ));
     }
 }
