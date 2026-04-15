@@ -31,6 +31,26 @@ pub struct SubmittedTransactionExecution {
     pub receipt: core::TransactionReceiptSummary,
 }
 
+#[derive(Clone)]
+pub struct WithdrawalCircuitSession {
+    bundle: artifacts::VerifiedArtifactBundle,
+    prepared: prover::PreparedCircuitArtifacts,
+}
+
+impl WithdrawalCircuitSession {
+    pub fn circuit(&self) -> &str {
+        &self.bundle.circuit
+    }
+
+    pub fn artifact_version(&self) -> &str {
+        &self.bundle.version
+    }
+
+    pub fn verified_bundle(&self) -> &artifacts::VerifiedArtifactBundle {
+        &self.bundle
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SdkError {
     #[error(transparent)]
@@ -203,6 +223,41 @@ impl PrivacyPoolsSdk {
         manifest.resolve_verified_bundle(root, circuit)
     }
 
+    pub fn load_verified_artifact_bundle(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        circuit: &str,
+    ) -> Result<artifacts::VerifiedArtifactBundle, artifacts::ArtifactError> {
+        manifest.load_verified_bundle(root, circuit)
+    }
+
+    pub fn verify_artifact_bundle_bytes(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        circuit: &str,
+        artifacts: impl IntoIterator<Item = artifacts::ArtifactBytes>,
+    ) -> Result<artifacts::VerifiedArtifactBundle, artifacts::ArtifactError> {
+        manifest.verify_bundle_bytes(circuit, artifacts)
+    }
+
+    pub fn prepare_withdrawal_circuit_session_from_bundle(
+        &self,
+        bundle: artifacts::VerifiedArtifactBundle,
+    ) -> Result<WithdrawalCircuitSession, SdkError> {
+        let prepared = prover::PreparedCircuitArtifacts::from_verified_bundle(&bundle)?;
+        Ok(WithdrawalCircuitSession { bundle, prepared })
+    }
+
+    pub fn prepare_withdrawal_circuit_session(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+    ) -> Result<WithdrawalCircuitSession, SdkError> {
+        let bundle = self.load_verified_artifact_bundle(manifest, root, "withdraw")?;
+        self.prepare_withdrawal_circuit_session_from_bundle(bundle)
+    }
+
     pub fn plan_asp_root_read(
         &self,
         entrypoint_address: Address,
@@ -304,9 +359,21 @@ impl PrivacyPoolsSdk {
         request: &core::WithdrawalWitnessRequest,
         witness_fn: prover::WitnessFn,
     ) -> Result<prover::ProvingResult, SdkError> {
-        let proving_request = self.prepare_withdrawal_proving_request(manifest, root, request)?;
+        let session = self.prepare_withdrawal_circuit_session(manifest, root)?;
+        self.prove_withdrawal_with_session_and_witness(profile, &session, request, witness_fn)
+    }
+
+    pub fn prove_withdrawal_with_session_and_witness(
+        &self,
+        profile: BackendProfile,
+        session: &WithdrawalCircuitSession,
+        request: &core::WithdrawalWitnessRequest,
+        witness_fn: prover::WitnessFn,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        let input = self.build_withdrawal_circuit_input(request)?;
+        let input_json = self.serialize_withdrawal_circuit_input(&input)?;
         self.proving_engine(profile)?
-            .prove_with_witness(&proving_request, witness_fn)
+            .prove_with_prepared_artifacts(&session.prepared, &input_json, witness_fn)
             .map_err(Into::into)
     }
 
@@ -317,9 +384,20 @@ impl PrivacyPoolsSdk {
         root: impl AsRef<Path>,
         request: &core::WithdrawalWitnessRequest,
     ) -> Result<prover::ProvingResult, SdkError> {
-        let proving_request = self.prepare_withdrawal_proving_request(manifest, root, request)?;
+        let session = self.prepare_withdrawal_circuit_session(manifest, root)?;
+        self.prove_withdrawal_with_session(profile, &session, request)
+    }
+
+    pub fn prove_withdrawal_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &WithdrawalCircuitSession,
+        request: &core::WithdrawalWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        let input = self.build_withdrawal_circuit_input(request)?;
+        let input_json = self.serialize_withdrawal_circuit_input(&input)?;
         self.proving_engine(profile)?
-            .prove_with_compiled_witness(&proving_request)
+            .prove_with_compiled_witness_and_artifacts(&session.prepared, &input_json)
             .map_err(Into::into)
     }
 
@@ -330,11 +408,18 @@ impl PrivacyPoolsSdk {
         root: impl AsRef<Path>,
         proof: &core::ProofBundle,
     ) -> Result<bool, SdkError> {
-        let bundle = self.resolve_verified_artifact_bundle(manifest, root, "withdraw")?;
-        let zkey_path = bundle.artifact(artifacts::ArtifactKind::Zkey)?.path.clone();
+        let session = self.prepare_withdrawal_circuit_session(manifest, root)?;
+        self.verify_withdrawal_proof_with_session(profile, &session, proof)
+    }
 
+    pub fn verify_withdrawal_proof_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &WithdrawalCircuitSession,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
         self.proving_engine(profile)?
-            .verify(proof, zkey_path)
+            .verify_with_prepared_artifacts(&session.prepared, proof)
             .map_err(Into::into)
     }
 
@@ -394,9 +479,10 @@ impl PrivacyPoolsSdk {
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
         validate_withdrawal_request_semantics(request)?;
-        let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
+        let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
         self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
-        if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
+        if !self.verify_withdrawal_proof_with_session(profile, &session, &proving.proof)? {
             return Err(SdkError::ProofRejected);
         }
 
@@ -433,9 +519,10 @@ impl PrivacyPoolsSdk {
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
         validate_withdrawal_request_semantics(request)?;
-        let proving = self.prove_withdrawal(profile, manifest, root.as_ref(), request)?;
+        let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
+        let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
         self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
-        if !self.verify_withdrawal_proof(profile, manifest, root.as_ref(), &proving.proof)? {
+        if !self.verify_withdrawal_proof_with_session(profile, &session, &proving.proof)? {
             return Err(SdkError::ProofRejected);
         }
 
@@ -1162,6 +1249,65 @@ mod tests {
         assert_eq!(proving_request.circuit, "withdraw");
         assert_eq!(proving_request.artifact_version, "0.1.0-alpha.1");
         assert!(proving_request.zkey_path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn loads_verified_artifact_bundles_for_session_preload() {
+        let sdk = PrivacyPoolsSdk::default();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+
+        let bundle = sdk
+            .load_verified_artifact_bundle(&manifest, root, "withdraw")
+            .unwrap();
+
+        assert_eq!(bundle.version, "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit, "withdraw");
+        assert_eq!(bundle.artifacts.len(), 3);
+    }
+
+    #[test]
+    fn verifies_artifact_bundles_from_bytes() {
+        let sdk = PrivacyPoolsSdk::default();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let bundle = sdk
+            .verify_artifact_bundle_bytes(
+                &manifest,
+                "withdraw",
+                [
+                    artifacts::ArtifactBytes {
+                        kind: artifacts::ArtifactKind::Wasm,
+                        bytes: bytes.clone(),
+                    },
+                    artifacts::ArtifactBytes {
+                        kind: artifacts::ArtifactKind::Zkey,
+                        bytes: bytes.clone(),
+                    },
+                    artifacts::ArtifactBytes {
+                        kind: artifacts::ArtifactKind::Vkey,
+                        bytes,
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(
+            bundle
+                .artifact(artifacts::ArtifactKind::Vkey)
+                .unwrap()
+                .descriptor
+                .filename,
+            "sample-artifact.bin"
+        );
     }
 
     #[test]

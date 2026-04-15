@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactKind {
     Wasm,
@@ -53,6 +54,37 @@ impl ResolvedArtifactBundle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactBytes {
+    pub kind: ArtifactKind,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedArtifact {
+    pub descriptor: ArtifactDescriptor,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedArtifactBundle {
+    pub version: String,
+    pub circuit: String,
+    pub artifacts: Vec<VerifiedArtifact>,
+}
+
+impl VerifiedArtifactBundle {
+    pub fn artifact(&self, kind: ArtifactKind) -> Result<&VerifiedArtifact, ArtifactError> {
+        self.artifacts
+            .iter()
+            .find(|artifact| artifact.descriptor.kind == kind)
+            .ok_or_else(|| ArtifactError::MissingArtifact {
+                circuit: self.circuit.clone(),
+                kind,
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArtifactStatus {
     pub descriptor: ArtifactDescriptor,
     pub path: PathBuf,
@@ -66,8 +98,12 @@ pub enum ArtifactError {
     MissingCircuit(String),
     #[error("missing artifact `{kind:?}` for circuit `{circuit}`")]
     MissingArtifact { circuit: String, kind: ArtifactKind },
+    #[error("duplicate artifact bytes supplied for `{kind:?}` in circuit `{circuit}`")]
+    DuplicateArtifactBytes { circuit: String, kind: ArtifactKind },
     #[error("artifact file does not exist: {0}")]
     MissingArtifactFile(PathBuf),
+    #[error("unexpected artifact bytes supplied for `{kind:?}` in circuit `{circuit}`")]
+    UnexpectedArtifactBytes { circuit: String, kind: ArtifactKind },
     #[error("sha256 mismatch for `{filename}`: expected {expected}, got {actual}")]
     HashMismatch {
         filename: String,
@@ -143,6 +179,86 @@ impl ArtifactManifest {
             version: self.version.clone(),
             circuit: circuit.to_owned(),
             artifacts,
+        })
+    }
+
+    pub fn load_verified_bundle(
+        &self,
+        root: impl AsRef<Path>,
+        circuit: &str,
+    ) -> Result<VerifiedArtifactBundle, ArtifactError> {
+        let descriptors = self.descriptors_for_circuit(circuit);
+        if descriptors.is_empty() {
+            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
+        }
+
+        let artifacts = descriptors
+            .into_iter()
+            .map(|descriptor| {
+                let resolved = self.resolve_required(root.as_ref(), circuit, descriptor.kind)?;
+                let bytes = fs::read(&resolved.path)?;
+                verify_artifact_bytes(&resolved.descriptor, &bytes)?;
+
+                Ok(VerifiedArtifact {
+                    descriptor: resolved.descriptor,
+                    bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, ArtifactError>>()?;
+
+        Ok(VerifiedArtifactBundle {
+            version: self.version.clone(),
+            circuit: circuit.to_owned(),
+            artifacts,
+        })
+    }
+
+    pub fn verify_bundle_bytes(
+        &self,
+        circuit: &str,
+        artifacts: impl IntoIterator<Item = ArtifactBytes>,
+    ) -> Result<VerifiedArtifactBundle, ArtifactError> {
+        let descriptors = self.descriptors_for_circuit(circuit);
+        if descriptors.is_empty() {
+            return Err(ArtifactError::MissingCircuit(circuit.to_owned()));
+        }
+
+        let mut supplied = HashMap::new();
+        for artifact in artifacts {
+            if supplied.insert(artifact.kind, artifact.bytes).is_some() {
+                return Err(ArtifactError::DuplicateArtifactBytes {
+                    circuit: circuit.to_owned(),
+                    kind: artifact.kind,
+                });
+            }
+        }
+
+        let mut verified = Vec::with_capacity(descriptors.len());
+        for descriptor in descriptors {
+            let bytes = supplied.remove(&descriptor.kind).ok_or_else(|| {
+                ArtifactError::MissingArtifact {
+                    circuit: circuit.to_owned(),
+                    kind: descriptor.kind,
+                }
+            })?;
+            verify_artifact_bytes(descriptor, &bytes)?;
+            verified.push(VerifiedArtifact {
+                descriptor: descriptor.clone(),
+                bytes,
+            });
+        }
+
+        if let Some(kind) = supplied.into_keys().next() {
+            return Err(ArtifactError::UnexpectedArtifactBytes {
+                circuit: circuit.to_owned(),
+                kind,
+            });
+        }
+
+        Ok(VerifiedArtifactBundle {
+            version: self.version.clone(),
+            circuit: circuit.to_owned(),
+            artifacts: verified,
         })
     }
 }
@@ -266,6 +382,96 @@ mod tests {
         assert_eq!(bundle.artifacts.len(), 1);
         assert_eq!(bundle.artifacts[0].descriptor.kind, ArtifactKind::Wasm);
         assert!(bundle.artifacts[0].path.ends_with("sample-artifact.bin"));
+    }
+
+    #[test]
+    fn loads_verified_bundle_bytes_for_declared_circuit() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let bundle = manifest.load_verified_bundle(root, "withdraw").unwrap();
+
+        assert_eq!(bundle.version, "0.1.0-alpha.1");
+        assert_eq!(bundle.circuit, "withdraw");
+        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(
+            bundle.artifact(ArtifactKind::Zkey).unwrap().bytes,
+            include_bytes!("../../../fixtures/artifacts/sample-artifact.bin")
+        );
+    }
+
+    #[test]
+    fn verifies_bundle_from_supplied_bytes() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let bundle = manifest
+            .verify_bundle_bytes(
+                "withdraw",
+                [
+                    ArtifactBytes {
+                        kind: ArtifactKind::Wasm,
+                        bytes: bytes.clone(),
+                    },
+                    ArtifactBytes {
+                        kind: ArtifactKind::Zkey,
+                        bytes: bytes.clone(),
+                    },
+                    ArtifactBytes {
+                        kind: ArtifactKind::Vkey,
+                        bytes,
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(bundle.artifacts.len(), 3);
+        assert_eq!(
+            bundle
+                .artifact(ArtifactKind::Vkey)
+                .unwrap()
+                .descriptor
+                .filename,
+            "sample-artifact.bin"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_bundle_bytes() {
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
+
+        let error = manifest
+            .verify_bundle_bytes(
+                "withdraw",
+                [
+                    ArtifactBytes {
+                        kind: ArtifactKind::Wasm,
+                        bytes: bytes.clone(),
+                    },
+                    ArtifactBytes {
+                        kind: ArtifactKind::Wasm,
+                        bytes,
+                    },
+                ],
+            )
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ArtifactError::DuplicateArtifactBytes {
+                circuit,
+                kind: ArtifactKind::Wasm,
+            } if circuit == "withdraw"
+        ));
     }
 
     #[test]

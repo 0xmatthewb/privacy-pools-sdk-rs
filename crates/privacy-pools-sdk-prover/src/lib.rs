@@ -1,16 +1,39 @@
+use ark_bls12_381::{Bls12_381, Fr as Bls12_381Fr};
+use ark_bn254::{
+    Bn254, Fq as Bn254Fq, Fq2 as Bn254Fq2, Fr as Bn254Fr, G1Projective as Bn254G1Projective,
+    G2Projective as Bn254G2Projective,
+};
+use ark_crypto_primitives::snark::SNARK;
+use ark_ec::pairing::Pairing;
+use ark_ff::{BigInteger, PrimeField};
+use ark_groth16::{Groth16, PreparedVerifyingKey, ProvingKey, prepare_verifying_key};
+use ark_relations::r1cs::ConstraintMatrices;
+use ark_std::UniformRand;
+use ark_std::rand::thread_rng;
 use circom_prover::{
     CircomProver,
     prover::{
         CircomProof, ProofLib, PublicInputs,
+        ark_circom::{CircomReduction, read_zkey},
         circom::{G1, G2, Proof},
     },
+    witness::generate_witness,
 };
 use num_bigint::BigUint;
+use privacy_pools_sdk_artifacts::{self as artifacts, ArtifactKind, VerifiedArtifactBundle};
 use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
 use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::{collections::HashMap, path::PathBuf, str::FromStr};
+use std::{
+    collections::HashMap,
+    io::{Cursor, Write},
+    path::PathBuf,
+    str::FromStr,
+    sync::{Arc, OnceLock},
+    thread::JoinHandle,
+};
+use tempfile::NamedTempFile;
 use thiserror::Error;
 
 pub use circom_prover::witness::WitnessFn;
@@ -50,6 +73,8 @@ pub struct BackendPolicy {
 
 #[derive(Debug, Error)]
 pub enum ProverError {
+    #[error(transparent)]
+    Artifact(#[from] artifacts::ArtifactError),
     #[error("fast prover backend is not enabled")]
     FastBackendDisabled,
     #[error("fast prover backend is not compiled into this build")]
@@ -66,6 +91,10 @@ pub enum ProverError {
     InvalidField(String),
     #[error("failed to serialize circuit input: {0}")]
     InputSerialization(String),
+    #[error("invalid zkey bundle: {0}")]
+    InvalidZkey(String),
+    #[error("invalid verification key bundle: {0}")]
+    InvalidVerificationKey(String),
     #[error("circom prover failed: {0}")]
     Circom(String),
 }
@@ -77,6 +106,43 @@ pub trait ProofEngine {
 
 pub struct NativeProofEngine {
     backend: ProverBackend,
+}
+
+#[derive(Clone)]
+pub struct PreparedCircuitArtifacts {
+    inner: Arc<PreparedCircuitArtifactsInner>,
+}
+
+struct PreparedCircuitArtifactsInner {
+    circuit: String,
+    artifact_version: String,
+    zkey_bytes: Arc<[u8]>,
+    vkey_bytes: Option<Arc<[u8]>>,
+    arkworks_circuit: OnceLock<Arc<PreparedArkworksCircuit>>,
+    verifier: OnceLock<Option<PreparedVerifier>>,
+}
+
+enum PreparedArkworksCircuit {
+    Bn254 {
+        proving_key: Arc<ProvingKey<Bn254>>,
+        matrices: Arc<ConstraintMatrices<Bn254Fr>>,
+        verifier: PreparedVerifyingKey<Bn254>,
+    },
+    Bls12_381 {
+        proving_key: Arc<ProvingKey<Bls12_381>>,
+        matrices: Arc<ConstraintMatrices<Bls12_381Fr>>,
+        verifier: PreparedVerifyingKey<Bls12_381>,
+    },
+}
+
+enum PreparedVerifier {
+    Bn254(PreparedVerifyingKey<Bn254>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ZkeyCurve {
+    Bn254,
+    Bls12_381,
 }
 
 impl NativeProofEngine {
@@ -126,11 +192,28 @@ impl NativeProofEngine {
         })
     }
 
+    pub fn prove_with_prepared_artifacts(
+        &self,
+        artifacts: &PreparedCircuitArtifacts,
+        input_json: &str,
+        witness_fn: WitnessFn,
+    ) -> Result<ProvingResult, ProverError> {
+        artifacts.prove_with_witness(self, input_json, witness_fn)
+    }
+
     pub fn prove_with_compiled_witness(
         &self,
         request: &ProvingRequest,
     ) -> Result<ProvingResult, ProverError> {
         self.prove_with_witness(request, compiled_witness_fn(&request.circuit)?)
+    }
+
+    pub fn prove_with_compiled_witness_and_artifacts(
+        &self,
+        artifacts: &PreparedCircuitArtifacts,
+        input_json: &str,
+    ) -> Result<ProvingResult, ProverError> {
+        artifacts.prove_with_compiled_witness(self, input_json)
     }
 
     pub fn verify(&self, proof: &ProofBundle, zkey_path: PathBuf) -> Result<bool, ProverError> {
@@ -147,6 +230,14 @@ impl NativeProofEngine {
         .map_err(|error| ProverError::Circom(error.to_string()))
     }
 
+    pub fn verify_with_prepared_artifacts(
+        &self,
+        artifacts: &PreparedCircuitArtifacts,
+        proof: &ProofBundle,
+    ) -> Result<bool, ProverError> {
+        artifacts.verify(self, proof)
+    }
+
     fn proof_lib(&self) -> Result<ProofLib, ProverError> {
         match self.backend {
             ProverBackend::Arkworks => Ok(ProofLib::Arkworks),
@@ -157,6 +248,173 @@ impl NativeProofEngine {
                     Err(ProverError::FastBackendNotCompiled)
                 }
             }
+        }
+    }
+}
+
+impl PreparedCircuitArtifacts {
+    pub fn from_verified_bundle(bundle: &VerifiedArtifactBundle) -> Result<Self, ProverError> {
+        let zkey_bytes = bundle.artifact(ArtifactKind::Zkey)?.bytes.clone();
+        let vkey_bytes = bundle
+            .artifact(ArtifactKind::Vkey)
+            .ok()
+            .map(|artifact| Arc::<[u8]>::from(artifact.bytes.clone()));
+
+        Ok(Self {
+            inner: Arc::new(PreparedCircuitArtifactsInner {
+                circuit: bundle.circuit.clone(),
+                artifact_version: bundle.version.clone(),
+                zkey_bytes: Arc::<[u8]>::from(zkey_bytes),
+                vkey_bytes,
+                arkworks_circuit: OnceLock::new(),
+                verifier: OnceLock::new(),
+            }),
+        })
+    }
+
+    pub fn circuit(&self) -> &str {
+        &self.inner.circuit
+    }
+
+    pub fn artifact_version(&self) -> &str {
+        &self.inner.artifact_version
+    }
+
+    pub fn prove_with_witness(
+        &self,
+        engine: &NativeProofEngine,
+        input_json: &str,
+        witness_fn: WitnessFn,
+    ) -> Result<ProvingResult, ProverError> {
+        let proof = match engine.backend {
+            ProverBackend::Arkworks => {
+                let witness_thread = generate_witness(witness_fn, input_json.to_owned());
+                self.prepare_arkworks_circuit()?.prove(witness_thread)?
+            }
+            ProverBackend::Rapidsnark => {
+                let zkey_file = self.materialize_zkey_file()?;
+                CircomProver::prove(
+                    engine.proof_lib()?,
+                    witness_fn,
+                    input_json.to_owned(),
+                    zkey_file.path().to_string_lossy().into_owned(),
+                )
+                .map_err(|error| ProverError::Circom(error.to_string()))?
+            }
+        };
+
+        Ok(ProvingResult {
+            backend: engine.backend,
+            proof: circom_proof_to_bundle(proof),
+        })
+    }
+
+    pub fn prove_with_compiled_witness(
+        &self,
+        engine: &NativeProofEngine,
+        input_json: &str,
+    ) -> Result<ProvingResult, ProverError> {
+        self.prove_with_witness(engine, input_json, compiled_witness_fn(self.circuit())?)
+    }
+
+    pub fn verify(
+        &self,
+        engine: &NativeProofEngine,
+        proof: &ProofBundle,
+    ) -> Result<bool, ProverError> {
+        let circom_proof = bundle_to_circom_proof(proof)?;
+
+        if let Some(verifier) = self.prepare_verifier()? {
+            return verifier.verify(&circom_proof);
+        }
+
+        match engine.backend {
+            ProverBackend::Arkworks => self.prepare_arkworks_circuit()?.verify(&circom_proof),
+            ProverBackend::Rapidsnark => {
+                let zkey_file = self.materialize_zkey_file()?;
+                CircomProver::verify(
+                    engine.proof_lib()?,
+                    circom_proof,
+                    zkey_file.path().to_string_lossy().into_owned(),
+                )
+                .map_err(|error| ProverError::Circom(error.to_string()))
+            }
+        }
+    }
+
+    fn materialize_zkey_file(&self) -> Result<NamedTempFile, ProverError> {
+        let mut file =
+            NamedTempFile::new().map_err(|error| ProverError::Circom(error.to_string()))?;
+        file.write_all(&self.inner.zkey_bytes)
+            .map_err(|error| ProverError::Circom(error.to_string()))?;
+        Ok(file)
+    }
+
+    fn prepare_arkworks_circuit(&self) -> Result<&PreparedArkworksCircuit, ProverError> {
+        if let Some(prepared) = self.inner.arkworks_circuit.get() {
+            return Ok(prepared.as_ref());
+        }
+
+        let prepared = Arc::new(parse_arkworks_circuit(&self.inner.zkey_bytes)?);
+        let _ = self.inner.arkworks_circuit.set(prepared);
+        Ok(self
+            .inner
+            .arkworks_circuit
+            .get()
+            .expect("prepared circuit was just initialized")
+            .as_ref())
+    }
+
+    fn prepare_verifier(&self) -> Result<Option<&PreparedVerifier>, ProverError> {
+        if let Some(prepared) = self.inner.verifier.get() {
+            return Ok(prepared.as_ref());
+        }
+
+        let prepared = self
+            .inner
+            .vkey_bytes
+            .as_deref()
+            .and_then(|bytes| parse_prepared_verifier(bytes).ok());
+        let _ = self.inner.verifier.set(prepared);
+        Ok(self
+            .inner
+            .verifier
+            .get()
+            .expect("prepared verifier was just initialized")
+            .as_ref())
+    }
+}
+
+impl PreparedArkworksCircuit {
+    fn prove(&self, witness_thread: JoinHandle<Vec<BigUint>>) -> Result<CircomProof, ProverError> {
+        match self {
+            Self::Bn254 {
+                proving_key,
+                matrices,
+                ..
+            } => prove_with_prepared_key_bn254(proving_key, matrices, witness_thread),
+            Self::Bls12_381 {
+                proving_key,
+                matrices,
+                ..
+            } => prove_with_prepared_key_bls12_381(proving_key, matrices, witness_thread),
+        }
+    }
+
+    fn verify(&self, proof: &CircomProof) -> Result<bool, ProverError> {
+        match self {
+            Self::Bn254 { verifier, .. } => verify_with_prepared_bn254_verifier(verifier, proof),
+            Self::Bls12_381 { verifier, .. } => {
+                verify_with_prepared_bls12_381_verifier(verifier, proof)
+            }
+        }
+    }
+}
+
+impl PreparedVerifier {
+    fn verify(&self, proof: &CircomProof) -> Result<bool, ProverError> {
+        match self {
+            Self::Bn254(verifier) => verify_with_prepared_bn254_verifier(verifier, proof),
         }
     }
 }
@@ -335,6 +593,395 @@ fn bundle_to_circom_proof(bundle: &ProofBundle) -> Result<CircomProof, ProverErr
 
 fn parse_biguint(value: &str) -> Result<BigUint, ProverError> {
     BigUint::from_str(value).map_err(|_| ProverError::InvalidField(value.to_owned()))
+}
+
+fn parse_arkworks_circuit(zkey_bytes: &[u8]) -> Result<PreparedArkworksCircuit, ProverError> {
+    match detect_zkey_curve(zkey_bytes)? {
+        ZkeyCurve::Bn254 => {
+            let mut reader = Cursor::new(zkey_bytes);
+            let (proving_key, matrices) = read_zkey::<_, Bn254>(&mut reader)
+                .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
+
+            Ok(PreparedArkworksCircuit::Bn254 {
+                verifier: prepare_verifying_key(&proving_key.vk),
+                proving_key: Arc::new(proving_key),
+                matrices: Arc::new(matrices),
+            })
+        }
+        ZkeyCurve::Bls12_381 => {
+            let mut reader = Cursor::new(zkey_bytes);
+            let (proving_key, matrices) = read_zkey::<_, Bls12_381>(&mut reader)
+                .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
+
+            Ok(PreparedArkworksCircuit::Bls12_381 {
+                verifier: prepare_verifying_key(&proving_key.vk),
+                proving_key: Arc::new(proving_key),
+                matrices: Arc::new(matrices),
+            })
+        }
+    }
+}
+
+fn detect_zkey_curve(zkey_bytes: &[u8]) -> Result<ZkeyCurve, ProverError> {
+    let header = read_zkey_header(zkey_bytes)?;
+    if header.r == BigUint::from(<Bn254 as Pairing>::ScalarField::MODULUS) {
+        Ok(ZkeyCurve::Bn254)
+    } else if header.r == BigUint::from(<Bls12_381 as Pairing>::ScalarField::MODULUS) {
+        Ok(ZkeyCurve::Bls12_381)
+    } else {
+        Err(ProverError::InvalidZkey(
+            "unknown curve detected in zkey".to_owned(),
+        ))
+    }
+}
+
+fn read_zkey_header(zkey_bytes: &[u8]) -> Result<ZkeyHeader, ProverError> {
+    let mut reader = ByteReader::new(zkey_bytes);
+    let _magic = reader.read_u32()?;
+    let _version = reader.read_u32()?;
+    let num_sections = reader.read_u32()?;
+    let mut r = None;
+
+    for index in 0..num_sections {
+        let section_id = reader.read_u32()?;
+        let section_length = reader.read_u64()? as usize;
+        if index > 1 {
+            break;
+        }
+        if section_id == 1 {
+            let key_type = reader.read_u32()?;
+            if key_type != 1 {
+                return Err(ProverError::InvalidZkey(
+                    "non-groth16 zkey detected".to_owned(),
+                ));
+            }
+            if section_length > 4 {
+                reader.skip(section_length - 4)?;
+            }
+            continue;
+        }
+        if section_id == 2 {
+            let q_bytes = reader.read_u32()? as usize;
+            let _q = reader.read_biguint(q_bytes)?;
+            let r_bytes = reader.read_u32()? as usize;
+            r = Some(reader.read_biguint(r_bytes)?);
+            break;
+        }
+        reader.skip(section_length)?;
+    }
+
+    r.map(|r| ZkeyHeader { r })
+        .ok_or_else(|| ProverError::InvalidZkey("missing Groth16 header".to_owned()))
+}
+
+fn parse_prepared_verifier(vkey_bytes: &[u8]) -> Result<PreparedVerifier, ProverError> {
+    let json: Value = serde_json::from_slice(vkey_bytes)
+        .map_err(|error| ProverError::InvalidVerificationKey(error.to_string()))?;
+    let curve = json.get("curve").and_then(Value::as_str).unwrap_or("bn128");
+
+    match curve {
+        "bn128" | "bn254" => Ok(PreparedVerifier::Bn254(prepare_verifying_key(
+            &parse_bn254_verifying_key(&json)?,
+        ))),
+        other => Err(ProverError::InvalidVerificationKey(format!(
+            "unsupported verification-key curve `{other}`"
+        ))),
+    }
+}
+
+fn parse_bn254_verifying_key(
+    json: &Value,
+) -> Result<ark_groth16::VerifyingKey<Bn254>, ProverError> {
+    Ok(ark_groth16::VerifyingKey {
+        alpha_g1: parse_bn254_g1(
+            json.get("vk_alpha_1")
+                .ok_or_else(|| missing_vkey_field("vk_alpha_1"))?,
+        )?,
+        beta_g2: parse_bn254_g2(
+            json.get("vk_beta_2")
+                .ok_or_else(|| missing_vkey_field("vk_beta_2"))?,
+        )?,
+        gamma_g2: parse_bn254_g2(
+            json.get("vk_gamma_2")
+                .ok_or_else(|| missing_vkey_field("vk_gamma_2"))?,
+        )?,
+        delta_g2: parse_bn254_g2(
+            json.get("vk_delta_2")
+                .ok_or_else(|| missing_vkey_field("vk_delta_2"))?,
+        )?,
+        gamma_abc_g1: json
+            .get("IC")
+            .and_then(Value::as_array)
+            .ok_or_else(|| missing_vkey_field("IC"))?
+            .iter()
+            .map(parse_bn254_g1)
+            .collect::<Result<Vec<_>, _>>()?,
+    })
+}
+
+fn parse_bn254_g1(value: &Value) -> Result<ark_bn254::G1Affine, ProverError> {
+    let coordinates = value
+        .as_array()
+        .ok_or_else(|| ProverError::InvalidVerificationKey("expected G1 point array".to_owned()))?;
+    let x = parse_bn254_fq(
+        coordinates
+            .first()
+            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G1 x".to_owned()))?,
+    )?;
+    let y = parse_bn254_fq(
+        coordinates
+            .get(1)
+            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G1 y".to_owned()))?,
+    )?;
+    let z = parse_optional_bn254_fq(coordinates.get(2), "missing G1 z")?;
+
+    Ok(Bn254G1Projective::new(x, y, z).into())
+}
+
+fn parse_bn254_g2(value: &Value) -> Result<ark_bn254::G2Affine, ProverError> {
+    let coordinates = value
+        .as_array()
+        .ok_or_else(|| ProverError::InvalidVerificationKey("expected G2 point array".to_owned()))?;
+    let x = parse_bn254_fq2(
+        coordinates
+            .first()
+            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G2 x".to_owned()))?,
+    )?;
+    let y = parse_bn254_fq2(
+        coordinates
+            .get(1)
+            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G2 y".to_owned()))?,
+    )?;
+    let z = parse_optional_bn254_fq2(coordinates.get(2), "missing G2 z")?;
+
+    Ok(Bn254G2Projective::new(x, y, z).into())
+}
+
+fn parse_bn254_fq(value: &Value) -> Result<Bn254Fq, ProverError> {
+    let value = value
+        .as_str()
+        .ok_or_else(|| ProverError::InvalidVerificationKey("expected decimal string".to_owned()))?;
+    Bn254Fq::from_str(value).map_err(|_| {
+        ProverError::InvalidVerificationKey(format!(
+            "invalid field element in verification key: {value}"
+        ))
+    })
+}
+
+fn parse_optional_bn254_fq(
+    value: Option<&Value>,
+    missing_message: &str,
+) -> Result<Bn254Fq, ProverError> {
+    match value {
+        Some(value) => parse_bn254_fq(value),
+        None => {
+            let _ = missing_message;
+            Ok(Bn254Fq::from(1u64))
+        }
+    }
+}
+
+fn parse_bn254_fq2(value: &Value) -> Result<Bn254Fq2, ProverError> {
+    let coordinates = value.as_array().ok_or_else(|| {
+        ProverError::InvalidVerificationKey("expected Fq2 coordinate array".to_owned())
+    })?;
+    Ok(Bn254Fq2::new(
+        parse_bn254_fq(
+            coordinates
+                .first()
+                .ok_or_else(|| ProverError::InvalidVerificationKey("missing Fq2 c0".to_owned()))?,
+        )?,
+        parse_bn254_fq(
+            coordinates
+                .get(1)
+                .ok_or_else(|| ProverError::InvalidVerificationKey("missing Fq2 c1".to_owned()))?,
+        )?,
+    ))
+}
+
+fn parse_optional_bn254_fq2(
+    value: Option<&Value>,
+    missing_message: &str,
+) -> Result<Bn254Fq2, ProverError> {
+    match value {
+        Some(value) => parse_bn254_fq2(value),
+        None => {
+            let _ = missing_message;
+            Ok(Bn254Fq2::new(Bn254Fq::from(1u64), Bn254Fq::from(0u64)))
+        }
+    }
+}
+
+fn missing_vkey_field(field: &str) -> ProverError {
+    ProverError::InvalidVerificationKey(format!("missing verification-key field `{field}`"))
+}
+
+fn prove_with_prepared_key_bn254(
+    proving_key: &ProvingKey<Bn254>,
+    matrices: &ConstraintMatrices<Bn254Fr>,
+    witness_thread: JoinHandle<Vec<BigUint>>,
+) -> Result<CircomProof, ProverError> {
+    let witness = witness_thread
+        .join()
+        .map_err(|_| ProverError::Circom("witness thread panicked".to_owned()))?;
+    let witness_fr = witness
+        .iter()
+        .map(|value| Bn254Fr::from(value.clone()))
+        .collect::<Vec<_>>();
+    let public_inputs = witness_fr.as_slice()[1..matrices.num_instance_variables]
+        .iter()
+        .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
+        .collect::<Vec<_>>();
+    let mut rng = thread_rng();
+    let r = Bn254Fr::rand(&mut rng);
+    let s = Bn254Fr::rand(&mut rng);
+    let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
+        proving_key,
+        r,
+        s,
+        matrices,
+        matrices.num_instance_variables,
+        matrices.num_constraints,
+        witness_fr.as_slice(),
+    )
+    .map_err(|error| ProverError::Circom(error.to_string()))?;
+
+    Ok(CircomProof {
+        proof: proof.into(),
+        pub_inputs: PublicInputs(public_inputs),
+    })
+}
+
+fn prove_with_prepared_key_bls12_381(
+    proving_key: &ProvingKey<Bls12_381>,
+    matrices: &ConstraintMatrices<Bls12_381Fr>,
+    witness_thread: JoinHandle<Vec<BigUint>>,
+) -> Result<CircomProof, ProverError> {
+    let witness = witness_thread
+        .join()
+        .map_err(|_| ProverError::Circom("witness thread panicked".to_owned()))?;
+    let witness_fr = witness
+        .iter()
+        .map(|value| Bls12_381Fr::from(value.clone()))
+        .collect::<Vec<_>>();
+    let public_inputs = witness_fr.as_slice()[1..matrices.num_instance_variables]
+        .iter()
+        .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
+        .collect::<Vec<_>>();
+    let mut rng = thread_rng();
+    let r = Bls12_381Fr::rand(&mut rng);
+    let s = Bls12_381Fr::rand(&mut rng);
+    let proof = Groth16::<Bls12_381, CircomReduction>::create_proof_with_reduction_and_matrices(
+        proving_key,
+        r,
+        s,
+        matrices,
+        matrices.num_instance_variables,
+        matrices.num_constraints,
+        witness_fr.as_slice(),
+    )
+    .map_err(|error| ProverError::Circom(error.to_string()))?;
+
+    Ok(CircomProof {
+        proof: proof.into(),
+        pub_inputs: PublicInputs(public_inputs),
+    })
+}
+
+fn verify_with_prepared_bn254_verifier(
+    verifier: &PreparedVerifyingKey<Bn254>,
+    proof: &CircomProof,
+) -> Result<bool, ProverError> {
+    let public_inputs = proof
+        .pub_inputs
+        .0
+        .iter()
+        .map(|value| Bn254Fr::from(value.clone()))
+        .collect::<Vec<_>>();
+    Groth16::<Bn254, CircomReduction>::verify_with_processed_vk(
+        verifier,
+        &public_inputs,
+        &proof.proof.clone().into(),
+    )
+    .map_err(|error| ProverError::Circom(error.to_string()))
+}
+
+fn verify_with_prepared_bls12_381_verifier(
+    verifier: &PreparedVerifyingKey<Bls12_381>,
+    proof: &CircomProof,
+) -> Result<bool, ProverError> {
+    let public_inputs = proof
+        .pub_inputs
+        .0
+        .iter()
+        .map(|value| Bls12_381Fr::from(value.clone()))
+        .collect::<Vec<_>>();
+    Groth16::<Bls12_381, CircomReduction>::verify_with_processed_vk(
+        verifier,
+        &public_inputs,
+        &proof.proof.clone().into(),
+    )
+    .map_err(|error| ProverError::Circom(error.to_string()))
+}
+
+struct ZkeyHeader {
+    r: BigUint,
+}
+
+struct ByteReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> ByteReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    fn read_u32(&mut self) -> Result<u32, ProverError> {
+        let end = self.offset + 4;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| ProverError::InvalidZkey("unexpected end of zkey header".to_owned()))?;
+        self.offset = end;
+        Ok(u32::from_le_bytes(
+            bytes.try_into().expect("length already checked"),
+        ))
+    }
+
+    fn read_u64(&mut self) -> Result<u64, ProverError> {
+        let end = self.offset + 8;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| ProverError::InvalidZkey("unexpected end of zkey header".to_owned()))?;
+        self.offset = end;
+        Ok(u64::from_le_bytes(
+            bytes.try_into().expect("length already checked"),
+        ))
+    }
+
+    fn read_biguint(&mut self, length: usize) -> Result<BigUint, ProverError> {
+        let end = self.offset + length;
+        let bytes = self
+            .bytes
+            .get(self.offset..end)
+            .ok_or_else(|| ProverError::InvalidZkey("unexpected end of zkey header".to_owned()))?;
+        self.offset = end;
+        Ok(BigUint::from_bytes_le(bytes))
+    }
+
+    fn skip(&mut self, length: usize) -> Result<(), ProverError> {
+        let end = self.offset + length;
+        if self.bytes.get(self.offset..end).is_none() {
+            return Err(ProverError::InvalidZkey(
+                "unexpected end of zkey header".to_owned(),
+            ));
+        }
+        self.offset = end;
+        Ok(())
+    }
 }
 
 pub fn rapidsnark_supported_target() -> bool {

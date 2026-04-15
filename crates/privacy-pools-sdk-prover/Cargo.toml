@@ -12,12 +12,23 @@ default = []
 rapidsnark = ["circom-prover/rapidsnark"]
 
 [dependencies]
+ark-bls12-381.workspace = true
+ark-bn254.workspace = true
+ark-crypto-primitives.workspace = true
+ark-ec.workspace = true
+ark-ff.workspace = true
+ark-groth16.workspace = true
+ark-relations.workspace = true
+ark-std.workspace = true
 circom-prover.workspace = true
 num-bigint.workspace = true
+privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+rand.workspace = true
 rust-witness.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempfile.workspace = true
 thiserror.workspace = true
 
 [build-dependencies]
