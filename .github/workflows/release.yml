@@ -32,7 +32,9 @@ jobs:
         with:
           node-version: "22"
       - run: cargo install --locked cargo-audit
+      - run: cargo install --locked cargo-deny
       - run: cargo run -p xtask -- dependency-check
+      - run: cargo deny check bans licenses sources advisories
       - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
 
   react-native-ios-native:
