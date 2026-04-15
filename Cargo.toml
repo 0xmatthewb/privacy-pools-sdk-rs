@@ -100,3 +100,11 @@ unnested_or_patterns = "allow"
 unnecessary_wraps = "allow"
 unnecessary_debug_formatting = "allow"
 zero_sized_map_values = "allow"
+
+[profile.wasm-release]
+inherits = "release"
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

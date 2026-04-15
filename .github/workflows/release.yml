@@ -36,6 +36,7 @@ jobs:
       - run: cargo install --locked cargo-deny
       - run: cargo install --locked cargo-hack
       - run: cargo install --locked wasm-bindgen-cli
+      - run: sudo apt-get update && sudo apt-get install -y binaryen
       - run: npm ci
         working-directory: packages/sdk
       - run: npx playwright install --with-deps chromium

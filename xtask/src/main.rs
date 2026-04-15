@@ -58,7 +58,7 @@ fn print_help() {
     println!("  react-native-app-smoke-android");
     println!("                   run the packed RN package in an Android Emulator app process");
     println!("  sdk-web-package");
-    println!("                   build the Rust web crate and generate browser WASM bindings");
+    println!("                   build optimized browser WASM bindings");
     println!("                   flags: --debug");
     println!("  sdk-smoke");
     println!("                   build the SDK package runtimes and run the JS integration tests");
@@ -313,7 +313,7 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
     }
 
     let workspace_root = workspace_root()?;
-    let profile = if release { "release" } else { "debug" };
+    let profile = if release { "wasm-release" } else { "debug" };
     let generated_root = workspace_root.join("packages/sdk/src/browser/generated");
     let rustflags = wasm_remap_rustflags(&workspace_root);
     reset_directory(&generated_root)?;
@@ -327,7 +327,11 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
             "--target",
             "wasm32-unknown-unknown",
             "--lib",
-            if release { "--release" } else { "--quiet" },
+            if release {
+                "--profile=wasm-release"
+            } else {
+                "--quiet"
+            },
         ],
         &workspace_root,
         &[("RUSTFLAGS", rustflags.as_str())],
@@ -361,6 +365,9 @@ fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
     )?;
 
     strip_wasm_custom_sections(&generated_root.join("privacy_pools_sdk_web_bg.wasm"))?;
+    if release {
+        optimize_wasm(&generated_root.join("privacy_pools_sdk_web_bg.wasm"))?;
+    }
 
     println!("staged browser WASM bindings into packages/sdk/src/browser/generated");
     Ok(())
@@ -904,6 +911,25 @@ fn strip_wasm_custom_sections(path: &Utf8PathBuf) -> Result<()> {
         fs::write(path, stripped)
             .with_context(|| format!("failed to write stripped generated wasm {path}"))?;
     }
+
+    Ok(())
+}
+
+fn optimize_wasm(path: &Utf8PathBuf) -> Result<()> {
+    let optimized = path.with_extension("opt.wasm");
+    let status = Command::new("wasm-opt")
+        .args(["-O4", "-o", optimized.as_str(), path.as_str()])
+        .status()
+        .with_context(
+            || "failed to invoke wasm-opt; install binaryen before release browser builds",
+        )?;
+
+    if !status.success() {
+        bail!("wasm-opt failed for {path}");
+    }
+
+    fs::rename(&optimized, path)
+        .with_context(|| format!("failed to replace {path} with optimized wasm"))?;
 
     Ok(())
 }
