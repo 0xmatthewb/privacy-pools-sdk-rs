@@ -20,6 +20,7 @@ fn run() -> Result<()> {
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
         Some("react-native-smoke") => react_native_smoke(),
+        Some("dependency-check") => dependency_check(),
         Some("release-check") => release_check(args.collect()),
         Some("evidence-check") => evidence_check(args.collect()),
         Some("help") | Some("--help") | Some("-h") | None => {
@@ -45,6 +46,7 @@ fn print_help() {
     println!(
         "                   install the packed RN package into the sample app and typecheck it"
     );
+    println!("  dependency-check validate accepted dependency-risk advisories");
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
     println!("  evidence-check   validate release evidence for a channel");
@@ -213,6 +215,73 @@ fn react_native_smoke() -> Result<()> {
     )?;
 
     println!("react native smoke ok");
+    Ok(())
+}
+
+fn dependency_check() -> Result<()> {
+    let workspace_root = workspace_root()?;
+    let audit_stdout = command_stdout(
+        "cargo",
+        &["audit", "--ignore", "RUSTSEC-2025-0055", "--json"],
+        &workspace_root,
+        "cargo audit failed",
+    )?;
+    let audit_json: Value =
+        serde_json::from_str(&audit_stdout).context("failed to parse cargo audit JSON output")?;
+
+    let vulnerabilities_found = audit_json
+        .get("vulnerabilities")
+        .and_then(|value| value.get("found"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    ensure!(
+        !vulnerabilities_found,
+        "cargo audit reported blocking vulnerabilities"
+    );
+
+    let mut advisory_ids = collect_advisory_ids(&audit_json, "unmaintained");
+    advisory_ids.extend(collect_advisory_ids(&audit_json, "unsound"));
+    advisory_ids.sort_unstable();
+
+    let expected = vec![
+        "RUSTSEC-2024-0388".to_owned(),
+        "RUSTSEC-2024-0436".to_owned(),
+        "RUSTSEC-2026-0097".to_owned(),
+    ];
+    ensure!(
+        advisory_ids == expected,
+        "unexpected dependency advisory set: expected {:?}, found {:?}",
+        expected,
+        advisory_ids
+    );
+
+    if advisory_ids
+        .iter()
+        .any(|advisory| advisory == "RUSTSEC-2026-0097")
+    {
+        let rand_tree = command_stdout(
+            "cargo",
+            &[
+                "tree",
+                "-e",
+                "features",
+                "-i",
+                "rand@0.8.5",
+                "-p",
+                "privacy-pools-sdk",
+            ],
+            &workspace_root,
+            "cargo tree for rand 0.8.5 failed",
+        )?;
+        ensure!(
+            !rand_tree.contains("rand feature \"log\""),
+            "rand 0.8.5 advisory became reachable because the `log` feature is enabled"
+        );
+    }
+
+    println!("dependency-check ok");
+    println!("accepted advisories: {}", advisory_ids.join(", "));
+    println!("rand 0.8.5 reachable condition: `log` feature disabled");
     Ok(())
 }
 
@@ -407,6 +476,26 @@ fn run_command_with_env(
     }
 
     Ok(())
+}
+
+fn command_stdout(
+    program: &str,
+    args: &[&str],
+    current_dir: &Utf8PathBuf,
+    error_context: &str,
+) -> Result<String> {
+    let output = Command::new(program)
+        .args(args)
+        .current_dir(current_dir)
+        .output()
+        .with_context(|| format!("failed to invoke {program} in {current_dir}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("{error_context}: {}", stderr.trim());
+    }
+
+    String::from_utf8(output.stdout).context("command produced non-UTF-8 stdout")
 }
 
 fn normalize_generated_directory(path: &Utf8PathBuf) -> Result<()> {
@@ -868,6 +957,23 @@ fn read_required_text_file(path: &Utf8PathBuf) -> Result<String> {
 struct ValidatedBenchmarkMetadata {
     artifact_version: String,
     zkey_sha256: String,
+}
+
+fn collect_advisory_ids(audit_json: &Value, category: &str) -> Vec<String> {
+    audit_json
+        .get("warnings")
+        .and_then(|warnings| warnings.get(category))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .get("advisory")
+                .and_then(|advisory| advisory.get("id"))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect()
 }
 
 fn validate_benchmark_report(

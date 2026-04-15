@@ -31,6 +31,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+      - run: cargo install --locked cargo-audit
+      - run: cargo run -p xtask -- dependency-check
       - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
 
   react-native-ios-native:

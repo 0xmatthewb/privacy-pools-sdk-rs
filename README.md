@@ -97,6 +97,7 @@ Further documentation:
 - [`docs/release-process.md`](docs/release-process.md)
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
+- [`docs/dependency-audit.md`](docs/dependency-audit.md)
 
 ## License
 
