@@ -19,7 +19,6 @@ jobs:
       - run: git diff --exit-code -- bindings/ios/generated bindings/android/generated
       - run: cargo install --locked cargo-deny cargo-audit
       - run: cargo deny check bans licenses sources advisories
-      - run: cargo audit --ignore RUSTSEC-2025-0055
       - run: cargo run -p xtask -- dependency-check
 
   react-native:
