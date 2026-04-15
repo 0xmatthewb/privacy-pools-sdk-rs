@@ -1,0 +1,30 @@
+[package]
+name = "privacy-pools-sdk-node"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["serde"] }
+anyhow.workspace = true
+base64 = "0.22.1"
+hex.workspace = true
+napi = "3.8.4"
+napi-derive = "3.5.3"
+privacy-pools-sdk = { path = "../privacy-pools-sdk" }
+serde.workspace = true
+serde_json.workspace = true
+
+[build-dependencies]
+napi-build = "2.3.1"
+
+[lints.rust]
+# `napi-rs` generates module-registration glue that requires unsafe at the
+# native Node boundary. Keep this exception limited to the addon wrapper crate.
+unsafe_code = "allow"

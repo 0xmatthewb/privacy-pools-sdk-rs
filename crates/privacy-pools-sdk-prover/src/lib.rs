@@ -126,12 +126,12 @@ enum PreparedArkworksCircuit {
     Bn254 {
         proving_key: Arc<ProvingKey<Bn254>>,
         matrices: Arc<ConstraintMatrices<Bn254Fr>>,
-        verifier: PreparedVerifyingKey<Bn254>,
+        verifier: Box<PreparedVerifyingKey<Bn254>>,
     },
     Bls12_381 {
         proving_key: Arc<ProvingKey<Bls12_381>>,
         matrices: Arc<ConstraintMatrices<Bls12_381Fr>>,
-        verifier: PreparedVerifyingKey<Bls12_381>,
+        verifier: Box<PreparedVerifyingKey<Bls12_381>>,
     },
 }
 
@@ -603,7 +603,7 @@ fn parse_arkworks_circuit(zkey_bytes: &[u8]) -> Result<PreparedArkworksCircuit, 
                 .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
 
             Ok(PreparedArkworksCircuit::Bn254 {
-                verifier: prepare_verifying_key(&proving_key.vk),
+                verifier: Box::new(prepare_verifying_key(&proving_key.vk)),
                 proving_key: Arc::new(proving_key),
                 matrices: Arc::new(matrices),
             })
@@ -614,7 +614,7 @@ fn parse_arkworks_circuit(zkey_bytes: &[u8]) -> Result<PreparedArkworksCircuit, 
                 .map_err(|error| ProverError::InvalidZkey(error.to_string()))?;
 
             Ok(PreparedArkworksCircuit::Bls12_381 {
-                verifier: prepare_verifying_key(&proving_key.vk),
+                verifier: Box::new(prepare_verifying_key(&proving_key.vk)),
                 proving_key: Arc::new(proving_key),
                 matrices: Arc::new(matrices),
             })

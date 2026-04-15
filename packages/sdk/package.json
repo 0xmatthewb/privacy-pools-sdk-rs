@@ -1,0 +1,40 @@
+{
+  "name": "@0xmatthewb/privacy-pools-sdk",
+  "version": "0.1.0-alpha.1",
+  "private": false,
+  "description": "Browser and Node package for the Privacy Pools SDK",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xmatthewb/privacy-pools-sdk-rs.git",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "main": "./src/node/index.mjs",
+  "browser": "./src/browser/index.mjs",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "node": "./src/node/index.mjs",
+      "browser": "./src/browser/index.mjs",
+      "default": "./src/node/index.mjs"
+    },
+    "./worker": {
+      "default": "./src/browser/worker.mjs"
+    }
+  },
+  "scripts": {
+    "build:native": "node ./scripts/build-native.mjs",
+    "build:native:release": "node ./scripts/build-native.mjs --release",
+    "test": "npm run build:native && node --test ./test/*.test.mjs"
+  },
+  "files": [
+    "src",
+    "scripts",
+    "test",
+    "README.md",
+    "package.json",
+    "privacy_pools_sdk_node.node"
+  ]
+}

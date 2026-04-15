@@ -1,0 +1,27 @@
+[package]
+name = "privacy-pools-sdk-web"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+alloy-primitives = { workspace = true, features = ["serde"] }
+anyhow.workspace = true
+base64 = "0.22.1"
+hex.workspace = true
+privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
+privacy-pools-sdk-tree = { path = "../privacy-pools-sdk-tree" }
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = { version = "0.2.118", features = ["serde-serialize"] }
+
+[lints]
+workspace = true

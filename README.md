@@ -1,7 +1,7 @@
 # Privacy Pools SDK
 
-Privacy Pools SDK for Rust, iOS, Android, and React Native apps, with browser
-and Node package work in progress on the same Rust core.
+Privacy Pools SDK for Rust, iOS, Android, React Native, and Node apps, with
+browser package work in progress on the same Rust core.
 
 > [!CAUTION]
 > Experimental software. Use at your own risk.
@@ -24,6 +24,7 @@ verification, account recovery, transaction planning, and mobile bindings.
 Current first-class surfaces:
 
 - Rust crate
+- Node package published as `@0xmatthewb/privacy-pools-sdk`
 - generated iOS bindings
 - generated Android bindings
 - React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`
@@ -31,7 +32,6 @@ Current first-class surfaces:
 Planned next surfaces:
 
 - browser package for local client-side proving
-- plain Node package for JS/server-side DX
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -69,17 +69,18 @@ Most of the implementation lives in the public Rust crate,
 protocol concerns: crypto, Merkle logic, proving, artifacts, chain interaction,
 recovery, and signer validation.
 
-Generated iOS and Android bindings live in `bindings/`. The React Native
-package lives in `packages/react-native`. Compatibility fixtures and sample
-artifact manifests live in `fixtures/`, and `xtask` drives binding generation,
-packaging, release validation, and smoke tests.
+Generated iOS and Android bindings live in `bindings/`. The unified Node and
+browser package lives in `packages/sdk`, while the React Native package lives in
+`packages/react-native`. Compatibility fixtures and sample artifact manifests
+live in `fixtures/`, and `xtask` drives binding generation, packaging, release
+validation, and smoke tests.
 
 ## Local Development
 
 Prerequisites:
 
 - Rust stable
-- Node.js 22+ for the React Native package and smoke app
+- Node.js 22+ for the JS packages and smoke tests
 - full Xcode for iOS builds and XCFramework packaging
 - Android SDK, NDK, Java 17, and `cargo-ndk` for Android native packaging
 
@@ -99,6 +100,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo run -p xtask -- bindings
 cargo run -p xtask -- react-native-smoke
+cargo run -p xtask -- sdk-smoke
 ```
 
 Further documentation:

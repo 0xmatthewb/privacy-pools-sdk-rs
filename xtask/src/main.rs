@@ -20,6 +20,7 @@ fn run() -> Result<()> {
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
         Some("react-native-smoke") => react_native_smoke(),
+        Some("sdk-smoke") => sdk_smoke(),
         Some("dependency-check") => dependency_check(),
         Some("release-check") => release_check(args.collect()),
         Some("evidence-check") => evidence_check(args.collect()),
@@ -46,6 +47,8 @@ fn print_help() {
     println!(
         "                   install the packed RN package into the sample app and typecheck it"
     );
+    println!("  sdk-smoke");
+    println!("                   build the Node addon and run the JS package integration tests");
     println!("  dependency-check validate accepted dependency-risk advisories");
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
@@ -215,6 +218,19 @@ fn react_native_smoke() -> Result<()> {
     )?;
 
     println!("react native smoke ok");
+    Ok(())
+}
+
+fn sdk_smoke() -> Result<()> {
+    let workspace_root = workspace_root()?;
+    run_command(
+        "npm",
+        &["test"],
+        &workspace_root.join("packages/sdk"),
+        "SDK package integration tests failed",
+    )?;
+
+    println!("sdk smoke ok");
     Ok(())
 }
 
@@ -581,6 +597,8 @@ fn release_check(args: Vec<String>) -> Result<()> {
 
     let react_native_package_version =
         read_package_json_version(&workspace_root.join("packages/react-native/package.json"))?;
+    let sdk_package_version =
+        read_package_json_version(&workspace_root.join("packages/sdk/package.json"))?;
     let react_native_podspec_version = read_keyed_string(
         &workspace_root.join("packages/react-native/PrivacyPoolsSdk.podspec"),
         "s.version = ",
@@ -604,6 +622,13 @@ fn release_check(args: Vec<String>) -> Result<()> {
     );
 
     let rust_base = base_version(&rust_version);
+    ensure!(
+        base_version(&sdk_package_version) == rust_base,
+        "SDK package version base {} does not match Rust crate version base {}",
+        base_version(&sdk_package_version),
+        rust_base
+    );
+
     let mobile_base = base_version(&react_native_package_version);
     ensure!(
         rust_base == mobile_base,
@@ -615,6 +640,9 @@ fn release_check(args: Vec<String>) -> Result<()> {
     options
         .channel
         .validate_mobile_version(&react_native_package_version)?;
+    options
+        .channel
+        .validate_mobile_version(&sdk_package_version)?;
 
     println!("release-check ok");
     println!("channel: {}", options.channel.as_str());
@@ -623,6 +651,7 @@ fn release_check(args: Vec<String>) -> Result<()> {
         "react-native package version: {}",
         react_native_package_version
     );
+    println!("sdk package version: {}", sdk_package_version);
     println!(
         "react-native podspec version: {}",
         react_native_podspec_version
