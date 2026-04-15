@@ -377,7 +377,7 @@ pub fn verify_artifact_bytes_json(
     let artifacts =
         parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
     let bundle = manifest.verify_bundle_bytes(circuit, artifacts)?;
-    to_json_string(&to_js_verified_artifact_bundle(bundle))
+    to_json_string(&to_js_verified_artifact_bundle(&bundle))
 }
 
 pub fn get_artifact_statuses_json(
@@ -720,7 +720,7 @@ pub fn wasm_verify_artifact_bytes(
     let bundle = manifest
         .verify_bundle_bytes(circuit, artifacts)
         .map_err(|error| js_error(error.into()))?;
-    to_json_string(&to_js_verified_artifact_bundle(bundle)).map_err(js_error)
+    to_json_string(&to_js_verified_artifact_bundle(&bundle)).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1189,7 +1189,7 @@ fn to_js_resolved_artifact_bundle(bundle: ResolvedArtifactBundle) -> JsResolvedA
 }
 
 fn to_js_verified_artifact_bundle(
-    bundle: privacy_pools_sdk_artifacts::VerifiedArtifactBundle,
+    bundle: &privacy_pools_sdk_artifacts::VerifiedArtifactBundle,
 ) -> JsVerifiedArtifactBundle {
     JsVerifiedArtifactBundle {
         version: bundle.version().to_owned(),
