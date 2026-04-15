@@ -25,10 +25,17 @@ plan.
   proving and verification state.
 - The Rust SDK prefers manifest-bound `vkey` verification for the hot path while
   keeping `zkey` as the canonical proving artifact and trust anchor.
+- Native withdrawal session preload now parses the canonical `zkey` before
+  creating a cached session and only prepares the manifest-bound `vkey`
+  verifier after confirming it matches the verifying key embedded in that
+  `zkey`.
 - Internal prove-then-verify execution flows reuse a single session instead of
   resolving and hashing artifacts twice.
 - Benchmark docs require `cargo run --release`, and the benchmark CLI refuses
   debug builds unless explicitly overridden.
+- Benchmark reports now separate cold verified-bundle loading/hash-check time,
+  session preload time, first proof/verify latency, and warm proof/verify
+  iteration summaries.
 - Swift/iOS, Kotlin/Android, and React Native now expose reusable withdrawal
   circuit session APIs on top of the shared Rust session layer.
 - The React Native package now uses the explicit runtime-specific package name
@@ -49,8 +56,9 @@ plan.
   verifier layer.
 - Artifact/session safety coverage now includes fail-closed tests for incomplete
   bundles, unexpected bundle bytes, unknown circuits, tampered browser
-  artifacts, tampered browser proofs, stale browser sessions, stale Node
-  sessions, and invalid Node proving artifacts.
+  artifacts, tampered browser proofs, mismatched verification keys, stale
+  browser sessions, stale Node sessions, and invalid Node/native proving
+  artifacts.
 - The unified JS client classes now expose runtime capabilities consistently
   across browser, browser worker, and Node runtimes.
 - The React Native consumer smoke app now typechecks the reusable withdrawal
