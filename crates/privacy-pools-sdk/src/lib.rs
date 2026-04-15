@@ -890,6 +890,67 @@ mod tests {
     }
 
     #[test]
+    fn sdk_default_recovery_policy_preserves_ts_migration_path() {
+        let sdk = PrivacyPoolsSdk::default();
+        let scope = U256::from(123_u64);
+        let label = U256::from(777_u64);
+        let value = U256::from(1_000_u64);
+        let safe = crypto::generate_master_keys(
+            "test test test test test test test test test test test junk",
+        )
+        .unwrap();
+        let legacy = crypto::generate_legacy_master_keys(
+            "test test test test test test test test test test test junk",
+        )
+        .unwrap();
+        let (legacy_nullifier, legacy_secret) =
+            crypto::generate_deposit_secrets(&legacy, scope, U256::ZERO).unwrap();
+        let legacy_deposit =
+            crypto::get_commitment(value, label, legacy_nullifier, legacy_secret).unwrap();
+        let (safe_nullifier, safe_secret) =
+            crypto::generate_withdrawal_secrets(&safe, label, U256::ZERO).unwrap();
+        let migrated_commitment =
+            crypto::get_commitment(value, label, safe_nullifier, safe_secret).unwrap();
+
+        let recovered = sdk
+            .recover_account_state(
+                "test test test test test test test test test test test junk",
+                &[PoolRecoveryInput {
+                    scope,
+                    deposit_events: vec![DepositEvent {
+                        commitment_hash: legacy_deposit.hash,
+                        label,
+                        value,
+                        precommitment_hash: legacy_deposit.preimage.precommitment.hash,
+                        block_number: 10,
+                        transaction_hash: b256!(
+                            "0000000000000000000000000000000000000000000000000000000000000001"
+                        ),
+                    }],
+                    withdrawal_events: vec![WithdrawalEvent {
+                        withdrawn_value: U256::ZERO,
+                        spent_nullifier_hash: crypto::hash_nullifier(legacy_nullifier).unwrap(),
+                        new_commitment_hash: migrated_commitment.hash,
+                        block_number: 20,
+                        transaction_hash: b256!(
+                            "0000000000000000000000000000000000000000000000000000000000000002"
+                        ),
+                    }],
+                    ragequit_events: Vec::new(),
+                }],
+                RecoveryPolicy::default(),
+            )
+            .unwrap();
+
+        assert_eq!(recovered.safe_scopes.len(), 1);
+        assert_eq!(recovered.legacy_scopes.len(), 1);
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].deposit.hash,
+            migrated_commitment.hash
+        );
+    }
+
+    #[test]
     fn public_api_matches_reference_master_keys() {
         let sdk = PrivacyPoolsSdk::default();
         let keys = sdk

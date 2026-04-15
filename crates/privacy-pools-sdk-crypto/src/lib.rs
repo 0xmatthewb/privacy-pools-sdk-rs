@@ -31,8 +31,6 @@ pub enum CryptoError {
     Poseidon(#[from] PoseidonError),
     #[error(transparent)]
     Signer(#[from] LocalSignerError),
-    #[error("failed to emulate legacy javascript number conversion")]
-    LegacySeedConversion,
 }
 
 pub fn poseidon_hash(inputs: &[FieldElement]) -> Result<FieldElement, CryptoError> {
@@ -50,8 +48,8 @@ pub fn generate_master_keys(mnemonic: &str) -> Result<MasterKeys, CryptoError> {
 }
 
 pub fn generate_legacy_master_keys(mnemonic: &str) -> Result<MasterKeys, CryptoError> {
-    let key1 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 0)?)?;
-    let key2 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 1)?)?;
+    let key1 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 0)?);
+    let key2 = legacy_seed_from_private_key(derive_account_private_key(mnemonic, 1)?);
     master_keys_from_seeds(key1, key2)
 }
 
@@ -152,14 +150,36 @@ fn master_keys_from_seeds(key1: U256, key2: U256) -> Result<MasterKeys, CryptoEr
     })
 }
 
-fn legacy_seed_from_private_key(private_key: U256) -> Result<U256, CryptoError> {
+fn legacy_seed_from_private_key(private_key: U256) -> U256 {
     // Match the shipped TS legacy recovery path exactly:
-    // bytesToNumber(privateKey) -> BigInt(number), including IEEE-754 precision loss.
-    let as_number = private_key
-        .to_string()
-        .parse::<f64>()
-        .map_err(|_| CryptoError::LegacySeedConversion)?;
-    U256::from_str(&format!("{as_number:.0}")).map_err(|_| CryptoError::LegacySeedConversion)
+    // bytesToNumber(privateKey) -> BigInt(number), where `number` is an IEEE-754
+    // double rounded to nearest, ties-to-even.
+    if private_key.is_zero() {
+        return U256::ZERO;
+    }
+
+    let bit_len = 256usize.saturating_sub(private_key.leading_zeros());
+    if bit_len <= 53 {
+        return private_key;
+    }
+
+    let shift = bit_len - 53;
+    let mut mantissa = private_key >> shift;
+    let remainder_mask = (U256::from(1_u8) << shift) - U256::from(1_u8);
+    let remainder = private_key & remainder_mask;
+    let half = U256::from(1_u8) << (shift - 1);
+
+    if remainder > half || (remainder == half && (mantissa & U256::from(1_u8)) == U256::from(1_u8))
+    {
+        mantissa += U256::from(1_u8);
+
+        if mantissa == (U256::from(1_u8) << 53) {
+            mantissa >>= 1;
+            return mantissa << (shift + 1);
+        }
+    }
+
+    mantissa << shift
 }
 
 pub fn u256_to_fr(value: U256) -> Fr {
@@ -311,7 +331,7 @@ mod tests {
             "77814517325470205911140941194401928579557062014761831930645393041380819009408",
         )
         .unwrap();
-        let rounded = legacy_seed_from_private_key(private_key).unwrap();
+        let rounded = legacy_seed_from_private_key(private_key);
 
         assert_eq!(
             rounded,
@@ -319,6 +339,18 @@ mod tests {
                 "77814517325470206090537488703115359743174939106526186048988649279981784924160"
             )
             .unwrap()
+        );
+
+        let half_even = (U256::from(1_u8) << 53) + U256::from(1_u8);
+        assert_eq!(
+            legacy_seed_from_private_key(half_even),
+            U256::from(1_u8) << 53
+        );
+
+        let half_odd = (U256::from(1_u8) << 53) + U256::from(3_u8);
+        assert_eq!(
+            legacy_seed_from_private_key(half_odd),
+            (U256::from(1_u8) << 53) + U256::from(4_u8)
         );
     }
 }

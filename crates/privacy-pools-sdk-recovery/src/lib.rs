@@ -21,12 +21,25 @@ pub struct RecoveryPolicy {
     pub fail_closed: bool,
 }
 
-impl Default for RecoveryPolicy {
-    fn default() -> Self {
+impl RecoveryPolicy {
+    pub fn strict() -> Self {
         Self {
             compatibility_mode: CompatibilityMode::Strict,
             fail_closed: true,
         }
+    }
+
+    pub fn ts_compatible() -> Self {
+        Self {
+            compatibility_mode: CompatibilityMode::Legacy,
+            fail_closed: true,
+        }
+    }
+}
+
+impl Default for RecoveryPolicy {
+    fn default() -> Self {
+        Self::ts_compatible()
     }
 }
 
@@ -260,14 +273,12 @@ pub fn recover_account_state_with_keyset(
 
     for pool in pools {
         let deposits = normalize_deposit_events(&pool.deposit_events)?;
-        let withdrawals = normalize_withdrawal_events(pool.scope, &pool.withdrawal_events)?;
-        let ragequits = normalize_ragequit_events(pool.scope, &pool.ragequit_events)?;
+        let withdrawals = normalize_withdrawal_events(&pool.withdrawal_events)?;
+        let ragequits = normalize_ragequit_events(&pool.ragequit_events)?;
 
-        if policy.compatibility_mode == CompatibilityMode::Legacy {
-            let legacy_keys = keyset
-                .legacy
-                .as_ref()
-                .ok_or(RecoveryError::MissingLegacyKeys)?;
+        if policy.compatibility_mode == CompatibilityMode::Legacy
+            && let Some(legacy_keys) = keyset.legacy.as_ref()
+        {
             process_deposit_events(&mut legacy_book, legacy_keys, pool.scope, &deposits, 0)?;
             process_withdrawal_events(&mut legacy_book, legacy_keys, pool.scope, &withdrawals)?;
             discover_migrated_commitments(
@@ -387,21 +398,15 @@ fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>
 }
 
 fn normalize_withdrawal_events(
-    scope: Scope,
     events: &[WithdrawalEvent],
 ) -> Result<Vec<WithdrawalEvent>, RecoveryError> {
     let mut normalized: Vec<WithdrawalEvent> = Vec::new();
     for event in events {
         if let Some(existing) = normalized
-            .iter()
+            .iter_mut()
             .find(|candidate| candidate.spent_nullifier_hash == event.spent_nullifier_hash)
         {
-            if existing != event {
-                return Err(RecoveryError::DuplicateWithdrawalEvent {
-                    scope,
-                    spent_nullifier_hash: event.spent_nullifier_hash,
-                });
-            }
+            *existing = event.clone();
             continue;
         }
 
@@ -412,21 +417,15 @@ fn normalize_withdrawal_events(
 }
 
 fn normalize_ragequit_events(
-    scope: Scope,
     events: &[RagequitEvent],
 ) -> Result<Vec<RagequitEvent>, RecoveryError> {
     let mut normalized: Vec<RagequitEvent> = Vec::new();
     for event in events {
         if let Some(existing) = normalized
-            .iter()
+            .iter_mut()
             .find(|candidate| candidate.label == event.label)
         {
-            if existing != event {
-                return Err(RecoveryError::DuplicateRagequitEvent {
-                    scope,
-                    label: event.label,
-                });
-            }
+            *existing = event.clone();
             continue;
         }
 
@@ -1070,6 +1069,57 @@ mod tests {
     }
 
     #[test]
+    fn default_policy_reconstructs_migrated_funds_from_mnemonic() {
+        let scope = U256::from(123_u64);
+        let label = U256::from(888_u64);
+        let deposit_value = U256::from(1_000_u64);
+        let legacy_keys = generate_legacy_master_keys(TEST_MNEMONIC).unwrap();
+        let safe_keys = generate_master_keys(TEST_MNEMONIC).unwrap();
+
+        let (legacy_nullifier, legacy_secret) =
+            generate_deposit_secrets(&legacy_keys, scope, U256::ZERO).unwrap();
+        let legacy_deposit =
+            get_commitment(deposit_value, label, legacy_nullifier, legacy_secret).unwrap();
+
+        let (safe_nullifier, safe_secret) =
+            generate_withdrawal_secrets(&safe_keys, label, U256::ZERO).unwrap();
+        let migrated_commitment =
+            get_commitment(deposit_value, label, safe_nullifier, safe_secret).unwrap();
+
+        let recovered = recover_account_state(
+            TEST_MNEMONIC,
+            &[recovery_input(
+                scope,
+                vec![deposit_event(
+                    legacy_deposit.hash,
+                    label,
+                    deposit_value,
+                    legacy_deposit.preimage.precommitment.hash,
+                    10,
+                    1,
+                )],
+                vec![withdrawal_event(
+                    U256::ZERO,
+                    hash_nullifier(legacy_nullifier).unwrap(),
+                    migrated_commitment.hash,
+                    20,
+                    2,
+                )],
+            )],
+            RecoveryPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(recovered.safe_scopes.len(), 1);
+        assert_eq!(recovered.legacy_scopes.len(), 1);
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].deposit.hash,
+            migrated_commitment.hash
+        );
+        assert!(recovered.legacy_scopes[0].accounts[0].is_migrated);
+    }
+
+    #[test]
     fn starts_safe_deposit_scan_after_migrated_slots() {
         let safe_keys = generate_master_keys(TEST_MNEMONIC).unwrap();
         let legacy_keys = generate_legacy_master_keys(TEST_MNEMONIC).unwrap();
@@ -1336,27 +1386,55 @@ mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_withdrawal_events() {
+    fn canonicalizes_duplicate_withdrawal_events_with_last_write_wins() {
         let keyset = derived_keyset(TEST_MNEMONIC, false);
         let scope = U256::from(123_u64);
+        let label = U256::from(555_u64);
+        let value = U256::from(500_u64);
+        let (nullifier, secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
+        let deposit = get_commitment(value, label, nullifier, secret).unwrap();
         let spent = U256::from(77_u64);
+        let earlier = withdrawal_event(U256::from(1_u64), spent, U256::from(2_u64), 1, 1);
+        let later = withdrawal_event(U256::from(2_u64), spent, U256::from(3_u64), 2, 2);
         let input = PoolRecoveryInput {
             scope,
-            deposit_events: Vec::new(),
-            withdrawal_events: vec![
-                withdrawal_event(U256::from(1_u64), spent, U256::from(2_u64), 1, 1),
-                withdrawal_event(U256::from(2_u64), spent, U256::from(3_u64), 2, 2),
-            ],
+            deposit_events: vec![deposit_event(
+                deposit.hash,
+                label,
+                value,
+                deposit.preimage.precommitment.hash,
+                0,
+                0,
+            )],
+            withdrawal_events: vec![earlier.clone(), later.clone()],
             ragequit_events: Vec::new(),
         };
 
-        assert!(matches!(
-            recover_account_state_with_keyset(&keyset, &[input], RecoveryPolicy::default()),
-            Err(RecoveryError::DuplicateWithdrawalEvent {
-                scope: duplicate_scope,
-                spent_nullifier_hash
-            }) if duplicate_scope == scope && spent_nullifier_hash == spent
-        ));
+        let normalized = normalize_withdrawal_events(&input.withdrawal_events).unwrap();
+        assert_eq!(normalized, vec![later]);
+    }
+
+    #[test]
+    fn canonicalizes_duplicate_ragequit_events_with_last_write_wins() {
+        let label = U256::from(77_u64);
+        let earlier = RagequitEvent {
+            commitment_hash: U256::from(1_u64),
+            label,
+            value: U256::from(2_u64),
+            block_number: 1,
+            transaction_hash: tx_hash(1),
+        };
+        let later = RagequitEvent {
+            commitment_hash: U256::from(3_u64),
+            label,
+            value: U256::from(4_u64),
+            block_number: 2,
+            transaction_hash: tx_hash(2),
+        };
+
+        let normalized = normalize_ragequit_events(&[earlier, later.clone()]).unwrap();
+        assert_eq!(normalized, vec![later]);
     }
 
     #[test]
