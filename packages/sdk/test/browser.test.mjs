@@ -37,6 +37,14 @@ const sampleProvingManifest = readFileSync(
   join(fixturesRoot, "artifacts", "sample-proving-manifest.json"),
   "utf8",
 );
+const withdrawalProvingManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "withdrawal-proving-manifest.json"),
+  "utf8",
+);
+const withdrawalVerificationManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "withdrawal-verification-manifest.json"),
+  "utf8",
+);
 const browserVerificationManifest = readFileSync(
   join(fixturesRoot, "artifacts", "browser-verification-manifest.json"),
   "utf8",
@@ -223,6 +231,18 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
   await server.start();
 
   try {
+    const withdrawalRequest = await buildWithdrawalRequest(nodeSdk);
+    const withdrawalSession = await nodeSdk.prepareWithdrawalCircuitSession(
+      withdrawalProvingManifest,
+      artifactsFixtureRoot,
+    );
+    const withdrawalProof = await nodeSdk.proveWithdrawalWithSession(
+      "stable",
+      withdrawalSession.handle,
+      withdrawalRequest,
+    );
+    await nodeSdk.removeWithdrawalCircuitSession(withdrawalSession.handle);
+
     const commitment = await nodeSdk.getCommitment(
       withdrawalFixture.existingValue,
       withdrawalFixture.label,
@@ -242,9 +262,9 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
 
     const verified = await sdk.verifyWithdrawalProof(
       "stable",
-      browserVerificationManifest,
+      withdrawalVerificationManifest,
       server.rootUrl,
-      browserVerificationProof,
+      withdrawalProof.proof,
     );
     assert.equal(verified, true);
     assert.equal(
@@ -258,7 +278,7 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
     );
 
     const session = await sdk.prepareWithdrawalCircuitSession(
-      browserVerificationManifest,
+      withdrawalVerificationManifest,
       server.rootUrl,
     );
     assert.equal(session.circuit, "withdraw");
@@ -266,7 +286,7 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
       await sdk.verifyWithdrawalProofWithSession(
         "stable",
         session.handle,
-        browserVerificationProof,
+        withdrawalProof.proof,
       ),
       true,
     );
@@ -444,6 +464,29 @@ test("browser worker client performs real wasm-backed helper calls", async () =>
 
 function addModulus(value, modulus) {
   return (BigInt(value) + modulus).toString();
+}
+
+async function buildWithdrawalRequest(sdk) {
+  const commitment = await sdk.getCommitment(
+    withdrawalFixture.existingValue,
+    withdrawalFixture.label,
+    cryptoFixture.depositSecrets.nullifier,
+    cryptoFixture.depositSecrets.secret,
+  );
+
+  return {
+    commitment,
+    withdrawal: {
+      processooor: "0x1111111111111111111111111111111111111111",
+      data: "0x1234",
+    },
+    scope: cryptoFixture.scope,
+    withdrawalAmount: withdrawalFixture.withdrawalAmount,
+    stateWitness: withdrawalFixture.stateWitness,
+    aspWitness: withdrawalFixture.aspWitness,
+    newNullifier: withdrawalFixture.newNullifier,
+    newSecret: withdrawalFixture.newSecret,
+  };
 }
 
 function createFixtureServer() {

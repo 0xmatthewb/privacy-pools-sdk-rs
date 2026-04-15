@@ -54,6 +54,12 @@ plan.
 - The browser runtime now supports real proof verification and verification
   session reuse against manifest-bound `vkey` artifacts through the shared Rust
   verifier layer.
+- The fixture set now pins the v1.2.0 withdrawal `wasm`, `zkey`, and `vkey`
+  artifacts, so CI can exercise real withdrawal proof generation and
+  verification instead of only static verification fixtures.
+- Rust core, Node, browser verification, and the Swift/Kotlin/React Native FFI
+  substrate now all exercise real v1.2.0 withdrawal proof compatibility in
+  automated tests.
 - Artifact/session safety coverage now includes fail-closed tests for incomplete
   bundles, unexpected bundle bytes, unknown circuits, tampered browser
   artifacts, tampered browser proofs, mismatched verification keys, stale
@@ -70,10 +76,10 @@ plan.
 
 ## Partially Completed
 
-- The mobile surfaces share the Rust session/caching model, but current smoke
-  coverage is still lighter than the target plan. The Rust and FFI layers are
-  tested directly, while the React Native smoke app still validates packaging
-  and typechecking rather than running a full native prove/verify flow.
+- The mobile surfaces share the Rust session/caching model, and the shared FFI
+  layer now runs full real prove/verify fixtures. The React Native smoke app
+  still validates packaging and typechecking rather than running a full native
+  prove/verify flow inside an app process.
 - The runtime matrix is now documented explicitly, and Node is shipped, but the
   browser surface is still only partially implemented because proving remains
   unavailable there.

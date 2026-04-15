@@ -30,6 +30,10 @@ const sampleProvingManifest = readFileSync(
   join(fixturesRoot, "artifacts", "sample-proving-manifest.json"),
   "utf8",
 );
+const withdrawalProvingManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "withdrawal-proving-manifest.json"),
+  "utf8",
+);
 const commitmentProvingManifest = readFileSync(
   join(fixturesRoot, "artifacts", "commitment-proving-manifest.json"),
   "utf8",
@@ -205,6 +209,47 @@ test("node addon proves and verifies commitment ragequit proofs", async () => {
     true,
   );
   assert.equal(await sdk.removeCommitmentCircuitSession(session.handle), true);
+});
+
+test("node addon proves and verifies withdrawal proofs", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const request = await buildWithdrawalRequest(sdk);
+  const session = await sdk.prepareWithdrawalCircuitSession(
+    withdrawalProvingManifest,
+    join(fixturesRoot, "artifacts"),
+  );
+  assert.equal(session.circuit, "withdraw");
+  assert.equal(session.artifactVersion, "v1.2.0");
+
+  const proving = await sdk.proveWithdrawalWithSession(
+    "stable",
+    session.handle,
+    request,
+  );
+  assert.equal(proving.backend, "arkworks");
+  assert.equal(proving.proof.publicSignals.length, 8);
+  assert.equal(proving.proof.publicSignals[2], withdrawalFixture.withdrawalAmount);
+  assert.equal(proving.proof.publicSignals[3], withdrawalFixture.stateWitness.root);
+  assert.equal(
+    await sdk.verifyWithdrawalProofWithSession(
+      "stable",
+      session.handle,
+      proving.proof,
+    ),
+    true,
+  );
+
+  const tamperedProof = JSON.parse(JSON.stringify(proving.proof));
+  tamperedProof.publicSignals[0] = "9";
+  assert.equal(
+    await sdk.verifyWithdrawalProofWithSession(
+      "stable",
+      session.handle,
+      tamperedProof,
+    ),
+    false,
+  );
+  assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
 });
 
 test("node addon verifies manifest-bound artifact bytes", async () => {

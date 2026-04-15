@@ -2655,6 +2655,101 @@ mod tests {
         .to_vec()
     }
 
+    fn withdrawal_vector() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .expect("valid withdrawal fixture")
+    }
+
+    fn ffi_withdrawal_request() -> FfiWithdrawalWitnessRequest {
+        let crypto_fixture = vector();
+        let withdrawal_fixture = withdrawal_vector();
+        let keys =
+            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
+        let deposit = derive_deposit_secrets(
+            keys.master_nullifier,
+            keys.master_secret,
+            crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            "0".to_owned(),
+        )
+        .unwrap();
+        let commitment = get_commitment(
+            withdrawal_fixture["existingValue"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
+            deposit.nullifier,
+            deposit.secret,
+        )
+        .unwrap();
+
+        FfiWithdrawalWitnessRequest {
+            commitment,
+            withdrawal: FfiWithdrawal {
+                processooor: "0x1111111111111111111111111111111111111111".to_owned(),
+                data: vec![0x12, 0x34],
+            },
+            scope: crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            withdrawal_amount: withdrawal_fixture["withdrawalAmount"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            state_witness: FfiCircuitMerkleWitness {
+                root: withdrawal_fixture["stateWitness"]["root"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                leaf: withdrawal_fixture["stateWitness"]["leaf"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                index: withdrawal_fixture["stateWitness"]["index"]
+                    .as_u64()
+                    .unwrap(),
+                siblings: withdrawal_fixture["stateWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+                depth: withdrawal_fixture["stateWitness"]["depth"]
+                    .as_u64()
+                    .unwrap(),
+            },
+            asp_witness: FfiCircuitMerkleWitness {
+                root: withdrawal_fixture["aspWitness"]["root"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                leaf: withdrawal_fixture["aspWitness"]["leaf"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
+                index: withdrawal_fixture["aspWitness"]["index"].as_u64().unwrap(),
+                siblings: withdrawal_fixture["aspWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect(),
+                depth: withdrawal_fixture["aspWitness"]["depth"].as_u64().unwrap(),
+            },
+            new_nullifier: withdrawal_fixture["newNullifier"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+            new_secret: withdrawal_fixture["newSecret"].as_str().unwrap().to_owned(),
+        }
+    }
+
+    fn ffi_commitment_request() -> FfiCommitmentWitnessRequest {
+        FfiCommitmentWitnessRequest {
+            commitment: ffi_withdrawal_request().commitment,
+        }
+    }
+
     #[test]
     fn ffi_exports_match_crypto_and_merkle_vectors() {
         let fixture = vector();
@@ -3139,6 +3234,77 @@ mod tests {
         .unwrap_err();
         assert!(bytes_error.to_string().contains("invalid zkey bundle"));
         assert!(!remove_withdrawal_circuit_session("missing".to_owned()).unwrap());
+    }
+
+    #[test]
+    fn ffi_proves_and_verifies_withdrawal_with_v1_artifacts() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest =
+            include_str!("../../../fixtures/artifacts/withdrawal-proving-manifest.json").to_owned();
+        let session =
+            prepare_withdrawal_circuit_session(manifest, root.to_string_lossy().into_owned())
+                .unwrap();
+        assert_eq!(session.circuit, "withdraw");
+        assert_eq!(session.artifact_version, "v1.2.0");
+
+        let proving = prove_withdrawal_with_session(
+            "stable".to_owned(),
+            session.handle.clone(),
+            ffi_withdrawal_request(),
+        )
+        .unwrap();
+        assert_eq!(proving.backend, "arkworks");
+        assert_eq!(proving.proof.public_signals.len(), 8);
+        assert!(
+            verify_withdrawal_proof_with_session(
+                "stable".to_owned(),
+                session.handle.clone(),
+                proving.proof.clone(),
+            )
+            .unwrap()
+        );
+
+        let mut tampered = proving.proof;
+        tampered.public_signals[0] = "9".to_owned();
+        assert!(
+            !verify_withdrawal_proof_with_session(
+                "stable".to_owned(),
+                session.handle.clone(),
+                tampered,
+            )
+            .unwrap()
+        );
+        assert!(remove_withdrawal_circuit_session(session.handle).unwrap());
+    }
+
+    #[test]
+    fn ffi_proves_and_verifies_commitment_with_v1_artifacts() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest =
+            include_str!("../../../fixtures/artifacts/commitment-proving-manifest.json").to_owned();
+        let session =
+            prepare_commitment_circuit_session(manifest, root.to_string_lossy().into_owned())
+                .unwrap();
+        assert_eq!(session.circuit, "commitment");
+        assert_eq!(session.artifact_version, "v1.2.0");
+
+        let proving = prove_commitment_with_session(
+            "stable".to_owned(),
+            session.handle.clone(),
+            ffi_commitment_request(),
+        )
+        .unwrap();
+        assert_eq!(proving.backend, "arkworks");
+        assert_eq!(proving.proof.public_signals.len(), 4);
+        assert!(
+            verify_commitment_proof_with_session(
+                "stable".to_owned(),
+                session.handle.clone(),
+                proving.proof,
+            )
+            .unwrap()
+        );
+        assert!(remove_commitment_circuit_session(session.handle).unwrap());
     }
 
     #[test]

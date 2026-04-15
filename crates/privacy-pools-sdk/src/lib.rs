@@ -958,6 +958,82 @@ mod tests {
         )
     }
 
+    fn reference_withdrawal_request(sdk: &PrivacyPoolsSdk) -> core::WithdrawalWitnessRequest {
+        let crypto_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/crypto-compatibility.json"
+        ))
+        .unwrap();
+        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+        let keys = sdk
+            .generate_master_keys(crypto_fixture["mnemonic"].as_str().unwrap())
+            .unwrap();
+        let (deposit_nullifier, deposit_secret) = sdk
+            .generate_deposit_secrets(
+                &keys,
+                U256::from_str(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
+                U256::ZERO,
+            )
+            .unwrap();
+
+        core::WithdrawalWitnessRequest {
+            commitment: sdk
+                .get_commitment(
+                    U256::from_str(withdrawal_fixture["existingValue"].as_str().unwrap()).unwrap(),
+                    U256::from_str(withdrawal_fixture["label"].as_str().unwrap()).unwrap(),
+                    deposit_nullifier,
+                    deposit_secret,
+                )
+                .unwrap(),
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from_str(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
+            withdrawal_amount: U256::from_str(
+                withdrawal_fixture["withdrawalAmount"].as_str().unwrap(),
+            )
+            .unwrap(),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from_str(withdrawal_fixture["stateWitness"]["root"].as_str().unwrap())
+                    .unwrap(),
+                leaf: U256::from_str(withdrawal_fixture["stateWitness"]["leaf"].as_str().unwrap())
+                    .unwrap(),
+                index: withdrawal_fixture["stateWitness"]["index"]
+                    .as_u64()
+                    .unwrap() as usize,
+                siblings: withdrawal_fixture["stateWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value: &Value| U256::from_str(value.as_str().unwrap()).unwrap())
+                    .collect(),
+                depth: withdrawal_fixture["stateWitness"]["depth"]
+                    .as_u64()
+                    .unwrap() as usize,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from_str(withdrawal_fixture["aspWitness"]["root"].as_str().unwrap())
+                    .unwrap(),
+                leaf: U256::from_str(withdrawal_fixture["aspWitness"]["leaf"].as_str().unwrap())
+                    .unwrap(),
+                index: withdrawal_fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
+                siblings: withdrawal_fixture["aspWitness"]["siblings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value: &Value| U256::from_str(value.as_str().unwrap()).unwrap())
+                    .collect(),
+                depth: withdrawal_fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
+            },
+            new_nullifier: U256::from_str(withdrawal_fixture["newNullifier"].as_str().unwrap())
+                .unwrap(),
+            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap()).unwrap(),
+        }
+    }
+
     #[async_trait]
     impl chain::ExecutionClient for MockSubmissionClient {
         async fn chain_id(&self) -> Result<u64, chain::ChainError> {
@@ -1457,6 +1533,76 @@ mod tests {
             error,
             SdkError::Prover(prover::ProverError::InvalidZkey(_))
         ));
+    }
+
+    #[test]
+    fn proves_verifies_and_plans_withdrawal_with_v1_artifacts() {
+        let sdk = PrivacyPoolsSdk::default();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/withdrawal-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let request = reference_withdrawal_request(&sdk);
+        let session = sdk
+            .prepare_withdrawal_circuit_session(&manifest, &root)
+            .unwrap();
+
+        let proving = sdk
+            .prove_withdrawal_with_session(BackendProfile::Stable, &session, &request)
+            .unwrap();
+
+        sdk.validate_withdrawal_proof_against_request(&request, &proving.proof)
+            .unwrap();
+        assert!(
+            sdk.verify_withdrawal_proof_with_session(
+                BackendProfile::Stable,
+                &session,
+                &proving.proof,
+            )
+            .unwrap()
+        );
+
+        let remaining_value = request.commitment.preimage.value - request.withdrawal_amount;
+        let new_commitment = crypto::get_commitment(
+            remaining_value,
+            request.commitment.preimage.label,
+            request.new_nullifier,
+            request.new_secret,
+        )
+        .unwrap();
+        let public_signals = chain::withdraw_public_signals(&proving.proof).unwrap();
+        assert_eq!(public_signals[0], new_commitment.hash);
+        assert_eq!(
+            public_signals[1],
+            crypto::hash_nullifier(request.commitment.preimage.precommitment.nullifier).unwrap()
+        );
+        assert_eq!(public_signals[2], request.withdrawal_amount);
+        assert_eq!(public_signals[3], request.state_witness.root);
+        assert_eq!(
+            public_signals[4],
+            U256::from(request.state_witness.depth as u64)
+        );
+        assert_eq!(public_signals[5], request.asp_witness.root);
+        assert_eq!(
+            public_signals[6],
+            U256::from(request.asp_witness.depth as u64)
+        );
+        assert_eq!(
+            public_signals[7],
+            crypto::calculate_context_field(&request.withdrawal, request.scope).unwrap()
+        );
+
+        let plan = sdk
+            .plan_withdrawal_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &request.withdrawal,
+                &proving.proof,
+            )
+            .unwrap();
+        assert_eq!(plan.kind, core::TransactionKind::Withdraw);
+        assert_eq!(plan.proof.pub_signals.len(), 8);
     }
 
     #[test]
