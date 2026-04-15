@@ -973,7 +973,7 @@ fn to_ffi_secrets(
     ),
 ) -> FfiSecrets {
     FfiSecrets {
-        nullifier: field_label(nullifier),
+        nullifier: nullifier.to_decimal_string(),
         secret: secret.to_decimal_string(),
     }
 }
@@ -994,7 +994,11 @@ fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiComm
         precommitment_hash: field_label(commitment.precommitment_hash),
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
-        nullifier: field_label(commitment.preimage.precommitment.nullifier),
+        nullifier: commitment
+            .preimage
+            .precommitment
+            .nullifier
+            .to_decimal_string(),
         secret: commitment.preimage.precommitment.secret.to_decimal_string(),
     }
 }
@@ -1016,7 +1020,7 @@ fn from_ffi_commitment(commitment: FfiCommitment) -> Result<Commitment, FfiError
             label: parse_field(&commitment.label)?,
             precommitment: privacy_pools_sdk::core::Precommitment {
                 hash: precommitment_hash,
-                nullifier: parse_field(&commitment.nullifier)?,
+                nullifier: parse_field(&commitment.nullifier)?.into(),
                 secret: parse_field(&commitment.secret)?.into(),
             },
         },
@@ -1862,7 +1866,7 @@ pub fn get_commitment(
     secret: String,
 ) -> Result<FfiCommitment, FfiError> {
     let commitment = sdk()
-        .get_commitment(
+        .build_commitment(
             parse_field(&value)?,
             parse_field(&label)?,
             parse_field(&nullifier)?,

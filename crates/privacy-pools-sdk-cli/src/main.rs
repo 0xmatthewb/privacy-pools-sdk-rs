@@ -476,7 +476,7 @@ fn reference_withdrawal_request(sdk: &PrivacyPoolsSdk) -> Result<core::Withdrawa
         .context("failed to derive deposit secrets for benchmark request")?;
 
     Ok(core::WithdrawalWitnessRequest {
-        commitment: sdk.get_commitment(
+        commitment: sdk.build_commitment(
             parse_u256(&withdrawal_fixture["existingValue"])?,
             parse_u256(&withdrawal_fixture["label"])?,
             deposit_nullifier,

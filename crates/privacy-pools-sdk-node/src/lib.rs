@@ -413,7 +413,7 @@ pub fn derive_deposit_secrets(
         )
         .map_err(to_napi_error)?;
     to_json_string(&JsSecrets {
-        nullifier: field_label(secrets.0),
+        nullifier: secrets.0.to_decimal_string(),
         secret: secrets.1.to_decimal_string(),
     })
     .map_err(to_napi_error)
@@ -436,7 +436,7 @@ pub fn derive_withdrawal_secrets(
         )
         .map_err(to_napi_error)?;
     to_json_string(&JsSecrets {
-        nullifier: field_label(secrets.0),
+        nullifier: secrets.0.to_decimal_string(),
         secret: secrets.1.to_decimal_string(),
     })
     .map_err(to_napi_error)
@@ -450,7 +450,7 @@ pub fn get_commitment(
     secret: String,
 ) -> NapiResult<String> {
     let commitment = SDK
-        .get_commitment(
+        .build_commitment(
             parse_field(&value).map_err(to_napi_error)?,
             parse_field(&label).map_err(to_napi_error)?,
             parse_field(&nullifier).map_err(to_napi_error)?,
@@ -1185,7 +1185,11 @@ fn to_js_commitment(commitment: Commitment) -> JsCommitment {
         precommitment_hash: field_label(commitment.precommitment_hash),
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
-        nullifier: field_label(commitment.preimage.precommitment.nullifier),
+        nullifier: commitment
+            .preimage
+            .precommitment
+            .nullifier
+            .to_decimal_string(),
         secret: commitment.preimage.precommitment.secret.to_decimal_string(),
     }
 }
@@ -1205,7 +1209,7 @@ fn from_js_commitment(commitment: JsCommitment) -> Result<Commitment> {
             label: parse_field(&commitment.label)?,
             precommitment: Precommitment {
                 hash: precommitment_hash,
-                nullifier: parse_field(&commitment.nullifier)?,
+                nullifier: parse_field(&commitment.nullifier)?.into(),
                 secret: parse_field(&commitment.secret)?.into(),
             },
         },
@@ -1606,7 +1610,7 @@ fn to_js_recovered_commitment(commitment: &RecoveredCommitment) -> JsRecoveredCo
         hash: field_label(commitment.hash),
         value: field_label(commitment.value),
         label: field_label(commitment.label),
-        nullifier: field_label(commitment.nullifier),
+        nullifier: commitment.nullifier.to_decimal_string(),
         secret: commitment.secret.to_decimal_string(),
         block_number: commitment.block_number,
         transaction_hash: commitment.transaction_hash.to_string(),

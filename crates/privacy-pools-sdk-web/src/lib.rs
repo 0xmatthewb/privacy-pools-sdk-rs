@@ -466,7 +466,7 @@ pub fn derive_deposit_secrets_json(
         parse_field(index)?,
     )?;
     to_json_string(&JsSecrets {
-        nullifier: field_label(secrets.0),
+        nullifier: secrets.0.to_decimal_string(),
         secret: secrets.1.to_decimal_string(),
     })
 }
@@ -484,7 +484,7 @@ pub fn derive_withdrawal_secrets_json(
         parse_field(index)?,
     )?;
     to_json_string(&JsSecrets {
-        nullifier: field_label(secrets.0),
+        nullifier: secrets.0.to_decimal_string(),
         secret: secrets.1.to_decimal_string(),
     })
 }
@@ -495,7 +495,7 @@ pub fn get_commitment_json(
     nullifier: &str,
     secret: &str,
 ) -> Result<String> {
-    let commitment = privacy_pools_sdk_crypto::get_commitment(
+    let commitment = privacy_pools_sdk_crypto::build_commitment(
         parse_field(value)?,
         parse_field(label)?,
         parse_field(nullifier)?,
@@ -1372,7 +1372,11 @@ fn to_js_commitment(commitment: &Commitment) -> JsCommitment {
         precommitment_hash: field_label(commitment.precommitment_hash),
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
-        nullifier: field_label(commitment.preimage.precommitment.nullifier),
+        nullifier: commitment
+            .preimage
+            .precommitment
+            .nullifier
+            .to_decimal_string(),
         secret: commitment.preimage.precommitment.secret.to_decimal_string(),
     }
 }
@@ -1436,7 +1440,7 @@ fn from_js_commitment(commitment: &JsCommitment) -> Result<Commitment> {
             label: parse_field(&commitment.label)?,
             precommitment: privacy_pools_sdk_core::Precommitment {
                 hash: precommitment_hash,
-                nullifier: parse_field(&commitment.nullifier)?,
+                nullifier: parse_field(&commitment.nullifier)?.into(),
                 secret: parse_field(&commitment.secret)?.into(),
             },
         },
@@ -2111,7 +2115,7 @@ fn to_js_recovered_commitment(commitment: &RecoveredCommitment) -> JsRecoveredCo
         hash: field_label(commitment.hash),
         value: field_label(commitment.value),
         label: field_label(commitment.label),
-        nullifier: field_label(commitment.nullifier),
+        nullifier: commitment.nullifier.to_decimal_string(),
         secret: commitment.secret.to_decimal_string(),
         block_number: commitment.block_number,
         transaction_hash: commitment.transaction_hash.to_string(),

@@ -22,10 +22,100 @@ sol! {
 
 /// A field element represented as a 256-bit integer.
 pub type FieldElement = U256;
-/// A protocol nullifier.
-pub type Nullifier = U256;
 /// A Privacy Pools scope.
 pub type Scope = U256;
+
+/// A redacted protocol nullifier.
+///
+/// Nullifiers are spend-enabling protocol material until they are hashed for
+/// public signals. `Nullifier` deliberately does not expose its inner value
+/// through `Debug`. Use [`Nullifier::expose_secret`],
+/// [`Nullifier::to_decimal_string`], or [`Nullifier::to_hex_32`] only at
+/// explicit hashing, circuit, or serialization boundaries.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Nullifier(U256);
+
+impl Nullifier {
+    /// Wraps a field element as nullifier material.
+    pub const fn new(value: U256) -> Self {
+        Self(value)
+    }
+
+    /// Explicitly exposes the raw field element.
+    pub const fn expose_secret(&self) -> U256 {
+        self.0
+    }
+
+    /// Returns true when the nullifier field element is zero.
+    pub fn is_zero(&self) -> bool {
+        self.0.is_zero()
+    }
+
+    /// Serializes the nullifier as a decimal string for circuit and FFI payloads.
+    pub fn to_decimal_string(&self) -> String {
+        self.0.to_string()
+    }
+
+    /// Serializes the nullifier as a fixed-width 32-byte hex string.
+    pub fn to_hex_32(&self) -> String {
+        field_to_hex_32(self.0)
+    }
+}
+
+impl From<U256> for Nullifier {
+    fn from(value: U256) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<&Nullifier> for Nullifier {
+    fn from(value: &Nullifier) -> Self {
+        value.clone()
+    }
+}
+
+impl From<Nullifier> for U256 {
+    fn from(value: Nullifier) -> Self {
+        value.0
+    }
+}
+
+impl From<&Nullifier> for U256 {
+    fn from(value: &Nullifier) -> Self {
+        value.0
+    }
+}
+
+impl PartialEq<U256> for Nullifier {
+    fn eq(&self, other: &U256) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<Nullifier> for U256 {
+    fn eq(&self, other: &Nullifier) -> bool {
+        *self == other.0
+    }
+}
+
+impl fmt::Debug for Nullifier {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Nullifier([redacted])")
+    }
+}
+
+impl Zeroize for Nullifier {
+    fn zeroize(&mut self) {
+        self.0 = U256::ZERO;
+    }
+}
+
+impl Drop for Nullifier {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
 
 /// A redacted field element used for secret protocol material.
 ///
@@ -271,7 +361,7 @@ pub struct WithdrawalWitnessRequest {
     pub withdrawal_amount: FieldElement,
     pub state_witness: CircuitMerkleWitness,
     pub asp_witness: CircuitMerkleWitness,
-    pub new_nullifier: Secret,
+    pub new_nullifier: Nullifier,
     pub new_secret: Secret,
 }
 
@@ -291,7 +381,7 @@ pub type RagequitWitnessRequest = CommitmentWitnessRequest;
 pub struct CommitmentCircuitInput {
     pub value: FieldElement,
     pub label: FieldElement,
-    pub nullifier: Secret,
+    pub nullifier: Nullifier,
     pub secret: Secret,
 }
 
@@ -312,11 +402,11 @@ pub struct WithdrawalCircuitInput {
     #[serde(rename = "existingValue")]
     pub existing_value: FieldElement,
     #[serde(rename = "existingNullifier")]
-    pub existing_nullifier: Secret,
+    pub existing_nullifier: Nullifier,
     #[serde(rename = "existingSecret")]
     pub existing_secret: Secret,
     #[serde(rename = "newNullifier")]
-    pub new_nullifier: Secret,
+    pub new_nullifier: Nullifier,
     #[serde(rename = "newSecret")]
     pub new_secret: Secret,
     #[serde(rename = "stateSiblings")]
@@ -509,6 +599,23 @@ mod tests {
     }
 
     #[test]
+    fn nullifier_debug_is_redacted_and_explicitly_exported() {
+        let nullifier = Nullifier::new(U256::from(42_u64));
+
+        assert_eq!(format!("{nullifier:?}"), "Nullifier([redacted])");
+        assert_eq!(nullifier.expose_secret(), U256::from(42_u64));
+        assert_eq!(nullifier.to_decimal_string(), "42");
+    }
+
+    #[test]
+    fn nullifier_zeroize_clears_observable_value() {
+        let mut nullifier = Nullifier::new(U256::from(42_u64));
+        nullifier.zeroize();
+
+        assert_eq!(nullifier.expose_secret(), U256::ZERO);
+    }
+
+    #[test]
     fn withdrawal_prefers_processor_but_preserves_wire_name() {
         let processor = address!("1111111111111111111111111111111111111111");
         let withdrawal = Withdrawal::new(processor, bytes!("1234"));
@@ -558,7 +665,7 @@ mod tests {
                 label: U256::from(4_u64),
                 precommitment: Precommitment {
                     hash: U256::from(2_u64),
-                    nullifier: U256::from(5_u64),
+                    nullifier: U256::from(5_u64).into(),
                     secret: U256::from(6_u64).into(),
                 },
             },

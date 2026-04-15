@@ -1,8 +1,8 @@
 use alloy_primitives::{Address, B256, U256};
-use privacy_pools_sdk_core::{FieldElement, MasterKeys, Scope, Secret};
+use privacy_pools_sdk_core::{FieldElement, MasterKeys, Nullifier, Scope, Secret};
 use privacy_pools_sdk_crypto::{
-    CryptoError, generate_deposit_secrets, generate_legacy_master_keys, generate_master_keys,
-    generate_withdrawal_secrets, get_commitment, hash_nullifier, hash_precommitment,
+    CryptoError, build_commitment, generate_deposit_secrets, generate_legacy_master_keys,
+    generate_master_keys, generate_withdrawal_secrets, hash_nullifier, hash_precommitment,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -105,7 +105,7 @@ pub struct RecoveredCommitment {
     pub hash: FieldElement,
     pub value: FieldElement,
     pub label: FieldElement,
-    pub nullifier: FieldElement,
+    pub nullifier: Nullifier,
     pub secret: Secret,
     pub block_number: u64,
     pub transaction_hash: B256,
@@ -447,7 +447,7 @@ fn process_deposit_events(
 
     while consecutive_misses < MAX_CONSECUTIVE_DEPOSIT_MISSES {
         let (nullifier, secret) = generate_deposit_secrets(keys, scope, U256::from(index))?;
-        let precommitment_hash = hash_precommitment(nullifier, secret.clone())?;
+        let precommitment_hash = hash_precommitment(&nullifier, secret.clone())?;
 
         if let Some(event) = deposit_events
             .iter()
@@ -495,7 +495,7 @@ fn process_withdrawal_events(
             .len() as u64;
 
         loop {
-            let spent_nullifier_hash = hash_nullifier(current_commitment.nullifier)?;
+            let spent_nullifier_hash = hash_nullifier(&current_commitment.nullifier)?;
             let Some(withdrawal) = withdrawal_events
                 .iter()
                 .find(|candidate| candidate.spent_nullifier_hash == spent_nullifier_hash)
@@ -516,7 +516,7 @@ fn process_withdrawal_events(
             let (nullifier, secret) =
                 generate_withdrawal_secrets(keys, label, U256::from(child_index))?;
             let computed_commitment =
-                get_commitment(remaining_value, label, nullifier, secret.clone())?;
+                build_commitment(remaining_value, label, &nullifier, secret.clone())?;
             let is_migration = computed_commitment.hash != withdrawal.new_commitment_hash;
 
             let next_commitment = book.add_child_commitment(
@@ -562,10 +562,10 @@ fn discover_migrated_commitments(
 
         let (nullifier, secret) =
             generate_withdrawal_secrets(safe_keys, legacy_account.label, U256::ZERO)?;
-        let safe_commitment = get_commitment(
+        let safe_commitment = build_commitment(
             migration_child.value,
             legacy_account.label,
-            nullifier,
+            &nullifier,
             secret.clone(),
         )?;
         let Some(withdrawal_event) = withdrawal_events
@@ -579,7 +579,7 @@ fn discover_migrated_commitments(
             scope,
             AccountInsertion {
                 value: migration_child.value,
-                nullifier,
+                nullifier: nullifier.clone(),
                 secret: secret.clone(),
                 label: legacy_account.label,
                 block_number: withdrawal_event.block_number,
@@ -625,7 +625,7 @@ struct RecoveryBook {
 #[derive(Debug, Clone)]
 struct AccountInsertion {
     value: FieldElement,
-    nullifier: FieldElement,
+    nullifier: Nullifier,
     secret: Secret,
     label: FieldElement,
     block_number: u64,
@@ -639,7 +639,7 @@ struct ChildInsertion {
     parent_hash: FieldElement,
     value: FieldElement,
     label: FieldElement,
-    nullifier: FieldElement,
+    nullifier: Nullifier,
     secret: Secret,
     block_number: u64,
     transaction_hash: B256,
@@ -671,10 +671,10 @@ impl RecoveryBook {
         scope: Scope,
         insertion: AccountInsertion,
     ) -> Result<RecoveredPoolAccount, RecoveryError> {
-        let commitment = get_commitment(
+        let commitment = build_commitment(
             insertion.value,
             insertion.label,
-            insertion.nullifier,
+            insertion.nullifier.clone(),
             insertion.secret.clone(),
         )?;
         if let Some(expected_hash) = insertion.expected_hash
@@ -713,10 +713,10 @@ impl RecoveryBook {
         scope: Scope,
         insertion: ChildInsertion,
     ) -> Result<RecoveredCommitment, RecoveryError> {
-        let commitment = get_commitment(
+        let commitment = build_commitment(
             insertion.value,
             insertion.label,
-            insertion.nullifier,
+            insertion.nullifier.clone(),
             insertion.secret.clone(),
         )?;
         let account = self
@@ -949,13 +949,13 @@ mod tests {
         let (deposit_nullifier, deposit_secret) =
             generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
         let deposit =
-            get_commitment(deposit_value, label, deposit_nullifier, deposit_secret).unwrap();
+            build_commitment(deposit_value, label, &deposit_nullifier, deposit_secret).unwrap();
 
         let (withdraw_nullifier, withdraw_secret) =
             generate_withdrawal_secrets(&keyset.safe, label, U256::ZERO).unwrap();
         let remaining_value = U256::from(600_u64);
         let withdrawal_child =
-            get_commitment(remaining_value, label, withdraw_nullifier, withdraw_secret).unwrap();
+            build_commitment(remaining_value, label, withdraw_nullifier, withdraw_secret).unwrap();
 
         let recovered = recover_account_state_with_keyset(
             &keyset,
@@ -971,7 +971,7 @@ mod tests {
                 )],
                 vec![withdrawal_event(
                     U256::from(400_u64),
-                    hash_nullifier(deposit_nullifier).unwrap(),
+                    hash_nullifier(&deposit_nullifier).unwrap(),
                     withdrawal_child.hash,
                     20,
                     2,
@@ -1016,12 +1016,12 @@ mod tests {
         let (legacy_nullifier, legacy_secret) =
             generate_deposit_secrets(&legacy_keys, scope, U256::ZERO).unwrap();
         let legacy_deposit =
-            get_commitment(deposit_value, label, legacy_nullifier, legacy_secret).unwrap();
+            build_commitment(deposit_value, label, &legacy_nullifier, legacy_secret).unwrap();
 
         let (safe_nullifier, safe_secret) =
             generate_withdrawal_secrets(&safe_keys, label, U256::ZERO).unwrap();
         let migrated_commitment =
-            get_commitment(deposit_value, label, safe_nullifier, safe_secret).unwrap();
+            build_commitment(deposit_value, label, safe_nullifier, safe_secret).unwrap();
 
         let recovered = recover_account_state_with_keyset(
             &keyset,
@@ -1037,7 +1037,7 @@ mod tests {
                 )],
                 vec![withdrawal_event(
                     U256::ZERO,
-                    hash_nullifier(legacy_nullifier).unwrap(),
+                    hash_nullifier(&legacy_nullifier).unwrap(),
                     migrated_commitment.hash,
                     20,
                     2,
@@ -1080,12 +1080,12 @@ mod tests {
         let (legacy_nullifier, legacy_secret) =
             generate_deposit_secrets(&legacy_keys, scope, U256::ZERO).unwrap();
         let legacy_deposit =
-            get_commitment(deposit_value, label, legacy_nullifier, legacy_secret).unwrap();
+            build_commitment(deposit_value, label, &legacy_nullifier, legacy_secret).unwrap();
 
         let (safe_nullifier, safe_secret) =
             generate_withdrawal_secrets(&safe_keys, label, U256::ZERO).unwrap();
         let migrated_commitment =
-            get_commitment(deposit_value, label, safe_nullifier, safe_secret).unwrap();
+            build_commitment(deposit_value, label, safe_nullifier, safe_secret).unwrap();
 
         let recovered = recover_account_state(
             TEST_MNEMONIC,
@@ -1101,7 +1101,7 @@ mod tests {
                 )],
                 vec![withdrawal_event(
                     U256::ZERO,
-                    hash_nullifier(legacy_nullifier).unwrap(),
+                    hash_nullifier(&legacy_nullifier).unwrap(),
                     migrated_commitment.hash,
                     20,
                     2,
@@ -1135,11 +1135,11 @@ mod tests {
         let (legacy_nullifier, legacy_secret) =
             generate_deposit_secrets(&legacy_keys, scope, U256::ZERO).unwrap();
         let legacy_deposit =
-            get_commitment(deposit_value, label, legacy_nullifier, legacy_secret).unwrap();
+            build_commitment(deposit_value, label, &legacy_nullifier, legacy_secret).unwrap();
 
         let (safe_withdraw_nullifier, safe_withdraw_secret) =
             generate_withdrawal_secrets(&safe_keys, label, U256::ZERO).unwrap();
-        let migrated_commitment = get_commitment(
+        let migrated_commitment = build_commitment(
             deposit_value,
             label,
             safe_withdraw_nullifier,
@@ -1151,7 +1151,7 @@ mod tests {
         let safe_value = U256::from(250_u64);
         let (safe_deposit_nullifier, safe_deposit_secret) =
             generate_deposit_secrets(&safe_keys, scope, U256::from(1_u64)).unwrap();
-        let safe_deposit = get_commitment(
+        let safe_deposit = build_commitment(
             safe_value,
             safe_label,
             safe_deposit_nullifier,
@@ -1183,7 +1183,7 @@ mod tests {
                 ],
                 vec![withdrawal_event(
                     U256::ZERO,
-                    hash_nullifier(legacy_nullifier).unwrap(),
+                    hash_nullifier(&legacy_nullifier).unwrap(),
                     migrated_commitment.hash,
                     20,
                     2,
@@ -1217,16 +1217,16 @@ mod tests {
 
         let (legacy_nullifier, legacy_secret) =
             generate_deposit_secrets(keyset.legacy.as_ref().unwrap(), scope, U256::ZERO).unwrap();
-        let migrated_legacy_deposit = get_commitment(
+        let migrated_legacy_deposit = build_commitment(
             U256::from(900_u64),
             migrated_label,
-            legacy_nullifier,
+            &legacy_nullifier,
             legacy_secret,
         )
         .unwrap();
         let (safe_migration_nullifier, safe_migration_secret) =
             generate_withdrawal_secrets(&keyset.safe, migrated_label, U256::ZERO).unwrap();
-        let migrated_safe_commitment = get_commitment(
+        let migrated_safe_commitment = build_commitment(
             U256::from(900_u64),
             migrated_label,
             safe_migration_nullifier,
@@ -1236,7 +1236,7 @@ mod tests {
 
         let (active_nullifier, active_secret) =
             generate_deposit_secrets(&keyset.safe, scope, U256::from(1_u64)).unwrap();
-        let active_deposit = get_commitment(
+        let active_deposit = build_commitment(
             U256::from(500_u64),
             active_label,
             active_nullifier,
@@ -1246,7 +1246,7 @@ mod tests {
 
         let (ragequit_nullifier, ragequit_secret) =
             generate_deposit_secrets(&keyset.safe, scope, U256::from(2_u64)).unwrap();
-        let ragequit_deposit = get_commitment(
+        let ragequit_deposit = build_commitment(
             U256::from(250_u64),
             ragequit_label,
             ragequit_nullifier,
@@ -1286,7 +1286,7 @@ mod tests {
                 ],
                 withdrawal_events: vec![withdrawal_event(
                     U256::ZERO,
-                    hash_nullifier(legacy_nullifier).unwrap(),
+                    hash_nullifier(&legacy_nullifier).unwrap(),
                     migrated_safe_commitment.hash,
                     20,
                     2,
@@ -1326,7 +1326,7 @@ mod tests {
         let value = U256::from(111_u64);
         let (nullifier, secret) =
             generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
-        let deposit = get_commitment(value, label, nullifier, secret).unwrap();
+        let deposit = build_commitment(value, label, nullifier, secret).unwrap();
 
         let earlier = deposit_event(
             deposit.hash,
@@ -1394,7 +1394,7 @@ mod tests {
         let value = U256::from(500_u64);
         let (nullifier, secret) =
             generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
-        let deposit = get_commitment(value, label, nullifier, secret).unwrap();
+        let deposit = build_commitment(value, label, nullifier, secret).unwrap();
         let spent = U256::from(77_u64);
         let earlier = withdrawal_event(U256::from(1_u64), spent, U256::from(2_u64), 1, 1);
         let later = withdrawal_event(U256::from(2_u64), spent, U256::from(3_u64), 2, 2);

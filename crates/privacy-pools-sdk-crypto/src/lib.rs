@@ -59,7 +59,11 @@ pub fn generate_deposit_secrets(
     index: FieldElement,
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
-        poseidon_hash(&[keys.master_nullifier.expose_secret(), scope, index])?,
+        Nullifier::new(poseidon_hash(&[
+            keys.master_nullifier.expose_secret(),
+            scope,
+            index,
+        ])?),
         Secret::new(poseidon_hash(&[
             keys.master_secret.expose_secret(),
             scope,
@@ -74,7 +78,11 @@ pub fn generate_withdrawal_secrets(
     index: FieldElement,
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
-        poseidon_hash(&[keys.master_nullifier.expose_secret(), label, index])?,
+        Nullifier::new(poseidon_hash(&[
+            keys.master_nullifier.expose_secret(),
+            label,
+            index,
+        ])?),
         Secret::new(poseidon_hash(&[
             keys.master_secret.expose_secret(),
             label,
@@ -89,11 +97,12 @@ pub fn hash_precommitment(
 ) -> Result<FieldElement, CryptoError> {
     let nullifier = nullifier.into();
     let secret = secret.into();
-    poseidon_hash(&[nullifier, secret.expose_secret()])
+    poseidon_hash(&[nullifier.expose_secret(), secret.expose_secret()])
 }
 
-pub fn hash_nullifier(nullifier: Nullifier) -> Result<FieldElement, CryptoError> {
-    poseidon_hash(&[nullifier])
+pub fn hash_nullifier(nullifier: impl Into<Nullifier>) -> Result<FieldElement, CryptoError> {
+    let nullifier = nullifier.into();
+    poseidon_hash(&[nullifier.expose_secret()])
 }
 
 pub fn build_commitment(
@@ -104,11 +113,11 @@ pub fn build_commitment(
 ) -> Result<Commitment, CryptoError> {
     let nullifier = nullifier.into();
     let secret = secret.into();
-    validate_non_zero(nullifier, "nullifier")?;
+    validate_non_zero(nullifier.expose_secret(), "nullifier")?;
     validate_non_zero(label, "label")?;
     validate_non_zero(secret.expose_secret(), "secret")?;
 
-    let precommitment_hash = hash_precommitment(nullifier, secret.clone())?;
+    let precommitment_hash = hash_precommitment(nullifier.clone(), secret.clone())?;
     let hash = poseidon_hash(&[value, label, precommitment_hash])?;
     Ok(Commitment {
         hash,
@@ -125,15 +134,6 @@ pub fn build_commitment(
     })
 }
 
-pub fn get_commitment(
-    value: FieldElement,
-    label: FieldElement,
-    nullifier: impl Into<Nullifier>,
-    secret: impl Into<Secret>,
-) -> Result<Commitment, CryptoError> {
-    build_commitment(value, label, nullifier, secret)
-}
-
 pub fn calculate_withdrawal_context(
     withdrawal: &Withdrawal,
     scope: Scope,
@@ -141,10 +141,6 @@ pub fn calculate_withdrawal_context(
     Ok(field_to_hex_32(calculate_withdrawal_context_field(
         withdrawal, scope,
     )?))
-}
-
-pub fn calculate_context(withdrawal: &Withdrawal, scope: Scope) -> Result<String, CryptoError> {
-    calculate_withdrawal_context(withdrawal, scope)
 }
 
 pub fn calculate_withdrawal_context_field(
@@ -162,13 +158,6 @@ pub fn calculate_withdrawal_context_field(
 
     let keccak = U256::from_be_slice(keccak256(encoded).as_slice());
     Ok(keccak % snark_scalar_field())
-}
-
-pub fn calculate_context_field(
-    withdrawal: &Withdrawal,
-    scope: Scope,
-) -> Result<FieldElement, CryptoError> {
-    calculate_withdrawal_context_field(withdrawal, scope)
 }
 
 fn derive_account_private_key(mnemonic: &str, account_index: u32) -> Result<U256, CryptoError> {
@@ -300,7 +289,7 @@ mod tests {
         );
 
         let commitment =
-            get_commitment(U256::from(1000), label, deposit_nullifier, deposit_secret).unwrap();
+            build_commitment(U256::from(1000), label, deposit_nullifier, deposit_secret).unwrap();
         assert_eq!(
             commitment.hash,
             U256::from_str(fixture["commitment"]["hash"].as_str().unwrap()).unwrap()
@@ -319,10 +308,10 @@ mod tests {
         let scope = U256::from_str(fixture["scope"].as_str().unwrap()).unwrap();
         let (deposit_nullifier, deposit_secret) =
             generate_deposit_secrets(&keys, scope, U256::ZERO).unwrap();
-        let commitment = get_commitment(
+        let commitment = build_commitment(
             U256::from(1000),
             U256::from(456_u64),
-            deposit_nullifier,
+            deposit_nullifier.clone(),
             deposit_secret,
         )
         .unwrap();

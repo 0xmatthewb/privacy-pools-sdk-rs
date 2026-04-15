@@ -1,6 +1,6 @@
 use privacy_pools_sdk_core::{
     CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest,
-    FieldElement, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+    FieldElement, Nullifier, WithdrawalCircuitInput, WithdrawalWitnessRequest,
 };
 use privacy_pools_sdk_crypto as crypto;
 use privacy_pools_sdk_tree as tree;
@@ -77,7 +77,7 @@ pub fn build_commitment_circuit_input(
     Ok(CommitmentCircuitInput {
         value: request.commitment.preimage.value,
         label: request.commitment.preimage.label,
-        nullifier: request.commitment.preimage.precommitment.nullifier.into(),
+        nullifier: request.commitment.preimage.precommitment.nullifier.clone(),
         secret: request.commitment.preimage.precommitment.secret.clone(),
     })
 }
@@ -100,7 +100,7 @@ pub fn build_withdrawal_circuit_input(
         context: crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope)?,
         label: request.commitment.preimage.label,
         existing_value: request.commitment.preimage.value,
-        existing_nullifier: request.commitment.preimage.precommitment.nullifier.into(),
+        existing_nullifier: request.commitment.preimage.precommitment.nullifier.clone(),
         existing_secret: request.commitment.preimage.precommitment.secret.clone(),
         new_nullifier: request.new_nullifier.clone(),
         new_secret: request.new_secret.clone(),
@@ -126,7 +126,7 @@ pub fn validate_withdrawal_request(request: &WithdrawalWitnessRequest) -> Result
 
     validate_contract_deposit_value("existingValue", request.commitment.preimage.value)?;
     validate_circuit_u128("withdrawnValue", request.withdrawal_amount)?;
-    validate_new_commitment_secret("newNullifier", &request.new_nullifier)?;
+    validate_new_commitment_nullifier("newNullifier", &request.new_nullifier)?;
     validate_new_commitment_secret("newSecret", &request.new_secret)?;
 
     if request.new_nullifier == request.commitment.preimage.precommitment.nullifier {
@@ -248,11 +248,21 @@ fn validate_new_commitment_secret(
     Ok(())
 }
 
+fn validate_new_commitment_nullifier(
+    field: &'static str,
+    value: &Nullifier,
+) -> Result<(), CircuitError> {
+    if value.is_zero() {
+        return Err(CircuitError::NewCommitmentFieldZero { field });
+    }
+    Ok(())
+}
+
 fn recompute_commitment(commitment: &Commitment) -> Result<Commitment, CircuitError> {
-    Ok(crypto::get_commitment(
+    Ok(crypto::build_commitment(
         commitment.preimage.value,
         commitment.preimage.label,
-        commitment.preimage.precommitment.nullifier,
+        commitment.preimage.precommitment.nullifier.clone(),
         commitment.preimage.precommitment.secret.clone(),
     )?)
 }
@@ -308,7 +318,7 @@ mod tests {
         let mut request = CommitmentWitnessRequest {
             commitment: valid_request().commitment,
         };
-        request.commitment = crypto::get_commitment(
+        request.commitment = crypto::build_commitment(
             U256::from(u128::MAX),
             request.commitment.preimage.label,
             request.commitment.preimage.precommitment.nullifier,
@@ -362,7 +372,7 @@ mod tests {
     #[test]
     fn rejects_reused_nullifiers_before_proving() {
         let mut request = valid_request();
-        request.new_nullifier = request.commitment.preimage.precommitment.nullifier.into();
+        request.new_nullifier = request.commitment.preimage.precommitment.nullifier.clone();
 
         let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
         assert!(matches!(error, CircuitError::NewNullifierMatchesExisting));
@@ -372,7 +382,7 @@ mod tests {
     fn rejects_existing_values_outside_contract_deposit_range() {
         let mut request = valid_request();
         request.withdrawal_amount = U256::from(1_u64);
-        request.commitment = crypto::get_commitment(
+        request.commitment = crypto::build_commitment(
             U256::from(u128::MAX),
             request.commitment.preimage.label,
             request.commitment.preimage.precommitment.nullifier,
@@ -390,7 +400,7 @@ mod tests {
     }
 
     fn valid_request() -> WithdrawalWitnessRequest {
-        let commitment = crypto::get_commitment(
+        let commitment = crypto::build_commitment(
             U256::from(1_000_u64),
             U256::from(456_u64),
             U256::from(66_u64),
