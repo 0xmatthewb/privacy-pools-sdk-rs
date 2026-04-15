@@ -1,6 +1,6 @@
 # Privacy Pools SDK
 
-Privacy Pools SDK for Rust, iOS, Android, and React Native.
+Privacy Pools SDK for Rust, iOS, Android, and React Native apps.
 
 > [!CAUTION]
 > Experimental software. Use at your own risk.
@@ -12,18 +12,16 @@ chains. Users deposit publicly and withdraw privately by proving they belong to
 an approved association set, while retaining the ability to exit publicly via
 ragequit at any time.
 
-Privacy Pools is defined by its deployed contracts and circuits. This repository
-does not change either of those. It implements the client-side SDK around them:
-proving, witness preparation, Merkle logic, artifact handling, account
-recovery, transaction planning, and mobile bindings.
+This repository is the client SDK for that protocol. It does not change the
+deployed Privacy Pools contracts or circuits. Instead, it gives applications one
+implementation for the work around them: key and commitment derivation, Merkle
+witness handling, local proof generation and verification, artifact
+verification, account recovery, transaction planning, and mobile bindings.
 
 ## SDK Surfaces
 
-This repository provides the canonical SDK implementation for:
-
-- Rust applications
-- iOS and Android applications through generated native bindings
-- React Native applications through `@0xbow/privacy-pools-sdk`
+The SDK is available as a Rust crate, generated iOS and Android bindings, and a
+React Native package published as `@0xbow/privacy-pools-sdk`.
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -32,50 +30,39 @@ correction proposed in
 
 ## Capabilities
 
-- generates keys, commitments, nullifiers, and witness inputs
-- builds LeanIMT proofs and normalizes circuit-facing Merkle witnesses
-- proves and verifies the Privacy Pools `withdraw` circuit locally
-- resolves and hash-verifies pinned circuit artifacts
-- reconstructs account state from onchain events, including legacy migration
-  flows
-- plans withdraw and relay transactions against the existing Privacy Pools
-  contracts
-- performs execution preflight checks before signing or broadcast
-- exposes the same core logic across every supported surface
+At the protocol layer, the SDK derives keys, commitments, nullifiers, and
+LeanIMT witnesses in the shapes expected by the deployed Privacy Pools circuits.
+It resolves pinned circuit artifacts, builds `withdraw` inputs, generates proofs
+locally, and verifies those proofs before any execution flow moves forward.
+
+At the application layer, it reconstructs account state from onchain events,
+including legacy migration cases, plans withdraw and relay transactions against
+the deployed contracts, and keeps signing as an explicit boundary. The same core
+logic is shared across Rust, iOS, Android, and React Native so different app
+surfaces are working from the same implementation.
 
 ## Safety Model
 
 Safety of user funds is the top priority for this SDK. The current design keeps
-that boundary explicit:
-
-- contracts and circuits are treated as protocol source of truth
-- circuit artifacts are versioned, pinned, and hash verified
-- pool state roots and ASP roots are handled as distinct concepts
-- proving, verification, recovery, and transaction planning live in one native
-  implementation
-- signer interfaces are explicit abstractions, not raw private-key-first
-  convenience APIs
-- prepared execution flows re-check chain identity, contract code, roots, and
-  transaction parameters before broadcast
+that boundary explicit. The deployed contracts and circuits are treated as the
+source of truth. Circuit artifacts are versioned, pinned, and hash verified.
+Pool state roots and ASP roots are handled as distinct concepts. Prepared
+execution flows re-check chain identity, contract code hashes, roots, and
+transaction parameters before broadcast, and signer integrations remain explicit
+interfaces rather than raw private-key convenience paths hidden inside the SDK.
 
 ## Workspace Layout
 
-- `crates/privacy-pools-sdk`: public Rust API
-- `crates/privacy-pools-sdk-ffi`: FFI layer for mobile bindings
-- `crates/privacy-pools-sdk-crypto`: key derivation, Poseidon helpers,
-  commitments, context hashing
-- `crates/privacy-pools-sdk-tree`: LeanIMT handling and circuit witness shaping
-- `crates/privacy-pools-sdk-prover`: proving backend integration
-- `crates/privacy-pools-sdk-artifacts`: manifest resolution and artifact
-  verification
-- `crates/privacy-pools-sdk-chain`: ABI formatting, planning, preflight, and
-  submission helpers
-- `crates/privacy-pools-sdk-recovery`: checkpointing and account recovery replay
-- `crates/privacy-pools-sdk-signer`: signer abstractions and validation helpers
-- `packages/react-native`: React Native package backed by the native bindings
-- `bindings/ios`, `bindings/android`: generated platform bindings
-- `fixtures/`: compatibility vectors and artifact manifests
-- `xtask`: build, packaging, release, and smoke-test automation
+Most of the implementation lives in the public Rust crate,
+`crates/privacy-pools-sdk`, plus the mobile-facing FFI crate,
+`crates/privacy-pools-sdk-ffi`. Supporting internal crates cover the focused
+protocol concerns: crypto, Merkle logic, proving, artifacts, chain interaction,
+recovery, and signer validation.
+
+Generated iOS and Android bindings live in `bindings/`. The React Native
+package lives in `packages/react-native`. Compatibility fixtures and sample
+artifact manifests live in `fixtures/`, and `xtask` drives binding generation,
+packaging, release validation, and smoke tests.
 
 ## Local Development
 
