@@ -32,8 +32,8 @@ Current first-class surfaces:
 
 Remaining package milestones:
 
-- green manual/nightly mobile app-process smoke confirmation for React Native
-  iOS and Android simulator/emulator prove/verify coverage
+- committed mobile smoke evidence from the manual/nightly React Native iOS and
+  Android simulator/emulator prove/verify workflow for each promoted release
 - broader release-mode benchmark evidence across runtime surfaces
 
 Compatibility is anchored to the published
@@ -126,8 +126,16 @@ xcrun --sdk iphoneos --show-sdk-path
 Common commands:
 
 ```sh
+cargo fmt --all --check
 cargo test --workspace
+cargo test --doc --workspace
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo doc --workspace --no-deps
+cargo run -p xtask -- examples-check
+cargo run -p xtask -- feature-check
+cargo run -p xtask -- package-check
+cargo run -p xtask -- dependency-check
+cargo run -p xtask -- release-check --channel alpha
 cargo run -p xtask -- bindings
 cargo run -p xtask -- react-native-smoke
 cargo run -p xtask -- react-native-app-smoke-ios
@@ -139,14 +147,18 @@ The regular CI workflow runs the fast Rust, SDK, browser-worker, React Native
 package, and React Native typecheck gates on every push. The real simulator and
 emulator app-process mobile smokes run in the manual/nightly `mobile-smoke`
 workflow because they are intentionally heavyweight release/promotion gates.
+That workflow uploads `mobile-smoke.json`, which must be copied into the channel
+evidence bundle before promotion.
 
 Further documentation:
 
 - [`docs/benchmarking.md`](docs/benchmarking.md)
 - [`docs/feature-matrix.md`](docs/feature-matrix.md)
+- [`docs/crate-architecture.md`](docs/crate-architecture.md)
 - [`docs/crates-publish-order.md`](docs/crates-publish-order.md)
 - [`docs/rust-migration-from-npm.md`](docs/rust-migration-from-npm.md)
 - [`docs/release-process.md`](docs/release-process.md)
+- [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
 - [`docs/v1-js-compatibility-matrix.md`](docs/v1-js-compatibility-matrix.md)
