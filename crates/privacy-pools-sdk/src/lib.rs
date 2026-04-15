@@ -38,7 +38,27 @@ pub struct WithdrawalCircuitSession {
     prepared: prover::PreparedCircuitArtifacts,
 }
 
+#[derive(Clone)]
+pub struct CommitmentCircuitSession {
+    bundle: artifacts::VerifiedArtifactBundle,
+    prepared: prover::PreparedCircuitArtifacts,
+}
+
 impl WithdrawalCircuitSession {
+    pub fn circuit(&self) -> &str {
+        &self.bundle.circuit
+    }
+
+    pub fn artifact_version(&self) -> &str {
+        &self.bundle.version
+    }
+
+    pub fn verified_bundle(&self) -> &artifacts::VerifiedArtifactBundle {
+        &self.bundle
+    }
+}
+
+impl CommitmentCircuitSession {
     pub fn circuit(&self) -> &str {
         &self.bundle.circuit
     }
@@ -119,6 +139,14 @@ pub enum SdkError {
     },
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
+        field: &'static str,
+        expected: String,
+        actual: String,
+    },
+    #[error(
+        "commitment proof public signal mismatch for {field}: expected {expected}, got {actual}"
+    )]
+    CommitmentProofSignalMismatch {
         field: &'static str,
         expected: String,
         actual: String,
@@ -343,6 +371,23 @@ impl PrivacyPoolsSdk {
         self.prepare_withdrawal_circuit_session_from_bundle(bundle)
     }
 
+    pub fn prepare_commitment_circuit_session_from_bundle(
+        &self,
+        bundle: artifacts::VerifiedArtifactBundle,
+    ) -> Result<CommitmentCircuitSession, SdkError> {
+        let prepared = prover::PreparedCircuitArtifacts::from_verified_bundle(&bundle)?;
+        Ok(CommitmentCircuitSession { bundle, prepared })
+    }
+
+    pub fn prepare_commitment_circuit_session(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+    ) -> Result<CommitmentCircuitSession, SdkError> {
+        let bundle = self.load_verified_artifact_bundle(manifest, root, "commitment")?;
+        self.prepare_commitment_circuit_session_from_bundle(bundle)
+    }
+
     pub fn plan_asp_root_read(
         &self,
         entrypoint_address: Address,
@@ -383,6 +428,29 @@ impl PrivacyPoolsSdk {
         chain::plan_relay_transaction(chain_id, entrypoint_address, withdrawal, proof, scope)
     }
 
+    pub fn plan_ragequit_transaction(
+        &self,
+        chain_id: u64,
+        pool_address: Address,
+        proof: &core::ProofBundle,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        chain::plan_ragequit_transaction(chain_id, pool_address, proof)
+    }
+
+    pub fn build_commitment_circuit_input(
+        &self,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<core::CommitmentCircuitInput, SdkError> {
+        circuits::build_commitment_circuit_input(request).map_err(Into::into)
+    }
+
+    pub fn serialize_commitment_circuit_input(
+        &self,
+        input: &core::CommitmentCircuitInput,
+    ) -> Result<String, SdkError> {
+        prover::serialize_commitment_circuit_input(input).map_err(Into::into)
+    }
+
     pub fn build_withdrawal_circuit_input(
         &self,
         request: &core::WithdrawalWitnessRequest,
@@ -415,6 +483,103 @@ impl PrivacyPoolsSdk {
             artifact_version,
             zkey_path,
         })
+    }
+
+    pub fn prepare_commitment_proving_request(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<prover::ProvingRequest, SdkError> {
+        let input = self.build_commitment_circuit_input(request)?;
+        let input_json = self.serialize_commitment_circuit_input(&input)?;
+        let bundle = self.resolve_verified_artifact_bundle(manifest, root, "commitment")?;
+        let artifact_version = bundle.version.clone();
+        let zkey_path = bundle.artifact(artifacts::ArtifactKind::Zkey)?.path.clone();
+
+        Ok(prover::ProvingRequest {
+            circuit: "commitment".to_owned(),
+            input_json,
+            artifact_version,
+            zkey_path,
+        })
+    }
+
+    pub fn prove_commitment(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        let session = self.prepare_commitment_circuit_session(manifest, root)?;
+        self.prove_commitment_with_session(profile, &session, request)
+    }
+
+    pub fn prove_commitment_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &CommitmentCircuitSession,
+        request: &core::CommitmentWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        let input = self.build_commitment_circuit_input(request)?;
+        let input_json = self.serialize_commitment_circuit_input(&input)?;
+        self.proving_engine(profile)?
+            .prove_with_compiled_witness_and_artifacts(&session.prepared, &input_json)
+            .map_err(Into::into)
+    }
+
+    pub fn verify_commitment_proof(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
+        let session = self.prepare_commitment_circuit_session(manifest, root)?;
+        self.verify_commitment_proof_with_session(profile, &session, proof)
+    }
+
+    pub fn verify_commitment_proof_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &CommitmentCircuitSession,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
+        self.proving_engine(profile)?
+            .verify_with_prepared_artifacts(&session.prepared, proof)
+            .map_err(Into::into)
+    }
+
+    pub fn validate_commitment_proof_against_request(
+        &self,
+        request: &core::CommitmentWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<(), SdkError> {
+        circuits::validate_commitment_request(request)?;
+
+        let public_signals = chain::ragequit_public_signals(proof)?;
+        let expected_signals = [
+            ("commitmentHash", request.commitment.hash),
+            (
+                "nullifierHash",
+                crypto::hash_nullifier(request.commitment.preimage.precommitment.nullifier)?,
+            ),
+            ("value", request.commitment.preimage.value),
+            ("label", request.commitment.preimage.label),
+        ];
+
+        for ((field, expected), actual) in expected_signals.into_iter().zip(public_signals) {
+            if expected != actual {
+                return Err(SdkError::CommitmentProofSignalMismatch {
+                    field,
+                    expected: expected.to_string(),
+                    actual: actual.to_string(),
+                });
+            }
+        }
+
+        Ok(())
     }
 
     pub fn prove_withdrawal_with_witness(
@@ -1120,6 +1285,53 @@ mod tests {
     }
 
     #[test]
+    fn builds_typed_commitment_inputs_from_reference_vectors() {
+        let sdk = PrivacyPoolsSdk::default();
+        let crypto_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/crypto-compatibility.json"
+        ))
+        .unwrap();
+        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+        let commitment = sdk
+            .get_commitment(
+                U256::from_str(withdrawal_fixture["existingValue"].as_str().unwrap()).unwrap(),
+                U256::from_str(withdrawal_fixture["label"].as_str().unwrap()).unwrap(),
+                U256::from_str(
+                    crypto_fixture["depositSecrets"]["nullifier"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .unwrap(),
+                U256::from_str(crypto_fixture["depositSecrets"]["secret"].as_str().unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+        let request = core::CommitmentWitnessRequest { commitment };
+
+        let input = sdk.build_commitment_circuit_input(&request).unwrap();
+        let normalized: Value =
+            serde_json::from_str(&sdk.serialize_commitment_circuit_input(&input).unwrap()).unwrap();
+
+        assert_eq!(input.value, U256::from(1_000_u64));
+        assert_eq!(input.label, U256::from(456_u64));
+        assert_eq!(normalized["value"], serde_json::json!(["1000"]));
+        assert_eq!(normalized["label"], serde_json::json!(["456"]));
+        assert_eq!(
+            normalized["nullifier"],
+            serde_json::json!([crypto_fixture["depositSecrets"]["nullifier"]
+                .as_str()
+                .unwrap()])
+        );
+        assert_eq!(
+            normalized["secret"],
+            serde_json::json!([crypto_fixture["depositSecrets"]["secret"].as_str().unwrap()])
+        );
+    }
+
+    #[test]
     fn prepares_withdrawal_proving_requests_from_verified_zkeys() {
         let sdk = PrivacyPoolsSdk::default();
         let crypto_fixture: Value = serde_json::from_str(include_str!(
@@ -1245,6 +1457,76 @@ mod tests {
             error,
             SdkError::Prover(prover::ProverError::InvalidZkey(_))
         ));
+    }
+
+    #[test]
+    fn proves_verifies_and_plans_commitment_ragequit_with_v1_artifacts() {
+        let sdk = PrivacyPoolsSdk::default();
+        let crypto_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/crypto-compatibility.json"
+        ))
+        .unwrap();
+        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/commitment-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let commitment = sdk
+            .get_commitment(
+                U256::from_str(withdrawal_fixture["existingValue"].as_str().unwrap()).unwrap(),
+                U256::from_str(withdrawal_fixture["label"].as_str().unwrap()).unwrap(),
+                U256::from_str(
+                    crypto_fixture["depositSecrets"]["nullifier"]
+                        .as_str()
+                        .unwrap(),
+                )
+                .unwrap(),
+                U256::from_str(crypto_fixture["depositSecrets"]["secret"].as_str().unwrap())
+                    .unwrap(),
+            )
+            .unwrap();
+        let request = core::CommitmentWitnessRequest { commitment };
+        let session = sdk
+            .prepare_commitment_circuit_session(&manifest, &root)
+            .unwrap();
+
+        let proving = sdk
+            .prove_commitment_with_session(BackendProfile::Stable, &session, &request)
+            .unwrap();
+
+        sdk.validate_commitment_proof_against_request(&request, &proving.proof)
+            .unwrap();
+        assert!(
+            sdk.verify_commitment_proof_with_session(
+                BackendProfile::Stable,
+                &session,
+                &proving.proof,
+            )
+            .unwrap()
+        );
+
+        let public_signals = chain::ragequit_public_signals(&proving.proof).unwrap();
+        assert_eq!(public_signals[0], request.commitment.hash);
+        assert_eq!(
+            public_signals[1],
+            crypto::hash_nullifier(request.commitment.preimage.precommitment.nullifier).unwrap()
+        );
+        assert_eq!(public_signals[2], U256::from(1_000_u64));
+        assert_eq!(public_signals[3], U256::from(456_u64));
+
+        let plan = sdk
+            .plan_ragequit_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &proving.proof,
+            )
+            .unwrap();
+        assert_eq!(plan.kind, core::TransactionKind::Ragequit);
+        assert_eq!(plan.proof.pub_signals.len(), 4);
     }
 
     #[test]

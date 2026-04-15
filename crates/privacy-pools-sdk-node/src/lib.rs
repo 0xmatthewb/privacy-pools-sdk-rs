@@ -4,12 +4,12 @@ use base64::Engine;
 use napi::{Error, Result as NapiResult};
 use napi_derive::napi;
 use privacy_pools_sdk::{
-    PrivacyPoolsSdk, WithdrawalCircuitSession,
+    CommitmentCircuitSession, PrivacyPoolsSdk, WithdrawalCircuitSession,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
-        CircuitMerkleWitness, Commitment, CommitmentPreimage, MasterKeys, MerkleProof,
-        Precommitment, ProofBundle, SnarkJsProof, Withdrawal, WithdrawalCircuitInput,
-        WithdrawalWitnessRequest,
+        CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentPreimage,
+        CommitmentWitnessRequest, MasterKeys, MerkleProof, Precommitment, ProofBundle,
+        SnarkJsProof, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
     },
     prover::{BackendPolicy, BackendProfile, ProverBackend, ProvingResult},
 };
@@ -29,7 +29,9 @@ static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(|| {
     })
 });
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, WithdrawalCircuitSession>>> =
+static WITHDRAWAL_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, WithdrawalCircuitSession>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMMITMENT_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, CommitmentCircuitSession>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +143,20 @@ struct JsWithdrawalCircuitInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct JsCommitmentWitnessRequest {
+    commitment: JsCommitment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct JsCommitmentCircuitInput {
+    value: String,
+    label: String,
+    nullifier: String,
+    secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JsArtifactBytes {
     kind: String,
     bytes_base64: String,
@@ -192,6 +208,14 @@ struct JsVerifiedArtifactBundle {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct JsWithdrawalCircuitSessionHandle {
+    handle: String,
+    circuit: String,
+    artifact_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsCommitmentCircuitSessionHandle {
     handle: String,
     circuit: String,
     artifact_version: String,
@@ -336,6 +360,17 @@ pub fn build_withdrawal_circuit_input(request_json: String) -> NapiResult<String
 }
 
 #[napi]
+pub fn build_commitment_circuit_input(request_json: String) -> NapiResult<String> {
+    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
+        .and_then(from_js_commitment_witness_request)
+        .map_err(to_napi_error)?;
+    let input = SDK
+        .build_commitment_circuit_input(&request)
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_commitment_circuit_input(&input)).map_err(to_napi_error)
+}
+
+#[napi]
 pub fn get_artifact_statuses(manifest_json: String, artifacts_root: String) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
     let statuses = SDK
@@ -383,13 +418,13 @@ pub fn prepare_withdrawal_circuit_session(
     let session = SDK
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
         .map_err(to_napi_error)?;
-    let handle = next_session_handle();
+    let handle = next_withdrawal_session_handle();
     let result = JsWithdrawalCircuitSessionHandle {
         handle: handle.clone(),
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    SESSION_REGISTRY
+    WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
         .map_err(to_napi_error)?
@@ -412,13 +447,13 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
     let session = SDK
         .prepare_withdrawal_circuit_session_from_bundle(bundle)
         .map_err(to_napi_error)?;
-    let handle = next_session_handle();
+    let handle = next_withdrawal_session_handle();
     let result = JsWithdrawalCircuitSessionHandle {
         handle: handle.clone(),
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    SESSION_REGISTRY
+    WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
         .map_err(to_napi_error)?
@@ -428,7 +463,69 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
 
 #[napi]
 pub fn remove_withdrawal_circuit_session(session_handle: String) -> NapiResult<bool> {
-    Ok(SESSION_REGISTRY
+    Ok(WITHDRAWAL_SESSION_REGISTRY
+        .write()
+        .map_err(lock_error)
+        .map_err(to_napi_error)?
+        .remove(&session_handle)
+        .is_some())
+}
+
+#[napi]
+pub fn prepare_commitment_circuit_session(
+    manifest_json: String,
+    artifacts_root: String,
+) -> NapiResult<String> {
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let session = SDK
+        .prepare_commitment_circuit_session(&manifest, &artifacts_root)
+        .map_err(to_napi_error)?;
+    let handle = next_commitment_session_handle();
+    let result = JsCommitmentCircuitSessionHandle {
+        handle: handle.clone(),
+        circuit: session.circuit().to_owned(),
+        artifact_version: session.artifact_version().to_owned(),
+    };
+    COMMITMENT_SESSION_REGISTRY
+        .write()
+        .map_err(lock_error)
+        .map_err(to_napi_error)?
+        .insert(handle, session);
+    to_json_string(&result).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn prepare_commitment_circuit_session_from_bytes(
+    manifest_json: String,
+    artifacts_json: String,
+) -> NapiResult<String> {
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let artifacts = parse_json::<Vec<JsArtifactBytes>>(&artifacts_json)
+        .and_then(from_js_artifact_bytes)
+        .map_err(to_napi_error)?;
+    let bundle = SDK
+        .verify_artifact_bundle_bytes(&manifest, "commitment", artifacts)
+        .map_err(to_napi_error)?;
+    let session = SDK
+        .prepare_commitment_circuit_session_from_bundle(bundle)
+        .map_err(to_napi_error)?;
+    let handle = next_commitment_session_handle();
+    let result = JsCommitmentCircuitSessionHandle {
+        handle: handle.clone(),
+        circuit: session.circuit().to_owned(),
+        artifact_version: session.artifact_version().to_owned(),
+    };
+    COMMITMENT_SESSION_REGISTRY
+        .write()
+        .map_err(lock_error)
+        .map_err(to_napi_error)?
+        .insert(handle, session);
+    to_json_string(&result).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn remove_commitment_circuit_session(session_handle: String) -> NapiResult<bool> {
+    Ok(COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
         .map_err(to_napi_error)?
@@ -466,7 +563,7 @@ pub fn prove_withdrawal_with_session(
     let request = parse_json::<JsWithdrawalWitnessRequest>(&request_json)
         .and_then(from_js_withdrawal_witness_request)
         .map_err(to_napi_error)?;
-    let session = get_session(&session_handle).map_err(to_napi_error)?;
+    let session = get_withdrawal_session(&session_handle).map_err(to_napi_error)?;
     SDK.prove_withdrawal_with_session(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
         &session,
@@ -505,8 +602,86 @@ pub fn verify_withdrawal_proof_with_session(
     let proof = parse_json::<JsProofBundle>(&proof_json)
         .and_then(from_js_proof_bundle)
         .map_err(to_napi_error)?;
-    let session = get_session(&session_handle).map_err(to_napi_error)?;
+    let session = get_withdrawal_session(&session_handle).map_err(to_napi_error)?;
     SDK.verify_withdrawal_proof_with_session(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &session,
+        &proof,
+    )
+    .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn prove_commitment(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_json: String,
+) -> NapiResult<String> {
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
+        .and_then(from_js_commitment_witness_request)
+        .map_err(to_napi_error)?;
+    SDK.prove_commitment(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &manifest,
+        &artifacts_root,
+        &request,
+    )
+    .map_err(to_napi_error)
+    .and_then(|result| to_json_string(&to_js_proving_result(result)).map_err(to_napi_error))
+}
+
+#[napi]
+pub fn prove_commitment_with_session(
+    backend_profile: String,
+    session_handle: String,
+    request_json: String,
+) -> NapiResult<String> {
+    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
+        .and_then(from_js_commitment_witness_request)
+        .map_err(to_napi_error)?;
+    let session = get_commitment_session(&session_handle).map_err(to_napi_error)?;
+    SDK.prove_commitment_with_session(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &session,
+        &request,
+    )
+    .map_err(to_napi_error)
+    .and_then(|result| to_json_string(&to_js_proving_result(result)).map_err(to_napi_error))
+}
+
+#[napi]
+pub fn verify_commitment_proof(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    proof_json: String,
+) -> NapiResult<bool> {
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    SDK.verify_commitment_proof(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &manifest,
+        &artifacts_root,
+        &proof,
+    )
+    .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn verify_commitment_proof_with_session(
+    backend_profile: String,
+    session_handle: String,
+    proof_json: String,
+) -> NapiResult<bool> {
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let session = get_commitment_session(&session_handle).map_err(to_napi_error)?;
+    SDK.verify_commitment_proof_with_session(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
         &session,
         &proof,
@@ -573,20 +748,36 @@ fn field_label(value: U256) -> String {
     value.to_string()
 }
 
-fn next_session_handle() -> String {
+fn next_withdrawal_session_handle() -> String {
     format!(
         "withdraw-session-{}",
         SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
     )
 }
 
-fn get_session(handle: &str) -> Result<WithdrawalCircuitSession> {
-    SESSION_REGISTRY
+fn next_commitment_session_handle() -> String {
+    format!(
+        "commitment-session-{}",
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+fn get_withdrawal_session(handle: &str) -> Result<WithdrawalCircuitSession> {
+    WITHDRAWAL_SESSION_REGISTRY
         .read()
         .map_err(lock_error)?
         .get(handle)
         .cloned()
         .ok_or_else(|| anyhow!("withdrawal circuit session handle not found: {handle}"))
+}
+
+fn get_commitment_session(handle: &str) -> Result<CommitmentCircuitSession> {
+    COMMITMENT_SESSION_REGISTRY
+        .read()
+        .map_err(lock_error)?
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("commitment circuit session handle not found: {handle}"))
 }
 
 fn lock_error<T>(error: std::sync::PoisonError<T>) -> anyhow::Error {
@@ -714,6 +905,14 @@ fn from_js_withdrawal_witness_request(
     })
 }
 
+fn from_js_commitment_witness_request(
+    request: JsCommitmentWitnessRequest,
+) -> Result<CommitmentWitnessRequest> {
+    Ok(CommitmentWitnessRequest {
+        commitment: from_js_commitment(request.commitment)?,
+    })
+}
+
 fn to_js_withdrawal_circuit_input(
     input: WithdrawalCircuitInput,
 ) -> Result<JsWithdrawalCircuitInput> {
@@ -738,6 +937,15 @@ fn to_js_withdrawal_circuit_input(
         asp_siblings: input.asp_siblings.into_iter().map(field_label).collect(),
         asp_index: u64::try_from(input.asp_index).context("asp index does not fit into u64")?,
     })
+}
+
+fn to_js_commitment_circuit_input(input: &CommitmentCircuitInput) -> JsCommitmentCircuitInput {
+    JsCommitmentCircuitInput {
+        value: field_label(input.value),
+        label: field_label(input.label),
+        nullifier: field_label(input.nullifier),
+        secret: field_label(input.secret),
+    }
 }
 
 fn from_js_proof_bundle(bundle: JsProofBundle) -> Result<ProofBundle> {

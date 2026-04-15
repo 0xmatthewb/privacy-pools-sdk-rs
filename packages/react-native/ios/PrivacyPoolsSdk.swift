@@ -184,6 +184,22 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(buildCommitmentCircuitInput:resolver:rejecter:)
+    func buildCommitmentCircuitInput(
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let input = try PrivacyPoolsSdkClient.commitmentCircuitInput(
+                request: try commitmentWitnessRequestRecord(from: request)
+            )
+            resolve(commitmentCircuitInputMap(input))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(prepareWithdrawalCircuitSession:artifactsRoot:resolver:rejecter:)
     func prepareWithdrawalCircuitSession(
         manifestJson: String,
@@ -233,6 +249,55 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(prepareCommitmentCircuitSession:artifactsRoot:resolver:rejecter:)
+    func prepareCommitmentCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.prepareCommitmentCircuitSession(
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot
+            )
+            resolve(commitmentCircuitSessionHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(prepareCommitmentCircuitSessionFromBytes:artifacts:resolver:rejecter:)
+    func prepareCommitmentCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: [[String: Any]],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let handle = try PrivacyPoolsSdkClient.prepareCommitmentCircuitSessionFromBytes(
+                manifestJson: manifestJson,
+                artifacts: try artifacts.map(artifactBytesRecord(from:))
+            )
+            resolve(commitmentCircuitSessionHandleMap(handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(removeCommitmentCircuitSession:resolver:rejecter:)
+    func removeCommitmentCircuitSession(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.removeCommitmentCircuitSession(handle: handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(proveWithdrawal:manifestJson:artifactsRoot:request:resolver:rejecter:)
     func proveWithdrawal(
         backendProfile: String,
@@ -268,6 +333,48 @@ final class PrivacyPoolsSdk: NSObject {
                 backendProfile: backendProfile,
                 sessionHandle: sessionHandle,
                 request: try withdrawalWitnessRequestRecord(from: request)
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveCommitment:manifestJson:artifactsRoot:request:resolver:rejecter:)
+    func proveCommitment(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.commitmentProof(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                request: try commitmentWitnessRequestRecord(from: request)
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveCommitmentWithSession:sessionHandle:request:resolver:rejecter:)
+    func proveCommitmentWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.commitmentProof(
+                backendProfile: backendProfile,
+                sessionHandle: sessionHandle,
+                request: try commitmentWitnessRequestRecord(from: request)
             )
             resolve(provingResultMap(result))
         } catch {
@@ -348,6 +455,46 @@ final class PrivacyPoolsSdk: NSObject {
     ) {
         do {
             resolve(try PrivacyPoolsSdkClient.verifyWithdrawal(
+                backendProfile: backendProfile,
+                sessionHandle: sessionHandle,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyCommitmentProof:manifestJson:artifactsRoot:proof:resolver:rejecter:)
+    func verifyCommitmentProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyCommitment(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyCommitmentProofWithSession:sessionHandle:proof:resolver:rejecter:)
+    func verifyCommitmentProofWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyCommitment(
                 backendProfile: backendProfile,
                 sessionHandle: sessionHandle,
                 proof: try proofBundleRecord(from: proof)
@@ -752,6 +899,26 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(planRagequitTransaction:poolAddress:proof:resolver:rejecter:)
+    func planRagequitTransaction(
+        chainId: NSNumber,
+        poolAddress: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.ragequitTransactionPlan(
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                proof: try proofBundleRecord(from: proof)
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planPoolStateRootRead:resolver:rejecter:)
     func planPoolStateRootRead(
         poolAddress: String,
@@ -1063,6 +1230,20 @@ final class PrivacyPoolsSdk: NSObject {
         )
     }
 
+    private func commitmentWitnessRequestRecord(
+        from value: [String: Any]
+    ) throws -> FfiCommitmentWitnessRequest {
+        guard let commitment = value["commitment"] as? [String: Any] else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid commitment witness payload"]
+            )
+        }
+
+        return FfiCommitmentWitnessRequest(commitment: try commitmentRecord(from: commitment))
+    }
+
     private func withdrawalCircuitInputMap(_ input: FfiWithdrawalCircuitInput) -> [String: Any] {
         [
             "withdrawn_value": input.withdrawnValue,
@@ -1084,6 +1265,15 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func commitmentCircuitInputMap(_ input: FfiCommitmentCircuitInput) -> [String: Any] {
+        [
+            "value": input.value,
+            "label": input.label,
+            "nullifier": input.nullifier,
+            "secret": input.secret,
+        ]
+    }
+
     private func provingResultMap(_ result: FfiProvingResult) -> [String: Any] {
         [
             "backend": result.backend,
@@ -1100,6 +1290,16 @@ final class PrivacyPoolsSdk: NSObject {
 
     private func withdrawalCircuitSessionHandleMap(
         _ handle: FfiWithdrawalCircuitSessionHandle
+    ) -> [String: Any] {
+        [
+            "handle": handle.handle,
+            "circuit": handle.circuit,
+            "artifact_version": handle.artifactVersion,
+        ]
+    }
+
+    private func commitmentCircuitSessionHandleMap(
+        _ handle: FfiCommitmentCircuitSessionHandle
     ) -> [String: Any] {
         [
             "handle": handle.handle,

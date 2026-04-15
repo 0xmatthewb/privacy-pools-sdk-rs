@@ -4,7 +4,8 @@ use privacy_pools_sdk::{
     SubmittedTransactionExecution,
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
-        CircuitMerkleWitness, CodeHashCheck, Commitment, ExecutionPolicy, ExecutionPreflightReport,
+        CircuitMerkleWitness, CodeHashCheck, Commitment, CommitmentCircuitInput,
+        CommitmentWitnessRequest, ExecutionPolicy, ExecutionPreflightReport,
         FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
         RootCheck, RootReadKind, SnarkJsProof, TransactionPlan, TransactionReceiptSummary,
         Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
@@ -270,6 +271,13 @@ pub struct FfiWithdrawalCircuitSessionHandle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiCommitmentCircuitSessionHandle {
+    pub handle: String,
+    pub circuit: String,
+    pub artifact_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct FfiMerkleProof {
     pub root: String,
     pub leaf: String,
@@ -316,6 +324,19 @@ pub struct FfiWithdrawalCircuitInput {
     pub state_index: u64,
     pub asp_siblings: Vec<String>,
     pub asp_index: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiCommitmentCircuitInput {
+    pub value: String,
+    pub label: String,
+    pub nullifier: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiCommitmentWitnessRequest {
+    pub commitment: FfiCommitment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -452,6 +473,9 @@ static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1)
 static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
     RwLock<HashMap<String, privacy_pools_sdk::WithdrawalCircuitSession>>,
 > = LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMMITMENT_SESSION_REGISTRY: LazyLock<
+    RwLock<HashMap<String, privacy_pools_sdk::CommitmentCircuitSession>>,
+> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
     serde_json::from_str(manifest_json)
@@ -538,6 +562,7 @@ fn transaction_kind_label(kind: privacy_pools_sdk::core::TransactionKind) -> Str
     match kind {
         privacy_pools_sdk::core::TransactionKind::Withdraw => "withdraw".to_owned(),
         privacy_pools_sdk::core::TransactionKind::Relay => "relay".to_owned(),
+        privacy_pools_sdk::core::TransactionKind::Ragequit => "ragequit".to_owned(),
     }
 }
 
@@ -667,6 +692,44 @@ fn registered_withdrawal_session(
 
 fn remove_withdrawal_session(handle: &str) -> Result<bool, FfiError> {
     let mut registry = WITHDRAWAL_SESSION_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    Ok(registry.remove(handle).is_some())
+}
+
+fn register_commitment_session(
+    session: privacy_pools_sdk::CommitmentCircuitSession,
+) -> Result<FfiCommitmentCircuitSessionHandle, FfiError> {
+    let handle = format!(
+        "commitment-session-{}",
+        SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let ffi = FfiCommitmentCircuitSessionHandle {
+        handle: handle.clone(),
+        circuit: session.circuit().to_owned(),
+        artifact_version: session.artifact_version().to_owned(),
+    };
+    let mut registry = COMMITMENT_SESSION_REGISTRY
+        .write()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry.insert(handle, session);
+    Ok(ffi)
+}
+
+fn registered_commitment_session(
+    handle: &str,
+) -> Result<privacy_pools_sdk::CommitmentCircuitSession, FfiError> {
+    let registry = COMMITMENT_SESSION_REGISTRY
+        .read()
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    registry
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
+}
+
+fn remove_commitment_session(handle: &str) -> Result<bool, FfiError> {
+    let mut registry = COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
     Ok(registry.remove(handle).is_some())
@@ -1170,6 +1233,7 @@ fn from_ffi_transaction_plan(plan: FfiTransactionPlan) -> Result<TransactionPlan
     let kind = match plan.kind.as_str() {
         "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
         "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        "ragequit" => privacy_pools_sdk::core::TransactionKind::Ragequit,
         _ => {
             return Err(FfiError::OperationFailed(format!(
                 "invalid transaction kind: {}",
@@ -1231,6 +1295,7 @@ fn from_ffi_execution_preflight(
     let kind = match report.kind.as_str() {
         "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
         "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        "ragequit" => privacy_pools_sdk::core::TransactionKind::Ragequit,
         _ => {
             return Err(FfiError::OperationFailed(format!(
                 "invalid transaction kind: {}",
@@ -1295,6 +1360,7 @@ fn from_ffi_finalized_request(
     let kind = match request.kind.as_str() {
         "withdraw" => privacy_pools_sdk::core::TransactionKind::Withdraw,
         "relay" => privacy_pools_sdk::core::TransactionKind::Relay,
+        "ragequit" => privacy_pools_sdk::core::TransactionKind::Ragequit,
         _ => {
             return Err(FfiError::OperationFailed(format!(
                 "invalid transaction kind: {}",
@@ -1437,6 +1503,15 @@ fn to_ffi_withdrawal_circuit_input(
     })
 }
 
+fn to_ffi_commitment_circuit_input(input: &CommitmentCircuitInput) -> FfiCommitmentCircuitInput {
+    FfiCommitmentCircuitInput {
+        value: field_label(input.value),
+        label: field_label(input.label),
+        nullifier: field_label(input.nullifier),
+        secret: field_label(input.secret),
+    }
+}
+
 fn to_ffi_artifact_status(version: &str, status: ArtifactStatus) -> FfiArtifactStatus {
     FfiArtifactStatus {
         version: version.to_owned(),
@@ -1485,6 +1560,14 @@ fn from_ffi_withdrawal_witness_request(
         asp_witness: from_ffi_circuit_merkle_witness(request.asp_witness)?,
         new_nullifier: parse_field(&request.new_nullifier)?,
         new_secret: parse_field(&request.new_secret)?,
+    })
+}
+
+fn from_ffi_commitment_witness_request(
+    request: FfiCommitmentWitnessRequest,
+) -> Result<CommitmentWitnessRequest, FfiError> {
+    Ok(CommitmentWitnessRequest {
+        commitment: from_ffi_commitment(request.commitment)?,
     })
 }
 
@@ -1826,6 +1909,17 @@ pub fn build_withdrawal_circuit_input(
 }
 
 #[uniffi::export]
+pub fn build_commitment_circuit_input(
+    request: FfiCommitmentWitnessRequest,
+) -> Result<FfiCommitmentCircuitInput, FfiError> {
+    let input = sdk()
+        .build_commitment_circuit_input(&from_ffi_commitment_witness_request(request)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_commitment_circuit_input(&input))
+}
+
+#[uniffi::export]
 pub fn prepare_withdrawal_circuit_session(
     manifest_json: String,
     artifacts_root: String,
@@ -1857,6 +1951,40 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
 #[uniffi::export]
 pub fn remove_withdrawal_circuit_session(handle: String) -> Result<bool, FfiError> {
     remove_withdrawal_session(&handle)
+}
+
+#[uniffi::export]
+pub fn prepare_commitment_circuit_session(
+    manifest_json: String,
+    artifacts_root: String,
+) -> Result<FfiCommitmentCircuitSessionHandle, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+    let session = sdk()
+        .prepare_commitment_circuit_session(&manifest, PathBuf::from(artifacts_root))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_commitment_session(session)
+}
+
+#[uniffi::export]
+pub fn prepare_commitment_circuit_session_from_bytes(
+    manifest_json: String,
+    artifacts: Vec<FfiArtifactBytes>,
+) -> Result<FfiCommitmentCircuitSessionHandle, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+    let bundle = sdk()
+        .verify_artifact_bundle_bytes(&manifest, "commitment", from_ffi_artifact_bytes(artifacts)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let session = sdk()
+        .prepare_commitment_circuit_session_from_bundle(bundle)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_commitment_session(session)
+}
+
+#[uniffi::export]
+pub fn remove_commitment_circuit_session(handle: String) -> Result<bool, FfiError> {
+    remove_commitment_session(&handle)
 }
 
 #[uniffi::export]
@@ -1938,6 +2066,44 @@ pub fn prove_withdrawal_with_session(
 }
 
 #[uniffi::export]
+pub fn prove_commitment(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request: FfiCommitmentWitnessRequest,
+) -> Result<FfiProvingResult, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+    let result = sdk()
+        .prove_commitment(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_commitment_witness_request(request)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
+pub fn prove_commitment_with_session(
+    backend_profile: String,
+    session_handle: String,
+    request: FfiCommitmentWitnessRequest,
+) -> Result<FfiProvingResult, FfiError> {
+    let session = registered_commitment_session(&session_handle)?;
+    let result = sdk()
+        .prove_commitment_with_session(
+            parse_backend_profile(&backend_profile)?,
+            &session,
+            &from_ffi_commitment_witness_request(request)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
 pub fn poll_job_status(job_id: String) -> Result<FfiAsyncJobStatus, FfiError> {
     poll_job(&job_id)
 }
@@ -1989,6 +2155,42 @@ pub fn verify_withdrawal_proof_with_session(
 
     sdk()
         .verify_withdrawal_proof_with_session(
+            parse_backend_profile(&backend_profile)?,
+            &session,
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
+pub fn verify_commitment_proof(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    proof: FfiProofBundle,
+) -> Result<bool, FfiError> {
+    let manifest = parse_manifest(&manifest_json)?;
+
+    sdk()
+        .verify_commitment_proof(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+#[uniffi::export]
+pub fn verify_commitment_proof_with_session(
+    backend_profile: String,
+    session_handle: String,
+    proof: FfiProofBundle,
+) -> Result<bool, FfiError> {
+    let session = registered_commitment_session(&session_handle)?;
+
+    sdk()
+        .verify_commitment_proof_with_session(
             parse_backend_profile(&backend_profile)?,
             &session,
             &from_ffi_proof_bundle(proof)?,
@@ -2294,6 +2496,23 @@ pub fn plan_relay_transaction(
             &from_ffi_withdrawal(withdrawal)?,
             &from_ffi_proof_bundle(proof)?,
             parse_field(&scope)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
+}
+
+#[uniffi::export]
+pub fn plan_ragequit_transaction(
+    chain_id: u64,
+    pool_address: String,
+    proof: FfiProofBundle,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let plan = sdk()
+        .plan_ragequit_transaction(
+            chain_id,
+            parse_address(&pool_address)?,
+            &from_ffi_proof_bundle(proof)?,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -2619,10 +2838,22 @@ mod tests {
         };
 
         let input = build_withdrawal_circuit_input(request.clone()).unwrap();
+        let commitment_input = build_commitment_circuit_input(FfiCommitmentWitnessRequest {
+            commitment: request.commitment.clone(),
+        })
+        .unwrap();
 
         assert_eq!(
             input.context,
             withdrawal_fixture["expected"]["context"].as_str().unwrap()
+        );
+        assert_eq!(
+            commitment_input.value,
+            withdrawal_fixture["existingValue"].as_str().unwrap()
+        );
+        assert_eq!(
+            commitment_input.label,
+            withdrawal_fixture["label"].as_str().unwrap()
         );
         assert_eq!(
             input.state_siblings,
@@ -2759,6 +2990,10 @@ mod tests {
             },
             public_signals: vec!["911".to_owned(); 8],
         };
+        let ragequit_proof = FfiProofBundle {
+            proof: proof.proof.clone(),
+            public_signals: vec!["911".to_owned(); 4],
+        };
         let relay_entrypoint = "0x1234567890123456789012345678901234567890".to_owned();
         let withdrawal = FfiWithdrawal {
             processooor: "0x1111111111111111111111111111111111111111".to_owned(),
@@ -2784,13 +3019,22 @@ mod tests {
             "123".to_owned(),
         )
         .unwrap();
+        let ragequit = plan_ragequit_transaction(
+            1,
+            "0x0987654321098765432109876543210987654321".to_owned(),
+            ragequit_proof,
+        )
+        .unwrap();
 
         assert_eq!(withdraw.kind, "withdraw");
         assert_eq!(relay.kind, "relay");
+        assert_eq!(ragequit.kind, "ragequit");
         assert_eq!(withdraw.chain_id, 1);
         assert_eq!(relay.chain_id, 1);
+        assert_eq!(ragequit.chain_id, 1);
         assert!(withdraw.calldata.starts_with("0x"));
         assert!(relay.calldata.starts_with("0x"));
+        assert!(ragequit.calldata.starts_with("0x"));
     }
 
     #[test]

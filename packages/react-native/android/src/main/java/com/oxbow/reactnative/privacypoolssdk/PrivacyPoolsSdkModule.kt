@@ -15,6 +15,9 @@ import io.oxbow.privacypoolssdk.FfiAsyncJobStatus
 import io.oxbow.privacypoolssdk.FfiCircuitMerkleWitness
 import io.oxbow.privacypoolssdk.FfiCodeHashCheck
 import io.oxbow.privacypoolssdk.FfiCommitment
+import io.oxbow.privacypoolssdk.FfiCommitmentCircuitInput
+import io.oxbow.privacypoolssdk.FfiCommitmentCircuitSessionHandle
+import io.oxbow.privacypoolssdk.FfiCommitmentWitnessRequest
 import io.oxbow.privacypoolssdk.FfiExecutionPolicy
 import io.oxbow.privacypoolssdk.FfiExecutionPreflightReport
 import io.oxbow.privacypoolssdk.FfiException
@@ -197,6 +200,21 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun buildCommitmentCircuitInput(request: ReadableMap, promise: Promise) {
+        try {
+            promise.resolve(
+                commitmentCircuitInputMap(
+                    NativeSdk.commitmentCircuitInput(commitmentWitnessRequestRecord(request))
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun prepareWithdrawalCircuitSession(
         manifestJson: String,
         artifactsRoot: String,
@@ -245,6 +263,54 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun prepareCommitmentCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                commitmentCircuitSessionHandleMap(
+                    NativeSdk.prepareCommitmentCircuitSession(manifestJson, artifactsRoot)
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun prepareCommitmentCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: ReadableArray,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                commitmentCircuitSessionHandleMap(
+                    NativeSdk.prepareCommitmentCircuitSessionFromBytes(
+                        manifestJson,
+                        readableMapList(artifacts).map(::artifactBytesRecord),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun removeCommitmentCircuitSession(handle: String, promise: Promise) {
+        try {
+            promise.resolve(NativeSdk.removeCommitmentCircuitSession(handle))
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun proveWithdrawal(
         backendProfile: String,
         manifestJson: String,
@@ -284,6 +350,56 @@ class PrivacyPoolsSdkModule(
                         backendProfile,
                         sessionHandle,
                         withdrawalWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun proveCommitment(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                provingResultMap(
+                    NativeSdk.proveCommitment(
+                        backendProfile,
+                        manifestJson,
+                        artifactsRoot,
+                        commitmentWitnessRequestRecord(request),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun proveCommitmentWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                provingResultMap(
+                    NativeSdk.proveCommitmentWithSession(
+                        backendProfile,
+                        sessionHandle,
+                        commitmentWitnessRequestRecord(request),
                     )
                 )
             )
@@ -378,6 +494,52 @@ class PrivacyPoolsSdkModule(
         try {
             promise.resolve(
                 NativeSdk.verifyWithdrawalProofWithSession(
+                    backendProfile,
+                    sessionHandle,
+                    proofBundleRecord(proof),
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun verifyCommitmentProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                NativeSdk.verifyCommitmentProof(
+                    backendProfile,
+                    manifestJson,
+                    artifactsRoot,
+                    proofBundleRecord(proof),
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
+    fun verifyCommitmentProofWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                NativeSdk.verifyCommitmentProofWithSession(
                     backendProfile,
                     sessionHandle,
                     proofBundleRecord(proof),
@@ -816,6 +978,30 @@ class PrivacyPoolsSdkModule(
     }
 
     @ReactMethod
+    fun planRagequitTransaction(
+        chainId: Double,
+        poolAddress: String,
+        proof: ReadableMap,
+        promise: Promise,
+    ) {
+        try {
+            promise.resolve(
+                transactionPlanMap(
+                    NativeSdk.ragequitTransactionPlan(
+                        chainId.toLong().toULong(),
+                        poolAddress,
+                        proofBundleRecord(proof),
+                    )
+                )
+            )
+        } catch (error: FfiException) {
+            promise.reject("ffi_error", error.message, error)
+        } catch (error: Exception) {
+            promise.reject("ffi_error", error.message, error)
+        }
+    }
+
+    @ReactMethod
     fun planPoolStateRootRead(poolAddress: String, promise: Promise) {
         try {
             promise.resolve(rootReadMap(NativeSdk.poolStateRootRead(poolAddress)))
@@ -1061,6 +1247,13 @@ class PrivacyPoolsSdkModule(
         )
     }
 
+    private fun commitmentWitnessRequestRecord(request: ReadableMap): FfiCommitmentWitnessRequest {
+        val commitment =
+            request.getMap("commitment") ?: error("missing commitment in commitment request")
+
+        return FfiCommitmentWitnessRequest(commitment = commitmentRecord(commitment))
+    }
+
     private fun withdrawalCircuitInputMap(input: FfiWithdrawalCircuitInput) =
         Arguments.createMap().apply {
             putString("withdrawn_value", input.withdrawnValue)
@@ -1081,6 +1274,14 @@ class PrivacyPoolsSdkModule(
             putDouble("asp_index", input.aspIndex.toDouble())
         }
 
+    private fun commitmentCircuitInputMap(input: FfiCommitmentCircuitInput) =
+        Arguments.createMap().apply {
+            putString("value", input.value)
+            putString("label", input.label)
+            putString("nullifier", input.nullifier)
+            putString("secret", input.secret)
+        }
+
     private fun provingResultMap(result: FfiProvingResult) = Arguments.createMap().apply {
         putString("backend", result.backend)
         putMap("proof", proofBundleMap(result.proof))
@@ -1093,6 +1294,14 @@ class PrivacyPoolsSdkModule(
 
     private fun withdrawalCircuitSessionHandleMap(
         handle: FfiWithdrawalCircuitSessionHandle,
+    ) = Arguments.createMap().apply {
+        putString("handle", handle.handle)
+        putString("circuit", handle.circuit)
+        putString("artifact_version", handle.artifactVersion)
+    }
+
+    private fun commitmentCircuitSessionHandleMap(
+        handle: FfiCommitmentCircuitSessionHandle,
     ) = Arguments.createMap().apply {
         putString("handle", handle.handle)
         putString("circuit", handle.circuit)

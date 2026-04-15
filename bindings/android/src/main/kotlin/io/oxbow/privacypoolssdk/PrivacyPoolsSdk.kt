@@ -1,6 +1,7 @@
 package io.oxbow.privacypoolssdk
 
 import io.oxbow.privacypoolssdk.buildCircuitMerkleWitness as ffiBuildCircuitMerkleWitness
+import io.oxbow.privacypoolssdk.buildCommitmentCircuitInput as ffiBuildCommitmentCircuitInput
 import io.oxbow.privacypoolssdk.buildWithdrawalCircuitInput as ffiBuildWithdrawalCircuitInput
 import io.oxbow.privacypoolssdk.calculateWithdrawalContext as ffiCalculateWithdrawalContext
 import io.oxbow.privacypoolssdk.cancelJob as ffiCancelJob
@@ -23,13 +24,18 @@ import io.oxbow.privacypoolssdk.getVersion as ffiGetVersion
 import io.oxbow.privacypoolssdk.isCurrentStateRoot as ffiIsCurrentStateRoot
 import io.oxbow.privacypoolssdk.planAspRootRead as ffiPlanAspRootRead
 import io.oxbow.privacypoolssdk.planPoolStateRootRead as ffiPlanPoolStateRootRead
+import io.oxbow.privacypoolssdk.planRagequitTransaction as ffiPlanRagequitTransaction
 import io.oxbow.privacypoolssdk.planRelayTransaction as ffiPlanRelayTransaction
 import io.oxbow.privacypoolssdk.planWithdrawalTransaction as ffiPlanWithdrawalTransaction
 import io.oxbow.privacypoolssdk.pollJobStatus as ffiPollJobStatus
+import io.oxbow.privacypoolssdk.prepareCommitmentCircuitSession as ffiPrepareCommitmentCircuitSession
+import io.oxbow.privacypoolssdk.prepareCommitmentCircuitSessionFromBytes as ffiPrepareCommitmentCircuitSessionFromBytes
 import io.oxbow.privacypoolssdk.prepareWithdrawalCircuitSession as ffiPrepareWithdrawalCircuitSession
 import io.oxbow.privacypoolssdk.prepareWithdrawalCircuitSessionFromBytes as ffiPrepareWithdrawalCircuitSessionFromBytes
 import io.oxbow.privacypoolssdk.prepareRelayExecution as ffiPrepareRelayExecution
 import io.oxbow.privacypoolssdk.prepareWithdrawalExecution as ffiPrepareWithdrawalExecution
+import io.oxbow.privacypoolssdk.proveCommitment as ffiProveCommitment
+import io.oxbow.privacypoolssdk.proveCommitmentWithSession as ffiProveCommitmentWithSession
 import io.oxbow.privacypoolssdk.proveWithdrawal as ffiProveWithdrawal
 import io.oxbow.privacypoolssdk.proveWithdrawalWithSession as ffiProveWithdrawalWithSession
 import io.oxbow.privacypoolssdk.registerHostProvidedSigner as ffiRegisterHostProvidedSigner
@@ -37,6 +43,7 @@ import io.oxbow.privacypoolssdk.registerLocalMnemonicSigner as ffiRegisterLocalM
 import io.oxbow.privacypoolssdk.registerMobileSecureStorageSigner as ffiRegisterMobileSecureStorageSigner
 import io.oxbow.privacypoolssdk.resolveVerifiedArtifactBundle as ffiResolveVerifiedArtifactBundle
 import io.oxbow.privacypoolssdk.removeJob as ffiRemoveJob
+import io.oxbow.privacypoolssdk.removeCommitmentCircuitSession as ffiRemoveCommitmentCircuitSession
 import io.oxbow.privacypoolssdk.removeWithdrawalCircuitSession as ffiRemoveWithdrawalCircuitSession
 import io.oxbow.privacypoolssdk.startPrepareRelayExecutionJob as ffiStartPrepareRelayExecutionJob
 import io.oxbow.privacypoolssdk.startPrepareWithdrawalExecutionJob as ffiStartPrepareWithdrawalExecutionJob
@@ -46,6 +53,8 @@ import io.oxbow.privacypoolssdk.submitPreparedTransaction as ffiSubmitPreparedTr
 import io.oxbow.privacypoolssdk.submitSignedTransaction as ffiSubmitSignedTransaction
 import io.oxbow.privacypoolssdk.unregisterSigner as ffiUnregisterSigner
 import io.oxbow.privacypoolssdk.verifyArtifactBytes as ffiVerifyArtifactBytes
+import io.oxbow.privacypoolssdk.verifyCommitmentProof as ffiVerifyCommitmentProof
+import io.oxbow.privacypoolssdk.verifyCommitmentProofWithSession as ffiVerifyCommitmentProofWithSession
 import io.oxbow.privacypoolssdk.verifyWithdrawalProof as ffiVerifyWithdrawalProof
 import io.oxbow.privacypoolssdk.verifyWithdrawalProofWithSession as ffiVerifyWithdrawalProofWithSession
 
@@ -108,6 +117,11 @@ object PrivacyPoolsSdk {
     ): FfiWithdrawalCircuitInput = ffiBuildWithdrawalCircuitInput(request)
 
     @Throws(FfiException::class)
+    fun commitmentCircuitInput(
+        request: FfiCommitmentWitnessRequest,
+    ): FfiCommitmentCircuitInput = ffiBuildCommitmentCircuitInput(request)
+
+    @Throws(FfiException::class)
     fun prepareWithdrawalCircuitSession(
         manifestJson: String,
         artifactsRoot: String,
@@ -126,6 +140,24 @@ object PrivacyPoolsSdk {
         ffiRemoveWithdrawalCircuitSession(handle)
 
     @Throws(FfiException::class)
+    fun prepareCommitmentCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+    ): FfiCommitmentCircuitSessionHandle =
+        ffiPrepareCommitmentCircuitSession(manifestJson, artifactsRoot)
+
+    @Throws(FfiException::class)
+    fun prepareCommitmentCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: List<FfiArtifactBytes>,
+    ): FfiCommitmentCircuitSessionHandle =
+        ffiPrepareCommitmentCircuitSessionFromBytes(manifestJson, artifacts)
+
+    @Throws(FfiException::class)
+    fun removeCommitmentCircuitSession(handle: String): Boolean =
+        ffiRemoveCommitmentCircuitSession(handle)
+
+    @Throws(FfiException::class)
     fun proveWithdrawal(
         backendProfile: String,
         manifestJson: String,
@@ -141,6 +173,23 @@ object PrivacyPoolsSdk {
         request: FfiWithdrawalWitnessRequest,
     ): FfiProvingResult =
         ffiProveWithdrawalWithSession(backendProfile, sessionHandle, request)
+
+    @Throws(FfiException::class)
+    fun proveCommitment(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiCommitmentWitnessRequest,
+    ): FfiProvingResult =
+        ffiProveCommitment(backendProfile, manifestJson, artifactsRoot, request)
+
+    @Throws(FfiException::class)
+    fun proveCommitmentWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        request: FfiCommitmentWitnessRequest,
+    ): FfiProvingResult =
+        ffiProveCommitmentWithSession(backendProfile, sessionHandle, request)
 
     @Throws(FfiException::class)
     fun startProveWithdrawalJob(
@@ -175,6 +224,23 @@ object PrivacyPoolsSdk {
         proof: FfiProofBundle,
     ): Boolean =
         ffiVerifyWithdrawalProofWithSession(backendProfile, sessionHandle, proof)
+
+    @Throws(FfiException::class)
+    fun verifyCommitmentProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: FfiProofBundle,
+    ): Boolean =
+        ffiVerifyCommitmentProof(backendProfile, manifestJson, artifactsRoot, proof)
+
+    @Throws(FfiException::class)
+    fun verifyCommitmentProofWithSession(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: FfiProofBundle,
+    ): Boolean =
+        ffiVerifyCommitmentProofWithSession(backendProfile, sessionHandle, proof)
 
     @Throws(FfiException::class)
     fun pollJobStatus(jobId: String): FfiAsyncJobStatus = ffiPollJobStatus(jobId)
@@ -398,6 +464,13 @@ object PrivacyPoolsSdk {
         scope: String,
     ): FfiTransactionPlan =
         ffiPlanRelayTransaction(chainId, entrypointAddress, withdrawal, proof, scope)
+
+    @Throws(FfiException::class)
+    fun ragequitTransactionPlan(
+        chainId: ULong,
+        poolAddress: String,
+        proof: FfiProofBundle,
+    ): FfiTransactionPlan = ffiPlanRagequitTransaction(chainId, poolAddress, proof)
 
     @Throws(FfiException::class)
     fun poolStateRootRead(poolAddress: String): FfiRootRead =

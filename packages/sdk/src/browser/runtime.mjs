@@ -90,6 +90,13 @@ export async function buildWithdrawalCircuitInput(request) {
   );
 }
 
+export async function buildCommitmentCircuitInput(request) {
+  return invokeJson(
+    "buildCommitmentCircuitInputJson",
+    JSON.stringify(request),
+  );
+}
+
 export async function verifyArtifactBytes(manifestJson, circuit, artifacts) {
   const wasm = await getWasmModule();
   const normalizedArtifacts = normalizeArtifactInputs(artifacts);
@@ -99,15 +106,23 @@ export async function verifyArtifactBytes(manifestJson, circuit, artifacts) {
 }
 
 export async function getArtifactStatuses(manifestJson, artifactsRoot) {
+  return getArtifactStatusesForCircuit(manifestJson, artifactsRoot, "withdraw");
+}
+
+export async function getCommitmentArtifactStatuses(manifestJson, artifactsRoot) {
+  return getArtifactStatusesForCircuit(manifestJson, artifactsRoot, "commitment");
+}
+
+async function getArtifactStatusesForCircuit(manifestJson, artifactsRoot, circuit) {
   const manifest = parseManifest(manifestJson);
-  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, "withdraw");
+  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, circuit);
   const verifiedKinds = new Set();
 
   if (fetchedArtifacts.every((artifact) => artifact.exists)) {
     try {
       const verifiedBundle = await verifyArtifactBytes(
         manifestJson,
-        "withdraw",
+        circuit,
         fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
       );
       for (const artifact of verifiedBundle.artifacts) {
@@ -130,8 +145,27 @@ export async function getArtifactStatuses(manifestJson, artifactsRoot) {
 }
 
 export async function resolveVerifiedArtifactBundle(manifestJson, artifactsRoot) {
+  return resolveVerifiedArtifactBundleForCircuit(manifestJson, artifactsRoot, "withdraw");
+}
+
+export async function resolveVerifiedCommitmentArtifactBundle(
+  manifestJson,
+  artifactsRoot,
+) {
+  return resolveVerifiedArtifactBundleForCircuit(
+    manifestJson,
+    artifactsRoot,
+    "commitment",
+  );
+}
+
+async function resolveVerifiedArtifactBundleForCircuit(
+  manifestJson,
+  artifactsRoot,
+  circuit,
+) {
   const manifest = parseManifest(manifestJson);
-  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, "withdraw");
+  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, circuit);
   const missingArtifact = fetchedArtifacts.find((artifact) => !artifact.exists);
   if (missingArtifact) {
     throw new Error(`missing browser artifact: ${missingArtifact.path}`);
@@ -139,7 +173,7 @@ export async function resolveVerifiedArtifactBundle(manifestJson, artifactsRoot)
 
   const bundle = await verifyArtifactBytes(
     manifestJson,
-    "withdraw",
+    circuit,
     fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
   );
   const urlsByKind = new Map(
@@ -159,16 +193,28 @@ export async function resolveVerifiedArtifactBundle(manifestJson, artifactsRoot)
 }
 
 export async function prepareWithdrawalCircuitSession(manifestJson, artifactsRoot) {
+  return prepareCircuitSession(manifestJson, artifactsRoot, "withdraw");
+}
+
+export async function prepareCommitmentCircuitSession(manifestJson, artifactsRoot) {
+  return prepareCircuitSession(manifestJson, artifactsRoot, "commitment");
+}
+
+async function prepareCircuitSession(manifestJson, artifactsRoot, circuit) {
   const manifest = parseManifest(manifestJson);
-  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, "withdraw");
+  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, circuit);
   const missingArtifact = fetchedArtifacts.find((artifact) => !artifact.exists);
   if (missingArtifact) {
     throw new Error(`missing browser artifact: ${missingArtifact.path}`);
   }
 
   const wasm = await getWasmModule();
+  const methodName =
+    circuit === "commitment"
+      ? "prepareCommitmentCircuitSessionFromBytes"
+      : "prepareWithdrawalCircuitSessionFromBytes";
   return JSON.parse(
-    wasm.prepareWithdrawalCircuitSessionFromBytes(
+    wasm[methodName](
       manifestJson,
       normalizeArtifactInputs(
         fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
@@ -190,9 +236,27 @@ export async function prepareWithdrawalCircuitSessionFromBytes(
   );
 }
 
+export async function prepareCommitmentCircuitSessionFromBytes(
+  manifestJson,
+  artifacts,
+) {
+  const wasm = await getWasmModule();
+  return JSON.parse(
+    wasm.prepareCommitmentCircuitSessionFromBytes(
+      manifestJson,
+      normalizeArtifactInputs(artifacts),
+    ),
+  );
+}
+
 export async function removeWithdrawalCircuitSession(sessionHandle) {
   const wasm = await getWasmModule();
   return wasm.removeWithdrawalCircuitSession(sessionHandle);
+}
+
+export async function removeCommitmentCircuitSession(sessionHandle) {
+  const wasm = await getWasmModule();
+  return wasm.removeCommitmentCircuitSession(sessionHandle);
 }
 
 export async function proveWithdrawal(
@@ -239,6 +303,67 @@ export async function verifyWithdrawalProof(
     normalizeArtifactInputs(
       fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
     ),
+    JSON.stringify(encodeProofBundle(proof)),
+  );
+}
+
+export async function proveCommitment(
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  request,
+) {
+  void backendProfile;
+  void manifestJson;
+  void artifactsRoot;
+  void request;
+  throw new BrowserRuntimeUnavailableError();
+}
+
+export async function proveCommitmentWithSession(
+  backendProfile,
+  sessionHandle,
+  request,
+) {
+  void backendProfile;
+  void sessionHandle;
+  void request;
+  throw new BrowserRuntimeUnavailableError();
+}
+
+export async function verifyCommitmentProof(
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  proof,
+) {
+  assertStableBackend(backendProfile);
+  const manifest = parseManifest(manifestJson);
+  const fetchedArtifacts = await fetchArtifactInputs(manifest, artifactsRoot, "commitment");
+  const missingArtifact = fetchedArtifacts.find((artifact) => !artifact.exists);
+  if (missingArtifact) {
+    throw new Error(`missing browser artifact: ${missingArtifact.path}`);
+  }
+
+  const wasm = await getWasmModule();
+  return wasm.verifyCommitmentProof(
+    manifestJson,
+    normalizeArtifactInputs(
+      fetchedArtifacts.map(({ kind, bytes }) => ({ kind, bytes })),
+    ),
+    JSON.stringify(encodeProofBundle(proof)),
+  );
+}
+
+export async function verifyCommitmentProofWithSession(
+  backendProfile,
+  sessionHandle,
+  proof,
+) {
+  assertStableBackend(backendProfile);
+  const wasm = await getWasmModule();
+  return wasm.verifyCommitmentProofWithSession(
+    sessionHandle,
     JSON.stringify(encodeProofBundle(proof)),
   );
 }

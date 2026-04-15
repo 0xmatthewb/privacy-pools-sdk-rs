@@ -86,6 +86,17 @@ export type WithdrawalCircuitInput = {
   aspIndex: number;
 };
 
+export type CommitmentWitnessRequest = {
+  commitment: Commitment;
+};
+
+export type CommitmentCircuitInput = {
+  value: string;
+  label: string;
+  nullifier: string;
+  secret: string;
+};
+
 export type ArtifactBytesInput = {
   kind: "wasm" | "zkey" | "vkey";
   bytes: Uint8Array | ArrayBuffer | number[];
@@ -128,6 +139,12 @@ export type VerifiedArtifactBundle = {
 };
 
 export type WithdrawalCircuitSessionHandle = {
+  handle: string;
+  circuit: string;
+  artifactVersion: string;
+};
+
+export type CommitmentCircuitSessionHandle = {
   handle: string;
   circuit: string;
   artifactVersion: string;
@@ -177,11 +194,22 @@ export class PrivacyPoolsSdkClient {
   buildWithdrawalCircuitInput(
     request: WithdrawalWitnessRequest,
   ): Promise<WithdrawalCircuitInput>;
+  buildCommitmentCircuitInput(
+    request: CommitmentWitnessRequest,
+  ): Promise<CommitmentCircuitInput>;
   getArtifactStatuses(
     manifestJson: string,
     artifactsRoot: string,
   ): Promise<ArtifactStatus[]>;
+  getCommitmentArtifactStatuses(
+    manifestJson: string,
+    artifactsRoot: string,
+  ): Promise<ArtifactStatus[]>;
   resolveVerifiedArtifactBundle(
+    manifestJson: string,
+    artifactsRoot: string,
+  ): Promise<ResolvedArtifactBundle>;
+  resolveVerifiedCommitmentArtifactBundle(
     manifestJson: string,
     artifactsRoot: string,
   ): Promise<ResolvedArtifactBundle>;
@@ -199,6 +227,15 @@ export class PrivacyPoolsSdkClient {
     artifacts: ArtifactBytesInput[],
   ): Promise<WithdrawalCircuitSessionHandle>;
   removeWithdrawalCircuitSession(sessionHandle: string): Promise<boolean>;
+  prepareCommitmentCircuitSession(
+    manifestJson: string,
+    artifactsRoot: string,
+  ): Promise<CommitmentCircuitSessionHandle>;
+  prepareCommitmentCircuitSessionFromBytes(
+    manifestJson: string,
+    artifacts: ArtifactBytesInput[],
+  ): Promise<CommitmentCircuitSessionHandle>;
+  removeCommitmentCircuitSession(sessionHandle: string): Promise<boolean>;
   proveWithdrawal(
     backendProfile: "stable" | "fast",
     manifestJson: string,
@@ -217,6 +254,28 @@ export class PrivacyPoolsSdkClient {
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyWithdrawalProofWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
+  proveCommitment(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: CommitmentWitnessRequest,
+  ): Promise<ProvingResult>;
+  proveCommitmentWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
+    request: CommitmentWitnessRequest,
+  ): Promise<ProvingResult>;
+  verifyCommitmentProof(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
+  verifyCommitmentProofWithSession(
     backendProfile: "stable" | "fast",
     sessionHandle: string,
     proof: ProofBundle,

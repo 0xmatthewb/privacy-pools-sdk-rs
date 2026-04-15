@@ -1,0 +1,11 @@
+{
+  "version": "v1.2.0",
+  "artifacts": [
+    {
+      "circuit": "commitment",
+      "kind": "vkey",
+      "filename": "commitment.vkey.json",
+      "sha256": "7d48b4eb3dedc12fb774348287b587f0c18c3c7254cd60e9cf0f8b3636a570d8"
+    }
+  ]
+}

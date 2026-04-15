@@ -55,6 +55,10 @@ RCT_EXTERN_METHOD(buildWithdrawalCircuitInput:(NSDictionary *)request
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(buildCommitmentCircuitInput:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(prepareWithdrawalCircuitSession:(NSString *)manifestJson
                   artifactsRoot:(NSString *)artifactsRoot
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -69,6 +73,20 @@ RCT_EXTERN_METHOD(removeWithdrawalCircuitSession:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(prepareCommitmentCircuitSession:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(prepareCommitmentCircuitSessionFromBytes:(NSString *)manifestJson
+                  artifacts:(NSArray<NSDictionary *> *)artifacts
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(removeCommitmentCircuitSession:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(proveWithdrawal:(NSString *)backendProfile
                   manifestJson:(NSString *)manifestJson
                   artifactsRoot:(NSString *)artifactsRoot
@@ -77,6 +95,19 @@ RCT_EXTERN_METHOD(proveWithdrawal:(NSString *)backendProfile
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(proveWithdrawalWithSession:(NSString *)backendProfile
+                  sessionHandle:(NSString *)sessionHandle
+                  request:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(proveCommitment:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  request:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(proveCommitmentWithSession:(NSString *)backendProfile
                   sessionHandle:(NSString *)sessionHandle
                   request:(NSDictionary *)request
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -103,6 +134,19 @@ RCT_EXTERN_METHOD(verifyWithdrawalProof:(NSString *)backendProfile
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(verifyWithdrawalProofWithSession:(NSString *)backendProfile
+                  sessionHandle:(NSString *)sessionHandle
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyCommitmentProof:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyCommitmentProofWithSession:(NSString *)backendProfile
                   sessionHandle:(NSString *)sessionHandle
                   proof:(NSDictionary *)proof
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -233,6 +277,12 @@ RCT_EXTERN_METHOD(planRelayTransaction:(nonnull NSNumber *)chainId
                   withdrawal:(NSDictionary *)withdrawal
                   proof:(NSDictionary *)proof
                   scope:(NSString *)scope
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(planRagequitTransaction:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  proof:(NSDictionary *)proof
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

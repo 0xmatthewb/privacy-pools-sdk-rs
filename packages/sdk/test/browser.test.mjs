@@ -12,6 +12,9 @@ import {
   createWorkerClient,
   getRuntimeCapabilities,
 } from "../src/browser/index.mjs";
+import {
+  PrivacyPoolsSdkClient as NodePrivacyPoolsSdkClient,
+} from "../src/node/index.mjs";
 
 const testDir = fileURLToPath(new URL(".", import.meta.url));
 const workspaceRoot = join(testDir, "..", "..", "..");
@@ -36,6 +39,14 @@ const sampleProvingManifest = readFileSync(
 );
 const browserVerificationManifest = readFileSync(
   join(fixturesRoot, "artifacts", "browser-verification-manifest.json"),
+  "utf8",
+);
+const commitmentProvingManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "commitment-proving-manifest.json"),
+  "utf8",
+);
+const commitmentVerificationManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "commitment-verification-manifest.json"),
   "utf8",
 );
 const sampleArtifact = readFileSync(
@@ -154,6 +165,12 @@ test("browser wasm runtime matches reference helper vectors", async () => {
   assert.equal(websiteShapedInput.aspTreeDepth, 32);
   assert.equal(websiteShapedInput.stateRoot, withdrawalFixture.stateWitness.root);
   assert.equal(websiteShapedInput.aspRoot, withdrawalFixture.aspWitness.root);
+
+  const commitmentInput = await sdk.buildCommitmentCircuitInput({ commitment });
+  assert.equal(commitmentInput.value, withdrawalFixture.existingValue);
+  assert.equal(commitmentInput.label, withdrawalFixture.label);
+  assert.equal(commitmentInput.nullifier, depositSecrets.nullifier);
+  assert.equal(commitmentInput.secret, depositSecrets.secret);
 });
 
 test("browser wasm runtime verifies artifact bytes without base64 bridging", async () => {
@@ -201,10 +218,28 @@ test("browser runtime fetches and verifies manifest-bound artifact URLs", async 
 
 test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
   const sdk = new PrivacyPoolsSdkClient();
+  const nodeSdk = new NodePrivacyPoolsSdkClient();
   const server = createFixtureServer();
   await server.start();
 
   try {
+    const commitment = await nodeSdk.getCommitment(
+      withdrawalFixture.existingValue,
+      withdrawalFixture.label,
+      cryptoFixture.depositSecrets.nullifier,
+      cryptoFixture.depositSecrets.secret,
+    );
+    const commitmentSession = await nodeSdk.prepareCommitmentCircuitSession(
+      commitmentProvingManifest,
+      artifactsFixtureRoot,
+    );
+    const commitmentProof = await nodeSdk.proveCommitmentWithSession(
+      "stable",
+      commitmentSession.handle,
+      { commitment },
+    );
+    await nodeSdk.removeCommitmentCircuitSession(commitmentSession.handle);
+
     const verified = await sdk.verifyWithdrawalProof(
       "stable",
       browserVerificationManifest,
@@ -212,6 +247,15 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
       browserVerificationProof,
     );
     assert.equal(verified, true);
+    assert.equal(
+      await sdk.verifyCommitmentProof(
+        "stable",
+        commitmentVerificationManifest,
+        server.rootUrl,
+        commitmentProof.proof,
+      ),
+      true,
+    );
 
     const session = await sdk.prepareWithdrawalCircuitSession(
       browserVerificationManifest,
@@ -227,6 +271,24 @@ test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
       true,
     );
     assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
+
+    const browserCommitmentSession = await sdk.prepareCommitmentCircuitSession(
+      commitmentVerificationManifest,
+      server.rootUrl,
+    );
+    assert.equal(browserCommitmentSession.circuit, "commitment");
+    assert.equal(
+      await sdk.verifyCommitmentProofWithSession(
+        "stable",
+        browserCommitmentSession.handle,
+        commitmentProof.proof,
+      ),
+      true,
+    );
+    assert.equal(
+      await sdk.removeCommitmentCircuitSession(browserCommitmentSession.handle),
+      true,
+    );
   } finally {
     await server.stop();
   }
@@ -358,6 +420,16 @@ test("browser worker client performs real wasm-backed helper calls", async () =>
     await assert.rejects(
       () =>
         sdk.proveWithdrawal("stable", sampleProvingManifest, "https://example.com/", {
+          commitment: {},
+        }),
+      (error) =>
+        error instanceof BrowserRuntimeUnavailableError &&
+        error.message.includes("wasm-capable Rust prover backend"),
+    );
+
+    await assert.rejects(
+      () =>
+        sdk.proveCommitment("stable", sampleProvingManifest, "https://example.com/", {
           commitment: {},
         }),
       (error) =>

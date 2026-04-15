@@ -30,6 +30,10 @@ const sampleProvingManifest = readFileSync(
   join(fixturesRoot, "artifacts", "sample-proving-manifest.json"),
   "utf8",
 );
+const commitmentProvingManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "commitment-proving-manifest.json"),
+  "utf8",
+);
 const sampleArtifact = readFileSync(
   join(fixturesRoot, "artifacts", "sample-artifact.bin"),
 );
@@ -151,6 +155,56 @@ test("node addon matches merkle/context/input fixtures", async () => {
   assert.equal(websiteShapedInput.aspTreeDepth, 32);
   assert.equal(websiteShapedInput.stateRoot, request.stateWitness.root);
   assert.equal(websiteShapedInput.aspRoot, request.aspWitness.root);
+});
+
+test("node addon proves and verifies commitment ragequit proofs", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
+  const depositSecrets = await sdk.deriveDepositSecrets(
+    keys,
+    cryptoFixture.scope,
+    "0",
+  );
+  const commitment = await sdk.getCommitment(
+    withdrawalFixture.existingValue,
+    withdrawalFixture.label,
+    depositSecrets.nullifier,
+    depositSecrets.secret,
+  );
+  const request = { commitment };
+
+  const input = await sdk.buildCommitmentCircuitInput(request);
+  assert.equal(input.value, withdrawalFixture.existingValue);
+  assert.equal(input.label, withdrawalFixture.label);
+  assert.equal(input.nullifier, depositSecrets.nullifier);
+  assert.equal(input.secret, depositSecrets.secret);
+
+  const session = await sdk.prepareCommitmentCircuitSession(
+    commitmentProvingManifest,
+    join(fixturesRoot, "artifacts"),
+  );
+  assert.equal(session.circuit, "commitment");
+  assert.equal(session.artifactVersion, "v1.2.0");
+
+  const proving = await sdk.proveCommitmentWithSession(
+    "stable",
+    session.handle,
+    request,
+  );
+  assert.equal(proving.backend, "arkworks");
+  assert.equal(proving.proof.publicSignals.length, 4);
+  assert.equal(proving.proof.publicSignals[0], commitment.hash);
+  assert.equal(proving.proof.publicSignals[2], withdrawalFixture.existingValue);
+  assert.equal(proving.proof.publicSignals[3], withdrawalFixture.label);
+  assert.equal(
+    await sdk.verifyCommitmentProofWithSession(
+      "stable",
+      session.handle,
+      proving.proof,
+    ),
+    true,
+  );
+  assert.equal(await sdk.removeCommitmentCircuitSession(session.handle), true);
 });
 
 test("node addon verifies manifest-bound artifact bytes", async () => {

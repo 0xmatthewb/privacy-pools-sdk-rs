@@ -1,0 +1,23 @@
+{
+  "version": "v1.2.0",
+  "artifacts": [
+    {
+      "circuit": "commitment",
+      "kind": "wasm",
+      "filename": "../circuits/commitment/commitment.wasm",
+      "sha256": "254d2130607182fd6fd1aee67971526b13cfe178c88e360da96dce92663828d8"
+    },
+    {
+      "circuit": "commitment",
+      "kind": "zkey",
+      "filename": "commitment.zkey",
+      "sha256": "494ae92d64098fda2a5649690ddc5821fcd7449ca5fe8ef99ee7447544d7e1f3"
+    },
+    {
+      "circuit": "commitment",
+      "kind": "vkey",
+      "filename": "commitment.vkey.json",
+      "sha256": "7d48b4eb3dedc12fb774348287b587f0c18c3c7254cd60e9cf0f8b3636a570d8"
+    }
+  ]
+}

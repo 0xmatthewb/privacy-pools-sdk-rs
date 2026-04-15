@@ -17,7 +17,9 @@ use circom_prover::{
 };
 use num_bigint::BigUint;
 use privacy_pools_sdk_artifacts::{self as artifacts, ArtifactKind, VerifiedArtifactBundle};
-use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
+use privacy_pools_sdk_core::{
+    CommitmentCircuitInput, ProofBundle, SnarkJsProof, WithdrawalCircuitInput,
+};
 use privacy_pools_sdk_verifier::{ParsedVerificationKey, PreparedVerifier, VerifierError};
 use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,7 @@ use thiserror::Error;
 
 pub use circom_prover::witness::WitnessFn;
 
+rust_witness::witness!(commitment);
 rust_witness::witness!(withdraw);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -412,6 +415,26 @@ impl PreparedArkworksCircuit {
     }
 }
 
+pub fn generate_commitment_witness(
+    input: &CommitmentCircuitInput,
+) -> Result<Vec<String>, ProverError> {
+    generate_commitment_witness_from_json(&serialize_commitment_circuit_input(input)?)
+}
+
+pub fn serialize_commitment_circuit_input(
+    input: &CommitmentCircuitInput,
+) -> Result<String, ProverError> {
+    let mut json = Map::new();
+
+    insert_field(&mut json, "value", input.value.to_string());
+    insert_field(&mut json, "label", input.label.to_string());
+    insert_field(&mut json, "nullifier", input.nullifier.to_string());
+    insert_field(&mut json, "secret", input.secret.to_string());
+
+    serde_json::to_string(&Value::Object(json))
+        .map_err(|error| ProverError::InputSerialization(error.to_string()))
+}
+
 pub fn generate_withdrawal_witness(
     input: &WithdrawalCircuitInput,
 ) -> Result<Vec<String>, ProverError> {
@@ -516,9 +539,24 @@ impl ProofEngine for NativeProofEngine {
 
 fn compiled_witness_fn(circuit: &str) -> Result<WitnessFn, ProverError> {
     match circuit {
+        "commitment" => Ok(WitnessFn::RustWitness(commitment_witness)),
         "withdraw" => Ok(WitnessFn::RustWitness(withdraw_witness)),
         _ => Err(ProverError::MissingCompiledWitness(circuit.to_owned())),
     }
+}
+
+fn generate_commitment_witness_from_json(input_json: &str) -> Result<Vec<String>, ProverError> {
+    let witness_map = circom_prover::witness::json_to_hashmap(input_json)
+        .map_err(|error| ProverError::InputSerialization(error.to_string()))?;
+    let normalized_inputs = witness_map
+        .into_iter()
+        .map(|(name, values)| Ok((name, parse_bigints(values)?)))
+        .collect::<Result<HashMap<_, _>, ProverError>>()?;
+
+    Ok(commitment_witness(normalized_inputs)
+        .into_iter()
+        .map(|value| value.to_string())
+        .collect())
 }
 
 fn generate_withdrawal_witness_from_json(input_json: &str) -> Result<Vec<String>, ProverError> {
@@ -844,7 +882,7 @@ mod tests {
     use privacy_pools_sdk_artifacts::{
         ArtifactDescriptor, ArtifactKind, VerifiedArtifact, VerifiedArtifactBundle,
     };
-    use privacy_pools_sdk_core::parse_decimal_field;
+    use privacy_pools_sdk_core::{CommitmentCircuitInput, parse_decimal_field};
     use serde_json::Value;
 
     #[test]
@@ -920,6 +958,67 @@ mod tests {
     }
 
     #[test]
+    fn serializes_commitment_input_for_default_witness_backends() {
+        let input = CommitmentCircuitInput {
+            value: parse_decimal_field("1000").unwrap(),
+            label: parse_decimal_field("456").unwrap(),
+            nullifier: parse_decimal_field(
+                "9878240014447325541744515257207865961484965884202615717842202674496027003398",
+            )
+            .unwrap(),
+            secret: parse_decimal_field(
+                "13069389595930744619595476459130906967784496307970072089240474669876753189225",
+            )
+            .unwrap(),
+        };
+
+        let normalized: Value =
+            serde_json::from_str(&serialize_commitment_circuit_input(&input).unwrap()).unwrap();
+
+        assert_eq!(normalized["value"], serde_json::json!(["1000"]));
+        assert_eq!(normalized["label"], serde_json::json!(["456"]));
+        assert_eq!(
+            normalized["nullifier"],
+            serde_json::json!([
+                "9878240014447325541744515257207865961484965884202615717842202674496027003398"
+            ])
+        );
+        assert_eq!(
+            normalized["secret"],
+            serde_json::json!([
+                "13069389595930744619595476459130906967784496307970072089240474669876753189225"
+            ])
+        );
+    }
+
+    #[test]
+    fn compiled_commitment_witness_generates_values_from_reference_input() {
+        let input = CommitmentCircuitInput {
+            value: parse_decimal_field("1000").unwrap(),
+            label: parse_decimal_field("456").unwrap(),
+            nullifier: parse_decimal_field(
+                "9878240014447325541744515257207865961484965884202615717842202674496027003398",
+            )
+            .unwrap(),
+            secret: parse_decimal_field(
+                "13069389595930744619595476459130906967784496307970072089240474669876753189225",
+            )
+            .unwrap(),
+        };
+
+        let witness = generate_commitment_witness(&input).unwrap();
+
+        assert!(!witness.is_empty());
+        assert_eq!(witness[0], "1");
+        assert_eq!(
+            witness[1],
+            "18437108638057730733389558898787811857923614754235980305933849061572031046967"
+        );
+        assert_eq!(witness[3], "1000");
+        assert_eq!(witness[4], "456");
+    }
+
+    #[test]
     fn compiled_withdraw_witness_generates_values_from_reference_input() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../fixtures/vectors/withdrawal-circuit-input.json"
@@ -963,6 +1062,24 @@ mod tests {
         let witness = generate_withdrawal_witness(&input).unwrap();
         assert!(!witness.is_empty());
         assert_eq!(witness[0], "1");
+    }
+
+    #[test]
+    fn compiled_commitment_proof_path_uses_internal_witness_adapter() {
+        let engine =
+            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
+                .unwrap();
+        let request = ProvingRequest {
+            circuit: "commitment".to_owned(),
+            input_json: "{\"foo\":[\"1\"]}".to_owned(),
+            artifact_version: "0.1.0-alpha.1".to_owned(),
+            zkey_path: PathBuf::from("/tmp/commitment.zkey"),
+        };
+
+        assert!(matches!(
+            engine.prove_with_compiled_witness(&request),
+            Err(ProverError::MissingZkey(_))
+        ));
     }
 
     #[test]

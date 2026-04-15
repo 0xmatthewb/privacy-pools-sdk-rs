@@ -8,8 +8,8 @@ use privacy_pools_sdk_artifacts::{
 };
 use privacy_pools_sdk_circuits as circuits;
 use privacy_pools_sdk_core::{
-    CircuitMerkleWitness, Commitment, MasterKeys, MerkleProof, ProofBundle, Withdrawal,
-    WithdrawalCircuitInput, WithdrawalWitnessRequest,
+    CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest, MasterKeys,
+    MerkleProof, ProofBundle, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
 };
 use privacy_pools_sdk_verifier::PreparedVerifier;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -109,6 +109,20 @@ struct JsWithdrawalCircuitInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct JsCommitmentWitnessRequest {
+    commitment: JsCommitment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct JsCommitmentCircuitInput {
+    value: String,
+    label: String,
+    nullifier: String,
+    secret: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JsArtifactBytes {
     kind: String,
     bytes_base64: String,
@@ -175,7 +189,7 @@ pub struct BrowserSupportStatus {
 }
 
 #[derive(Clone)]
-struct BrowserWithdrawalCircuitSession {
+struct BrowserCircuitSession {
     handle: String,
     circuit: String,
     artifact_version: String,
@@ -183,7 +197,7 @@ struct BrowserWithdrawalCircuitSession {
 }
 
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, BrowserWithdrawalCircuitSession>>> =
+static SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, BrowserCircuitSession>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[must_use]
@@ -305,6 +319,13 @@ pub fn build_withdrawal_circuit_input_json(request_json: &str) -> Result<String>
     to_json_string(&input)
 }
 
+pub fn build_commitment_circuit_input_json(request_json: &str) -> Result<String> {
+    let request = parse_json::<JsCommitmentWitnessRequest>(request_json)?;
+    let request = from_js_commitment_witness_request(&request)?;
+    let input = circuits::build_commitment_circuit_input(&request)?;
+    to_json_string(&to_js_commitment_circuit_input(&input))
+}
+
 pub fn verify_artifact_bytes_json(
     manifest_json: &str,
     circuit: &str,
@@ -348,7 +369,18 @@ pub fn prepare_withdrawal_circuit_session_from_bytes_json(
     let manifest = parse_manifest(manifest_json)?;
     let artifacts =
         parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
-    let session = prepare_withdrawal_circuit_session_from_artifacts(&manifest, artifacts)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")?;
+    to_json_string(&to_js_session_handle(&session))
+}
+
+pub fn prepare_commitment_circuit_session_from_bytes_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+) -> Result<String> {
+    let manifest = parse_manifest(manifest_json)?;
+    let artifacts =
+        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")?;
     to_json_string(&to_js_session_handle(&session))
 }
 
@@ -360,7 +392,21 @@ pub fn verify_withdrawal_proof_json(
     let manifest = parse_manifest(manifest_json)?;
     let artifacts =
         parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
-    let session = prepare_withdrawal_circuit_session_from_artifacts(&manifest, artifacts)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")?;
+    let proof =
+        parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
+    session.verifier.verify(&proof).map_err(Into::into)
+}
+
+pub fn verify_commitment_proof_json(
+    manifest_json: &str,
+    artifacts_json: &str,
+    proof_json: &str,
+) -> Result<bool> {
+    let manifest = parse_manifest(manifest_json)?;
+    let artifacts =
+        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")?;
     let proof =
         parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
     session.verifier.verify(&proof).map_err(Into::into)
@@ -378,6 +424,33 @@ pub fn verify_withdrawal_proof_with_session_json(
     let session = registry.get(session_handle).cloned().with_context(|| {
         format!("unknown browser withdrawal circuit session `{session_handle}`")
     })?;
+    if session.circuit != "withdraw" {
+        bail!(
+            "browser session `{session_handle}` is for circuit `{}`",
+            session.circuit
+        );
+    }
+    session.verifier.verify(&proof).map_err(Into::into)
+}
+
+pub fn verify_commitment_proof_with_session_json(
+    session_handle: &str,
+    proof_json: &str,
+) -> Result<bool> {
+    let proof =
+        parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
+    let registry = SESSION_REGISTRY
+        .read()
+        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
+    let session = registry.get(session_handle).cloned().with_context(|| {
+        format!("unknown browser commitment circuit session `{session_handle}`")
+    })?;
+    if session.circuit != "commitment" {
+        bail!(
+            "browser session `{session_handle}` is for circuit `{}`",
+            session.circuit
+        );
+    }
     session.verifier.verify(&proof).map_err(Into::into)
 }
 
@@ -385,7 +458,20 @@ pub fn remove_withdrawal_circuit_session(session_handle: &str) -> Result<bool> {
     let mut registry = SESSION_REGISTRY
         .write()
         .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    Ok(registry.remove(session_handle).is_some())
+    Ok(registry
+        .get(session_handle)
+        .is_some_and(|session| session.circuit == "withdraw")
+        && registry.remove(session_handle).is_some())
+}
+
+pub fn remove_commitment_circuit_session(session_handle: &str) -> Result<bool> {
+    let mut registry = SESSION_REGISTRY
+        .write()
+        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
+    Ok(registry
+        .get(session_handle)
+        .is_some_and(|session| session.circuit == "commitment")
+        && registry.remove(session_handle).is_some())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -485,6 +571,14 @@ pub fn wasm_build_withdrawal_circuit_input_json(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = buildCommitmentCircuitInputJson)]
+pub fn wasm_build_commitment_circuit_input_json(
+    request_json: &str,
+) -> std::result::Result<String, JsValue> {
+    build_commitment_circuit_input_json(request_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = verifyArtifactBytesJson)]
 pub fn wasm_verify_artifact_bytes_json(
     manifest_json: &str,
@@ -517,7 +611,20 @@ pub fn wasm_prepare_withdrawal_circuit_session_from_bytes(
 ) -> std::result::Result<String, JsValue> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
-    let session = prepare_withdrawal_circuit_session_from_artifacts(&manifest, artifacts)
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")
+        .map_err(js_error)?;
+    to_json_string(&to_js_session_handle(&session)).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = prepareCommitmentCircuitSessionFromBytes)]
+pub fn wasm_prepare_commitment_circuit_session_from_bytes(
+    manifest_json: &str,
+    artifacts: Array,
+) -> std::result::Result<String, JsValue> {
+    let manifest = parse_manifest(manifest_json).map_err(js_error)?;
+    let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")
         .map_err(js_error)?;
     to_json_string(&to_js_session_handle(&session)).map_err(js_error)
 }
@@ -531,7 +638,25 @@ pub fn wasm_verify_withdrawal_proof(
 ) -> std::result::Result<bool, JsValue> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
-    let session = prepare_withdrawal_circuit_session_from_artifacts(&manifest, artifacts)
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")
+        .map_err(js_error)?;
+    let proof = parse_json::<ProofBundle>(proof_json).map_err(js_error)?;
+    session
+        .verifier
+        .verify(&proof)
+        .map_err(|error| js_error(error.into()))
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = verifyCommitmentProof)]
+pub fn wasm_verify_commitment_proof(
+    manifest_json: &str,
+    artifacts: Array,
+    proof_json: &str,
+) -> std::result::Result<bool, JsValue> {
+    let manifest = parse_manifest(manifest_json).map_err(js_error)?;
+    let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
+    let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")
         .map_err(js_error)?;
     let proof = parse_json::<ProofBundle>(proof_json).map_err(js_error)?;
     session
@@ -550,11 +675,28 @@ pub fn wasm_verify_withdrawal_proof_with_session(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = verifyCommitmentProofWithSession)]
+pub fn wasm_verify_commitment_proof_with_session(
+    session_handle: &str,
+    proof_json: &str,
+) -> std::result::Result<bool, JsValue> {
+    verify_commitment_proof_with_session_json(session_handle, proof_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = removeWithdrawalCircuitSession)]
 pub fn wasm_remove_withdrawal_circuit_session(
     session_handle: &str,
 ) -> std::result::Result<bool, JsValue> {
     remove_withdrawal_circuit_session(session_handle).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = removeCommitmentCircuitSession)]
+pub fn wasm_remove_commitment_circuit_session(
+    session_handle: &str,
+) -> std::result::Result<bool, JsValue> {
+    remove_commitment_circuit_session(session_handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -712,6 +854,14 @@ fn from_js_commitment(commitment: &JsCommitment) -> Result<Commitment> {
     })
 }
 
+fn from_js_commitment_witness_request(
+    request: &JsCommitmentWitnessRequest,
+) -> Result<CommitmentWitnessRequest> {
+    Ok(CommitmentWitnessRequest {
+        commitment: from_js_commitment(&request.commitment)?,
+    })
+}
+
 fn from_js_circuit_merkle_witness(
     witness: &JsCircuitMerkleWitness,
 ) -> Result<CircuitMerkleWitness> {
@@ -767,6 +917,15 @@ fn to_js_withdrawal_circuit_input(
         asp_siblings: input.asp_siblings.into_iter().map(field_label).collect(),
         asp_index: u64::try_from(input.asp_index).context("asp index does not fit into u64")?,
     })
+}
+
+fn to_js_commitment_circuit_input(input: &CommitmentCircuitInput) -> JsCommitmentCircuitInput {
+    JsCommitmentCircuitInput {
+        value: field_label(input.value),
+        label: field_label(input.label),
+        nullifier: field_label(input.nullifier),
+        secret: field_label(input.secret),
+    }
 }
 
 fn from_js_artifact_bytes(
@@ -856,21 +1015,22 @@ fn to_js_verified_artifact_bundle(
     }
 }
 
-fn prepare_withdrawal_circuit_session_from_artifacts(
+fn prepare_circuit_session_from_artifacts(
     manifest: &ArtifactManifest,
     artifacts: Vec<ArtifactBytes>,
-) -> Result<BrowserWithdrawalCircuitSession> {
-    let bundle = manifest.verify_bundle_bytes("withdraw", artifacts)?;
-    let vkey = bundle
-        .artifact(ArtifactKind::Vkey)
-        .context("verified artifact bundle is missing the withdrawal verification key")?;
+    circuit: &str,
+) -> Result<BrowserCircuitSession> {
+    let bundle = manifest.verify_bundle_bytes(circuit, artifacts)?;
+    let vkey = bundle.artifact(ArtifactKind::Vkey).with_context(|| {
+        format!("verified artifact bundle is missing the {circuit} verification key")
+    })?;
     let verifier = PreparedVerifier::from_vkey_bytes(&vkey.bytes)?;
 
     let handle = format!(
-        "browser-withdraw-session-{}",
+        "browser-{circuit}-session-{}",
         SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
-    let session = BrowserWithdrawalCircuitSession {
+    let session = BrowserCircuitSession {
         handle: handle.clone(),
         circuit: bundle.circuit.clone(),
         artifact_version: bundle.version.clone(),
@@ -885,9 +1045,7 @@ fn prepare_withdrawal_circuit_session_from_artifacts(
     Ok(session)
 }
 
-fn to_js_session_handle(
-    session: &BrowserWithdrawalCircuitSession,
-) -> JsWithdrawalCircuitSessionHandle {
+fn to_js_session_handle(session: &BrowserCircuitSession) -> JsWithdrawalCircuitSessionHandle {
     JsWithdrawalCircuitSessionHandle {
         handle: session.handle.clone(),
         circuit: session.circuit.clone(),

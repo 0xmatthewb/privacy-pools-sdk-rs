@@ -77,16 +77,30 @@ export class PrivacyPoolsSdkClient {
     );
   }
 
+  async buildCommitmentCircuitInput(request) {
+    return parseNativeJson(
+      native.buildCommitmentCircuitInput(JSON.stringify(request)),
+    );
+  }
+
   async getArtifactStatuses(manifestJson, artifactsRoot) {
     return parseNativeJson(
       native.getArtifactStatuses(manifestJson, artifactsRoot),
     );
   }
 
+  async getCommitmentArtifactStatuses(manifestJson, artifactsRoot) {
+    return this.getArtifactStatuses(manifestJson, artifactsRoot);
+  }
+
   async resolveVerifiedArtifactBundle(manifestJson, artifactsRoot) {
     return parseNativeJson(
       native.resolveVerifiedArtifactBundle(manifestJson, artifactsRoot),
     );
+  }
+
+  async resolveVerifiedCommitmentArtifactBundle(manifestJson, artifactsRoot) {
+    return this.resolveVerifiedArtifactBundle(manifestJson, artifactsRoot);
   }
 
   async verifyArtifactBytes(manifestJson, circuit, artifacts) {
@@ -116,6 +130,25 @@ export class PrivacyPoolsSdkClient {
 
   async removeWithdrawalCircuitSession(sessionHandle) {
     return unwrapNativeValue(native.removeWithdrawalCircuitSession(sessionHandle));
+  }
+
+  async prepareCommitmentCircuitSession(manifestJson, artifactsRoot) {
+    return parseNativeJson(
+      native.prepareCommitmentCircuitSession(manifestJson, artifactsRoot),
+    );
+  }
+
+  async prepareCommitmentCircuitSessionFromBytes(manifestJson, artifacts) {
+    return parseNativeJson(
+      native.prepareCommitmentCircuitSessionFromBytes(
+        manifestJson,
+        JSON.stringify(encodeArtifactBytes(artifacts)),
+      ),
+    );
+  }
+
+  async removeCommitmentCircuitSession(sessionHandle) {
+    return unwrapNativeValue(native.removeCommitmentCircuitSession(sessionHandle));
   }
 
   async proveWithdrawal(
@@ -167,6 +200,62 @@ export class PrivacyPoolsSdkClient {
   ) {
     return unwrapNativeValue(
       native.verifyWithdrawalProofWithSession(
+        backendProfile,
+        sessionHandle,
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async proveCommitment(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+  ) {
+    return parseNativeJson(
+      native.proveCommitment(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        JSON.stringify(request),
+      ),
+    );
+  }
+
+  async proveCommitmentWithSession(backendProfile, sessionHandle, request) {
+    return parseNativeJson(
+      native.proveCommitmentWithSession(
+        backendProfile,
+        sessionHandle,
+        JSON.stringify(request),
+      ),
+    );
+  }
+
+  async verifyCommitmentProof(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    proof,
+  ) {
+    return unwrapNativeValue(
+      native.verifyCommitmentProof(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async verifyCommitmentProofWithSession(
+    backendProfile,
+    sessionHandle,
+    proof,
+  ) {
+    return unwrapNativeValue(
+      native.verifyCommitmentProofWithSession(
         backendProfile,
         sessionHandle,
         JSON.stringify(proof),

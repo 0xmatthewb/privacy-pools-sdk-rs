@@ -1,6 +1,7 @@
 import {
   BrowserRuntimeUnavailableError,
   buildCircuitMerkleWitness,
+  buildCommitmentCircuitInput,
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
   deriveDepositSecrets,
@@ -9,17 +10,26 @@ import {
   fastBackendSupportedOnTarget,
   generateMerkleProof,
   getArtifactStatuses,
+  getCommitmentArtifactStatuses,
   getCommitment,
   getRuntimeCapabilities,
   getStableBackendName,
   getVersion,
+  prepareCommitmentCircuitSession,
+  prepareCommitmentCircuitSessionFromBytes,
   prepareWithdrawalCircuitSession,
   prepareWithdrawalCircuitSessionFromBytes,
+  proveCommitment,
+  proveCommitmentWithSession,
   proveWithdrawal,
   proveWithdrawalWithSession,
+  removeCommitmentCircuitSession,
   removeWithdrawalCircuitSession,
+  resolveVerifiedCommitmentArtifactBundle,
   resolveVerifiedArtifactBundle,
   verifyArtifactBytes,
+  verifyCommitmentProof,
+  verifyCommitmentProofWithSession,
   verifyWithdrawalProof,
   verifyWithdrawalProofWithSession,
 } from "./runtime.mjs";
@@ -75,12 +85,24 @@ export class PrivacyPoolsSdkClient {
     return buildWithdrawalCircuitInput(request);
   }
 
+  async buildCommitmentCircuitInput(request) {
+    return buildCommitmentCircuitInput(request);
+  }
+
   async getArtifactStatuses(manifestJson, artifactsRoot) {
     return getArtifactStatuses(manifestJson, artifactsRoot);
   }
 
+  async getCommitmentArtifactStatuses(manifestJson, artifactsRoot) {
+    return getCommitmentArtifactStatuses(manifestJson, artifactsRoot);
+  }
+
   async resolveVerifiedArtifactBundle(manifestJson, artifactsRoot) {
     return resolveVerifiedArtifactBundle(manifestJson, artifactsRoot);
+  }
+
+  async resolveVerifiedCommitmentArtifactBundle(manifestJson, artifactsRoot) {
+    return resolveVerifiedCommitmentArtifactBundle(manifestJson, artifactsRoot);
   }
 
   async verifyArtifactBytes(manifestJson, circuit, artifacts) {
@@ -97,6 +119,18 @@ export class PrivacyPoolsSdkClient {
 
   async removeWithdrawalCircuitSession(sessionHandle) {
     return removeWithdrawalCircuitSession(sessionHandle);
+  }
+
+  async prepareCommitmentCircuitSession(manifestJson, artifactsRoot) {
+    return prepareCommitmentCircuitSession(manifestJson, artifactsRoot);
+  }
+
+  async prepareCommitmentCircuitSessionFromBytes(manifestJson, artifacts) {
+    return prepareCommitmentCircuitSessionFromBytes(manifestJson, artifacts);
+  }
+
+  async removeCommitmentCircuitSession(sessionHandle) {
+    return removeCommitmentCircuitSession(sessionHandle);
   }
 
   async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request) {
@@ -118,6 +152,27 @@ export class PrivacyPoolsSdkClient {
 
   async verifyWithdrawalProofWithSession(backendProfile, sessionHandle, proof) {
     return verifyWithdrawalProofWithSession(backendProfile, sessionHandle, proof);
+  }
+
+  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request) {
+    return proveCommitment(backendProfile, manifestJson, artifactsRoot, request);
+  }
+
+  async proveCommitmentWithSession(backendProfile, sessionHandle, request) {
+    return proveCommitmentWithSession(backendProfile, sessionHandle, request);
+  }
+
+  async verifyCommitmentProof(backendProfile, manifestJson, artifactsRoot, proof) {
+    return verifyCommitmentProof(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      proof,
+    );
+  }
+
+  async verifyCommitmentProofWithSession(backendProfile, sessionHandle, proof) {
+    return verifyCommitmentProofWithSession(backendProfile, sessionHandle, proof);
   }
 }
 
@@ -200,12 +255,27 @@ class WorkerPrivacyPoolsSdkClient {
     return this.#send("buildWithdrawalCircuitInput", [request]);
   }
 
+  async buildCommitmentCircuitInput(request) {
+    return this.#send("buildCommitmentCircuitInput", [request]);
+  }
+
   async getArtifactStatuses(manifestJson, artifactsRoot) {
     return this.#send("getArtifactStatuses", [manifestJson, artifactsRoot]);
   }
 
+  async getCommitmentArtifactStatuses(manifestJson, artifactsRoot) {
+    return this.#send("getCommitmentArtifactStatuses", [manifestJson, artifactsRoot]);
+  }
+
   async resolveVerifiedArtifactBundle(manifestJson, artifactsRoot) {
     return this.#send("resolveVerifiedArtifactBundle", [manifestJson, artifactsRoot]);
+  }
+
+  async resolveVerifiedCommitmentArtifactBundle(manifestJson, artifactsRoot) {
+    return this.#send("resolveVerifiedCommitmentArtifactBundle", [
+      manifestJson,
+      artifactsRoot,
+    ]);
   }
 
   async verifyArtifactBytes(manifestJson, circuit, artifacts) {
@@ -228,6 +298,24 @@ class WorkerPrivacyPoolsSdkClient {
 
   async removeWithdrawalCircuitSession(sessionHandle) {
     return this.#send("removeWithdrawalCircuitSession", [sessionHandle]);
+  }
+
+  async prepareCommitmentCircuitSession(manifestJson, artifactsRoot) {
+    return this.#send("prepareCommitmentCircuitSession", [
+      manifestJson,
+      artifactsRoot,
+    ]);
+  }
+
+  async prepareCommitmentCircuitSessionFromBytes(manifestJson, artifacts) {
+    return this.#send("prepareCommitmentCircuitSessionFromBytes", [
+      manifestJson,
+      artifacts,
+    ]);
+  }
+
+  async removeCommitmentCircuitSession(sessionHandle) {
+    return this.#send("removeCommitmentCircuitSession", [sessionHandle]);
   }
 
   async proveWithdrawal(backendProfile, manifestJson, artifactsRoot, request) {
@@ -258,6 +346,40 @@ class WorkerPrivacyPoolsSdkClient {
 
   async verifyWithdrawalProofWithSession(backendProfile, sessionHandle, proof) {
     return this.#send("verifyWithdrawalProofWithSession", [
+      backendProfile,
+      sessionHandle,
+      proof,
+    ]);
+  }
+
+  async proveCommitment(backendProfile, manifestJson, artifactsRoot, request) {
+    return this.#send("proveCommitment", [
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+    ]);
+  }
+
+  async proveCommitmentWithSession(backendProfile, sessionHandle, request) {
+    return this.#send("proveCommitmentWithSession", [
+      backendProfile,
+      sessionHandle,
+      request,
+    ]);
+  }
+
+  async verifyCommitmentProof(backendProfile, manifestJson, artifactsRoot, proof) {
+    return this.#send("verifyCommitmentProof", [
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      proof,
+    ]);
+  }
+
+  async verifyCommitmentProofWithSession(backendProfile, sessionHandle, proof) {
+    return this.#send("verifyCommitmentProofWithSession", [
       backendProfile,
       sessionHandle,
       proof,

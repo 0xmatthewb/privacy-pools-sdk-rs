@@ -58,7 +58,7 @@ type FormattedGroth16Proof = {
 };
 
 type TransactionPlan = {
-  kind: "withdraw" | "relay";
+  kind: "withdraw" | "relay" | "ragequit";
   chain_id: number;
   target: string;
   calldata: string;
@@ -191,6 +191,12 @@ type WithdrawalCircuitSessionHandle = {
   artifact_version: string;
 };
 
+type CommitmentCircuitSessionHandle = {
+  handle: string;
+  circuit: string;
+  artifact_version: string;
+};
+
 type MerkleProof = {
   root: string;
   leaf: string;
@@ -234,6 +240,17 @@ type WithdrawalCircuitInput = {
   state_index: number;
   asp_siblings: string[];
   asp_index: number;
+};
+
+type CommitmentWitnessRequest = {
+  commitment: Commitment;
+};
+
+type CommitmentCircuitInput = {
+  value: string;
+  label: string;
+  nullifier: string;
+  secret: string;
 };
 
 type RecoveryPolicy = {
@@ -312,6 +329,9 @@ export type NativePrivacyPoolsSdkModule = {
   buildWithdrawalCircuitInput(
     request: WithdrawalWitnessRequest,
   ): Promise<WithdrawalCircuitInput>;
+  buildCommitmentCircuitInput(
+    request: CommitmentWitnessRequest,
+  ): Promise<CommitmentCircuitInput>;
   prepareWithdrawalCircuitSession(
     manifestJson: string,
     artifactsRoot: string,
@@ -321,6 +341,15 @@ export type NativePrivacyPoolsSdkModule = {
     artifacts: ArtifactBytesInput[],
   ): Promise<WithdrawalCircuitSessionHandle>;
   removeWithdrawalCircuitSession(handle: string): Promise<boolean>;
+  prepareCommitmentCircuitSession(
+    manifestJson: string,
+    artifactsRoot: string,
+  ): Promise<CommitmentCircuitSessionHandle>;
+  prepareCommitmentCircuitSessionFromBytes(
+    manifestJson: string,
+    artifacts: ArtifactBytesInput[],
+  ): Promise<CommitmentCircuitSessionHandle>;
+  removeCommitmentCircuitSession(handle: string): Promise<boolean>;
   proveWithdrawal(
     backendProfile: "stable" | "fast",
     manifestJson: string,
@@ -350,6 +379,28 @@ export type NativePrivacyPoolsSdkModule = {
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyWithdrawalProofWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
+  proveCommitment(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: CommitmentWitnessRequest,
+  ): Promise<ProvingResult>;
+  proveCommitmentWithSession(
+    backendProfile: "stable" | "fast",
+    sessionHandle: string,
+    request: CommitmentWitnessRequest,
+  ): Promise<ProvingResult>;
+  verifyCommitmentProof(
+    backendProfile: "stable" | "fast",
+    manifestJson: string,
+    artifactsRoot: string,
+    proof: ProofBundle,
+  ): Promise<boolean>;
+  verifyCommitmentProofWithSession(
     backendProfile: "stable" | "fast",
     sessionHandle: string,
     proof: ProofBundle,
@@ -451,6 +502,11 @@ export type NativePrivacyPoolsSdkModule = {
     withdrawal: Withdrawal,
     proof: ProofBundle,
     scope: string,
+  ): Promise<TransactionPlan>;
+  planRagequitTransaction(
+    chainId: number,
+    poolAddress: string,
+    proof: ProofBundle,
   ): Promise<TransactionPlan>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
@@ -566,6 +622,11 @@ export const buildWithdrawalCircuitInput = (
 ): Promise<WithdrawalCircuitInput> =>
   requireNativeModule().buildWithdrawalCircuitInput(request);
 
+export const buildCommitmentCircuitInput = (
+  request: CommitmentWitnessRequest,
+): Promise<CommitmentCircuitInput> =>
+  requireNativeModule().buildCommitmentCircuitInput(request);
+
 export const prepareWithdrawalCircuitSession = (
   manifestJson: string,
   artifactsRoot: string,
@@ -587,6 +648,28 @@ export const prepareWithdrawalCircuitSessionFromBytes = (
 export const removeWithdrawalCircuitSession = (
   handle: string,
 ): Promise<boolean> => requireNativeModule().removeWithdrawalCircuitSession(handle);
+
+export const prepareCommitmentCircuitSession = (
+  manifestJson: string,
+  artifactsRoot: string,
+): Promise<CommitmentCircuitSessionHandle> =>
+  requireNativeModule().prepareCommitmentCircuitSession(
+    manifestJson,
+    artifactsRoot,
+  );
+
+export const prepareCommitmentCircuitSessionFromBytes = (
+  manifestJson: string,
+  artifacts: ArtifactBytesInput[],
+): Promise<CommitmentCircuitSessionHandle> =>
+  requireNativeModule().prepareCommitmentCircuitSessionFromBytes(
+    manifestJson,
+    artifacts,
+  );
+
+export const removeCommitmentCircuitSession = (
+  handle: string,
+): Promise<boolean> => requireNativeModule().removeCommitmentCircuitSession(handle);
 
 export const proveWithdrawal = (
   backendProfile: "stable" | "fast",
@@ -655,6 +738,54 @@ export const verifyWithdrawalProofWithSession = (
   proof: ProofBundle,
 ): Promise<boolean> =>
   requireNativeModule().verifyWithdrawalProofWithSession(
+    backendProfile,
+    sessionHandle,
+    proof,
+  );
+
+export const proveCommitment = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: CommitmentWitnessRequest,
+): Promise<ProvingResult> =>
+  requireNativeModule().proveCommitment(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    request,
+  );
+
+export const proveCommitmentWithSession = (
+  backendProfile: "stable" | "fast",
+  sessionHandle: string,
+  request: CommitmentWitnessRequest,
+): Promise<ProvingResult> =>
+  requireNativeModule().proveCommitmentWithSession(
+    backendProfile,
+    sessionHandle,
+    request,
+  );
+
+export const verifyCommitmentProof = (
+  backendProfile: "stable" | "fast",
+  manifestJson: string,
+  artifactsRoot: string,
+  proof: ProofBundle,
+): Promise<boolean> =>
+  requireNativeModule().verifyCommitmentProof(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    proof,
+  );
+
+export const verifyCommitmentProofWithSession = (
+  backendProfile: "stable" | "fast",
+  sessionHandle: string,
+  proof: ProofBundle,
+): Promise<boolean> =>
+  requireNativeModule().verifyCommitmentProofWithSession(
     backendProfile,
     sessionHandle,
     proof,
@@ -931,6 +1062,13 @@ export const planRelayTransaction = (
     proof,
     scope,
   );
+
+export const planRagequitTransaction = (
+  chainId: number,
+  poolAddress: string,
+  proof: ProofBundle,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planRagequitTransaction(chainId, poolAddress, proof);
 
 export const planPoolStateRootRead = (poolAddress: string): Promise<RootRead> =>
   requireNativeModule().planPoolStateRootRead(poolAddress);

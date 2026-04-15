@@ -14,6 +14,10 @@ fn main() {
         "cargo:rerun-if-changed={}",
         circuits_dir.join("withdraw/withdraw.wasm")
     );
+    println!(
+        "cargo:rerun-if-changed={}",
+        circuits_dir.join("commitment/commitment.wasm")
+    );
 
     rust_witness::transpile::transpile_wasm(circuits_dir.into_string());
 }

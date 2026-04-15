@@ -88,6 +88,12 @@ public enum PrivacyPoolsSdkClient {
         try buildWithdrawalCircuitInput(request: request)
     }
 
+    public static func commitmentCircuitInput(
+        request: FfiCommitmentWitnessRequest,
+    ) throws -> FfiCommitmentCircuitInput {
+        try buildCommitmentCircuitInput(request: request)
+    }
+
     public static func prepareWithdrawalCircuitSession(
         manifestJson: String,
         artifactsRoot: String,
@@ -112,6 +118,30 @@ public enum PrivacyPoolsSdkClient {
         try PrivacyPoolsSdk.removeWithdrawalCircuitSession(handle: handle)
     }
 
+    public static func prepareCommitmentCircuitSession(
+        manifestJson: String,
+        artifactsRoot: String,
+    ) throws -> FfiCommitmentCircuitSessionHandle {
+        try PrivacyPoolsSdk.prepareCommitmentCircuitSession(
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot
+        )
+    }
+
+    public static func prepareCommitmentCircuitSessionFromBytes(
+        manifestJson: String,
+        artifacts: [FfiArtifactBytes],
+    ) throws -> FfiCommitmentCircuitSessionHandle {
+        try PrivacyPoolsSdk.prepareCommitmentCircuitSessionFromBytes(
+            manifestJson: manifestJson,
+            artifacts: artifacts
+        )
+    }
+
+    public static func removeCommitmentCircuitSession(handle: String) throws -> Bool {
+        try PrivacyPoolsSdk.removeCommitmentCircuitSession(handle: handle)
+    }
+
     public static func withdrawalProof(
         backendProfile: String,
         manifestJson: String,
@@ -132,6 +162,32 @@ public enum PrivacyPoolsSdkClient {
         request: FfiWithdrawalWitnessRequest,
     ) throws -> FfiProvingResult {
         try proveWithdrawalWithSession(
+            backendProfile: backendProfile,
+            sessionHandle: sessionHandle,
+            request: request
+        )
+    }
+
+    public static func commitmentProof(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        request: FfiCommitmentWitnessRequest,
+    ) throws -> FfiProvingResult {
+        try proveCommitment(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            request: request
+        )
+    }
+
+    public static func commitmentProof(
+        backendProfile: String,
+        sessionHandle: String,
+        request: FfiCommitmentWitnessRequest,
+    ) throws -> FfiProvingResult {
+        try proveCommitmentWithSession(
             backendProfile: backendProfile,
             sessionHandle: sessionHandle,
             request: request
@@ -184,6 +240,32 @@ public enum PrivacyPoolsSdkClient {
         proof: FfiProofBundle,
     ) throws -> Bool {
         try verifyWithdrawalProofWithSession(
+            backendProfile: backendProfile,
+            sessionHandle: sessionHandle,
+            proof: proof
+        )
+    }
+
+    public static func verifyCommitment(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        proof: FfiProofBundle,
+    ) throws -> Bool {
+        try verifyCommitmentProof(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            proof: proof
+        )
+    }
+
+    public static func verifyCommitment(
+        backendProfile: String,
+        sessionHandle: String,
+        proof: FfiProofBundle,
+    ) throws -> Bool {
+        try verifyCommitmentProofWithSession(
             backendProfile: backendProfile,
             sessionHandle: sessionHandle,
             proof: proof
@@ -481,6 +563,18 @@ public enum PrivacyPoolsSdkClient {
             withdrawal: withdrawal,
             proof: proof,
             scope: scope
+        )
+    }
+
+    public static func ragequitTransactionPlan(
+        chainId: UInt64,
+        poolAddress: String,
+        proof: FfiProofBundle,
+    ) throws -> FfiTransactionPlan {
+        try planRagequitTransaction(
+            chainId: chainId,
+            poolAddress: poolAddress,
+            proof: proof
         )
     }
 

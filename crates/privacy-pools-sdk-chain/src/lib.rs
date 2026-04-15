@@ -36,12 +36,20 @@ sol! {
         uint256[8] pubSignals;
     }
 
+    struct RagequitProofAbi {
+        uint256[2] pA;
+        uint256[2][2] pB;
+        uint256[2] pC;
+        uint256[4] pubSignals;
+    }
+
     interface IPrivacyPool {
         function ENTRYPOINT() external view returns (address);
         function currentRoot() external view returns (uint256);
         function currentRootIndex() external view returns (uint32);
         function roots(uint256 index) external view returns (uint256);
         function withdraw(WithdrawalAbi _withdrawal, WithdrawProofAbi _proof) external;
+        function ragequit(RagequitProofAbi _proof) external;
     }
 
     interface IEntrypoint {
@@ -58,6 +66,8 @@ pub enum ChainError {
     Core(#[from] privacy_pools_sdk_core::CoreError),
     #[error("withdraw proof must contain exactly 8 public signals, got {0}")]
     InvalidWithdrawPublicSignals(usize),
+    #[error("ragequit proof must contain exactly 4 public signals, got {0}")]
+    InvalidRagequitPublicSignals(usize),
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
         field: &'static str,
@@ -492,6 +502,18 @@ pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainEr
         .map_err(|signals: Vec<U256>| ChainError::InvalidWithdrawPublicSignals(signals.len()))
 }
 
+pub fn ragequit_public_signals(proof: &ProofBundle) -> Result<[U256; 4], ChainError> {
+    let public_signals = proof
+        .public_signals
+        .iter()
+        .enumerate()
+        .map(|(index, value)| parse_bn254_public_signal(value, index))
+        .collect::<Result<Vec<_>, _>>()?;
+    public_signals
+        .try_into()
+        .map_err(|signals: Vec<U256>| ChainError::InvalidRagequitPublicSignals(signals.len()))
+}
+
 fn parse_bn254_proof_coordinate(value: &str, field: &str) -> Result<U256, ChainError> {
     let parsed = parse_decimal_field(value)?;
     ensure_canonical_proof_field(field.to_owned(), parsed, bn254_base_field_modulus())?;
@@ -633,6 +655,31 @@ pub fn plan_relay_transaction(
         kind: TransactionKind::Relay,
         chain_id,
         target: entrypoint_address,
+        calldata,
+        value: U256::ZERO,
+        proof: formatted,
+    })
+}
+
+pub fn plan_ragequit_transaction(
+    chain_id: u64,
+    pool_address: Address,
+    proof: &ProofBundle,
+) -> Result<TransactionPlan, ChainError> {
+    ensure_non_zero_address(pool_address, "pool address")?;
+
+    let formatted = format_groth16_proof(proof)?;
+    let calldata = Bytes::from(
+        IPrivacyPool::ragequitCall {
+            _proof: ragequit_proof_abi(proof)?,
+        }
+        .abi_encode(),
+    );
+
+    Ok(TransactionPlan {
+        kind: TransactionKind::Ragequit,
+        chain_id,
+        target: pool_address,
         calldata,
         value: U256::ZERO,
         proof: formatted,
@@ -1334,6 +1381,32 @@ fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi, ChainErro
     })
 }
 
+fn ragequit_proof_abi(proof: &ProofBundle) -> Result<RagequitProofAbi, ChainError> {
+    let public_signals = ragequit_public_signals(proof)?;
+
+    Ok(RagequitProofAbi {
+        pA: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[0], "piA[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[1], "piA[1]")?,
+        ],
+        pB: [
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][1], "piB[0][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][0], "piB[0][0]")?,
+            ],
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][1], "piB[1][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][0], "piB[1][0]")?,
+            ],
+        ],
+        pC: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[0], "piC[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[1], "piC[1]")?,
+        ],
+        pubSignals: public_signals,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1537,6 +1610,10 @@ mod tests {
             },
             public_signals: vec!["911".to_owned(); 8],
         };
+        let ragequit_proof = ProofBundle {
+            proof: proof.proof.clone(),
+            public_signals: vec!["911".to_owned(); 4],
+        };
         let withdrawal = Withdrawal {
             processooor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
@@ -1561,6 +1638,12 @@ mod tests {
             U256::from(123_u64),
         )
         .unwrap();
+        let ragequit = plan_ragequit_transaction(
+            1,
+            address!("0987654321098765432109876543210987654321"),
+            &ragequit_proof,
+        )
+        .unwrap();
 
         assert_eq!(withdraw.kind, TransactionKind::Withdraw);
         assert_eq!(
@@ -1572,9 +1655,16 @@ mod tests {
             &relay.calldata[..4],
             IEntrypoint::relayCall::SELECTOR.as_slice()
         );
+        assert_eq!(ragequit.kind, TransactionKind::Ragequit);
+        assert_eq!(
+            &ragequit.calldata[..4],
+            IPrivacyPool::ragequitCall::SELECTOR.as_slice()
+        );
         assert_eq!(withdraw.value, U256::ZERO);
         assert_eq!(relay.value, U256::ZERO);
+        assert_eq!(ragequit.value, U256::ZERO);
         assert_eq!(withdraw.proof.pub_signals.len(), 8);
+        assert_eq!(ragequit.proof.pub_signals.len(), 4);
     }
 
     #[test]
@@ -1604,6 +1694,32 @@ mod tests {
                 &proof,
             ),
             Err(ChainError::InvalidWithdrawPublicSignals(6))
+        ));
+    }
+
+    #[test]
+    fn rejects_invalid_ragequit_public_signal_lengths() {
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["1".to_owned(), "2".to_owned()],
+                pi_b: [
+                    ["3".to_owned(), "4".to_owned()],
+                    ["5".to_owned(), "6".to_owned()],
+                ],
+                pi_c: ["7".to_owned(), "8".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["9".to_owned(); 8],
+        };
+
+        assert!(matches!(
+            plan_ragequit_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &proof,
+            ),
+            Err(ChainError::InvalidRagequitPublicSignals(8))
         ));
     }
 

@@ -86,6 +86,19 @@ pub struct WithdrawalWitnessRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitmentWitnessRequest {
+    pub commitment: Commitment,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitmentCircuitInput {
+    pub value: FieldElement,
+    pub label: FieldElement,
+    pub nullifier: Secret,
+    pub secret: Secret,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WithdrawalCircuitInput {
     #[serde(rename = "withdrawnValue")]
     pub withdrawn_value: FieldElement,
@@ -132,6 +145,7 @@ pub struct FormattedGroth16Proof {
 pub enum TransactionKind {
     Withdraw,
     Relay,
+    Ragequit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

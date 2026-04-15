@@ -1048,6 +1048,176 @@ public func FfiConverterTypeFfiCommitment_lower(_ value: FfiCommitment) -> RustB
 }
 
 
+public struct FfiCommitmentCircuitInput: Equatable, Hashable {
+    public var value: String
+    public var label: String
+    public var nullifier: String
+    public var secret: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(value: String, label: String, nullifier: String, secret: String) {
+        self.value = value
+        self.label = label
+        self.nullifier = nullifier
+        self.secret = secret
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiCommitmentCircuitInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCommitmentCircuitInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCommitmentCircuitInput {
+        return
+            try FfiCommitmentCircuitInput(
+                value: FfiConverterString.read(from: &buf),
+                label: FfiConverterString.read(from: &buf),
+                nullifier: FfiConverterString.read(from: &buf),
+                secret: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCommitmentCircuitInput, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.value, into: &buf)
+        FfiConverterString.write(value.label, into: &buf)
+        FfiConverterString.write(value.nullifier, into: &buf)
+        FfiConverterString.write(value.secret, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentCircuitInput_lift(_ buf: RustBuffer) throws -> FfiCommitmentCircuitInput {
+    return try FfiConverterTypeFfiCommitmentCircuitInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentCircuitInput_lower(_ value: FfiCommitmentCircuitInput) -> RustBuffer {
+    return FfiConverterTypeFfiCommitmentCircuitInput.lower(value)
+}
+
+
+public struct FfiCommitmentCircuitSessionHandle: Equatable, Hashable {
+    public var handle: String
+    public var circuit: String
+    public var artifactVersion: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(handle: String, circuit: String, artifactVersion: String) {
+        self.handle = handle
+        self.circuit = circuit
+        self.artifactVersion = artifactVersion
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiCommitmentCircuitSessionHandle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCommitmentCircuitSessionHandle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCommitmentCircuitSessionHandle {
+        return
+            try FfiCommitmentCircuitSessionHandle(
+                handle: FfiConverterString.read(from: &buf),
+                circuit: FfiConverterString.read(from: &buf),
+                artifactVersion: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCommitmentCircuitSessionHandle, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.handle, into: &buf)
+        FfiConverterString.write(value.circuit, into: &buf)
+        FfiConverterString.write(value.artifactVersion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentCircuitSessionHandle_lift(_ buf: RustBuffer) throws -> FfiCommitmentCircuitSessionHandle {
+    return try FfiConverterTypeFfiCommitmentCircuitSessionHandle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentCircuitSessionHandle_lower(_ value: FfiCommitmentCircuitSessionHandle) -> RustBuffer {
+    return FfiConverterTypeFfiCommitmentCircuitSessionHandle.lower(value)
+}
+
+
+public struct FfiCommitmentWitnessRequest: Equatable, Hashable {
+    public var commitment: FfiCommitment
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(commitment: FfiCommitment) {
+        self.commitment = commitment
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiCommitmentWitnessRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiCommitmentWitnessRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCommitmentWitnessRequest {
+        return
+            try FfiCommitmentWitnessRequest(
+                commitment: FfiConverterTypeFfiCommitment.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiCommitmentWitnessRequest, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiCommitment.write(value.commitment, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentWitnessRequest_lift(_ buf: RustBuffer) throws -> FfiCommitmentWitnessRequest {
+    return try FfiConverterTypeFfiCommitmentWitnessRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiCommitmentWitnessRequest_lower(_ value: FfiCommitmentWitnessRequest) -> RustBuffer {
+    return FfiConverterTypeFfiCommitmentWitnessRequest.lower(value)
+}
+
+
 public struct FfiExecutionPolicy: Equatable, Hashable {
     public var expectedChainId: UInt64
     public var caller: String
@@ -3304,6 +3474,13 @@ public func buildCircuitMerkleWitness(proof: FfiMerkleProof, depth: UInt64)throw
     )
 })
 }
+public func buildCommitmentCircuitInput(request: FfiCommitmentWitnessRequest)throws  -> FfiCommitmentCircuitInput  {
+    return try  FfiConverterTypeFfiCommitmentCircuitInput_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_build_commitment_circuit_input(
+        FfiConverterTypeFfiCommitmentWitnessRequest_lower(request),$0
+    )
+})
+}
 public func buildWithdrawalCircuitInput(request: FfiWithdrawalWitnessRequest)throws  -> FfiWithdrawalCircuitInput  {
     return try  FfiConverterTypeFfiWithdrawalCircuitInput_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(
@@ -3474,6 +3651,15 @@ public func planPoolStateRootRead(poolAddress: String)throws  -> FfiRootRead  {
     )
 })
 }
+public func planRagequitTransaction(chainId: UInt64, poolAddress: String, proof: FfiProofBundle)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_ragequit_transaction(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
 public func planRelayTransaction(chainId: UInt64, entrypointAddress: String, withdrawal: FfiWithdrawal, proof: FfiProofBundle, scope: String)throws  -> FfiTransactionPlan  {
     return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(
@@ -3499,6 +3685,22 @@ public func pollJobStatus(jobId: String)throws  -> FfiAsyncJobStatus  {
     return try  FfiConverterTypeFfiAsyncJobStatus_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_poll_job_status(
         FfiConverterString.lower(jobId),$0
+    )
+})
+}
+public func prepareCommitmentCircuitSession(manifestJson: String, artifactsRoot: String)throws  -> FfiCommitmentCircuitSessionHandle  {
+    return try  FfiConverterTypeFfiCommitmentCircuitSessionHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prepare_commitment_circuit_session(
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),$0
+    )
+})
+}
+public func prepareCommitmentCircuitSessionFromBytes(manifestJson: String, artifacts: [FfiArtifactBytes])throws  -> FfiCommitmentCircuitSessionHandle  {
+    return try  FfiConverterTypeFfiCommitmentCircuitSessionHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prepare_commitment_circuit_session_from_bytes(
+        FfiConverterString.lower(manifestJson),
+        FfiConverterSequenceTypeFfiArtifactBytes.lower(artifacts),$0
     )
 })
 }
@@ -3547,6 +3749,25 @@ public func prepareWithdrawalExecution(backendProfile: String, manifestJson: Str
     )
 })
 }
+public func proveCommitment(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiCommitmentWitnessRequest)throws  -> FfiProvingResult  {
+    return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiCommitmentWitnessRequest_lower(request),$0
+    )
+})
+}
+public func proveCommitmentWithSession(backendProfile: String, sessionHandle: String, request: FfiCommitmentWitnessRequest)throws  -> FfiProvingResult  {
+    return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment_with_session(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(sessionHandle),
+        FfiConverterTypeFfiCommitmentWitnessRequest_lower(request),$0
+    )
+})
+}
 public func proveWithdrawal(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiWithdrawalWitnessRequest)throws  -> FfiProvingResult  {
     return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(
@@ -3588,6 +3809,13 @@ public func registerMobileSecureStorageSigner(handle: String, address: String)th
     uniffi_privacy_pools_sdk_ffi_fn_func_register_mobile_secure_storage_signer(
         FfiConverterString.lower(handle),
         FfiConverterString.lower(address),$0
+    )
+})
+}
+public func removeCommitmentCircuitSession(handle: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_remove_commitment_circuit_session(
+        FfiConverterString.lower(handle),$0
     )
 })
 }
@@ -3697,6 +3925,25 @@ public func verifyArtifactBytes(manifestJson: String, circuit: String, kind: Str
     )
 })
 }
+public func verifyCommitmentProof(backendProfile: String, manifestJson: String, artifactsRoot: String, proof: FfiProofBundle)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
+public func verifyCommitmentProofWithSession(backendProfile: String, sessionHandle: String, proof: FfiProofBundle)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_with_session(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(sessionHandle),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
 public func verifyWithdrawalProof(backendProfile: String, manifestJson: String, artifactsRoot: String, proof: FfiProofBundle)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(
@@ -3733,6 +3980,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_circuit_merkle_witness() != 835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_commitment_circuit_input() != 55581) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input() != 47570) {
@@ -3801,6 +4051,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_pool_state_root_read() != 23733) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_ragequit_transaction() != 13758) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction() != 11025) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3808,6 +4061,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_poll_job_status() != 4651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_commitment_circuit_session() != 5850) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_commitment_circuit_session_from_bytes() != 26570) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_relay_execution() != 18665) {
@@ -3820,6 +4079,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution() != 63214) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment() != 47751) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_session() != 65330) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178) {
@@ -3835,6 +4100,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_commitment_circuit_session() != 27781) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_job() != 24803) {
@@ -3868,6 +4136,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_artifact_bytes() != 12157) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof() != 54157) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_with_session() != 29352) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof() != 13425) {

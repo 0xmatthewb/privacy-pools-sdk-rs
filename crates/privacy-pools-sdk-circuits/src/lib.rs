@@ -1,6 +1,6 @@
 use privacy_pools_sdk_core::{
-    CircuitMerkleWitness, Commitment, FieldElement, WithdrawalCircuitInput,
-    WithdrawalWitnessRequest,
+    CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest,
+    FieldElement, WithdrawalCircuitInput, WithdrawalWitnessRequest,
 };
 use privacy_pools_sdk_crypto as crypto;
 use privacy_pools_sdk_tree as tree;
@@ -69,6 +69,23 @@ pub enum CircuitError {
     },
 }
 
+pub fn build_commitment_circuit_input(
+    request: &CommitmentWitnessRequest,
+) -> Result<CommitmentCircuitInput, CircuitError> {
+    validate_commitment_request(request)?;
+
+    Ok(CommitmentCircuitInput {
+        value: request.commitment.preimage.value,
+        label: request.commitment.preimage.label,
+        nullifier: request.commitment.preimage.precommitment.nullifier,
+        secret: request.commitment.preimage.precommitment.secret,
+    })
+}
+
+pub fn validate_commitment_request(request: &CommitmentWitnessRequest) -> Result<(), CircuitError> {
+    validate_commitment(&request.commitment, "value")
+}
+
 pub fn build_withdrawal_circuit_input(
     request: &WithdrawalWitnessRequest,
 ) -> Result<WithdrawalCircuitInput, CircuitError> {
@@ -98,32 +115,7 @@ pub fn validate_withdrawal_request(request: &WithdrawalWitnessRequest) -> Result
     validate_witness_shape("state", &request.state_witness)?;
     validate_witness_shape("asp", &request.asp_witness)?;
 
-    let computed_commitment = recompute_commitment(&request.commitment)?;
-    for (field, expected, actual) in [
-        (
-            "precommitmentHash",
-            request.commitment.preimage.precommitment.hash,
-            computed_commitment.preimage.precommitment.hash,
-        ),
-        (
-            "commitmentHash",
-            request.commitment.hash,
-            computed_commitment.hash,
-        ),
-        (
-            "nullifierHash",
-            request.commitment.nullifier_hash,
-            computed_commitment.nullifier_hash,
-        ),
-    ] {
-        if expected != actual {
-            return Err(CircuitError::CommitmentFieldMismatch {
-                field,
-                expected,
-                actual,
-            });
-        }
-    }
+    validate_commitment(&request.commitment, "existingValue")?;
 
     if request.withdrawal_amount > request.commitment.preimage.value {
         return Err(CircuitError::WithdrawalAmountExceedsExistingValue {
@@ -153,6 +145,38 @@ pub fn validate_withdrawal_request(request: &WithdrawalWitnessRequest) -> Result
             expected: request.commitment.preimage.label,
             actual: request.asp_witness.leaf,
         });
+    }
+
+    Ok(())
+}
+
+fn validate_commitment(
+    commitment: &Commitment,
+    value_field: &'static str,
+) -> Result<(), CircuitError> {
+    validate_contract_deposit_value(value_field, commitment.preimage.value)?;
+
+    let computed_commitment = recompute_commitment(commitment)?;
+    for (field, expected, actual) in [
+        (
+            "precommitmentHash",
+            commitment.preimage.precommitment.hash,
+            computed_commitment.preimage.precommitment.hash,
+        ),
+        ("commitmentHash", commitment.hash, computed_commitment.hash),
+        (
+            "nullifierHash",
+            commitment.nullifier_hash,
+            computed_commitment.nullifier_hash,
+        ),
+    ] {
+        if expected != actual {
+            return Err(CircuitError::CommitmentFieldMismatch {
+                field,
+                expected,
+                actual,
+            });
+        }
     }
 
     Ok(())
@@ -249,6 +273,26 @@ mod tests {
     }
 
     #[test]
+    fn builds_commitment_inputs_for_valid_requests() {
+        let request = CommitmentWitnessRequest {
+            commitment: valid_request().commitment,
+        };
+
+        let input = build_commitment_circuit_input(&request).expect("request should be valid");
+
+        assert_eq!(input.value, request.commitment.preimage.value);
+        assert_eq!(input.label, request.commitment.preimage.label);
+        assert_eq!(
+            input.nullifier,
+            request.commitment.preimage.precommitment.nullifier
+        );
+        assert_eq!(
+            input.secret,
+            request.commitment.preimage.precommitment.secret
+        );
+    }
+
+    #[test]
     fn rejects_commitment_mismatches() {
         let mut request = valid_request();
         request.commitment.preimage.precommitment.hash = U256::from(999_u64);
@@ -256,6 +300,27 @@ mod tests {
         assert!(matches!(
             error,
             CircuitError::CommitmentFieldMismatch { field, .. } if field == "precommitmentHash"
+        ));
+    }
+
+    #[test]
+    fn rejects_commitment_inputs_outside_contract_deposit_range() {
+        let mut request = CommitmentWitnessRequest {
+            commitment: valid_request().commitment,
+        };
+        request.commitment = crypto::get_commitment(
+            U256::from(u128::MAX),
+            request.commitment.preimage.label,
+            request.commitment.preimage.precommitment.nullifier,
+            request.commitment.preimage.precommitment.secret,
+        )
+        .expect("commitment should build");
+
+        let error = build_commitment_circuit_input(&request).expect_err("request should fail");
+
+        assert!(matches!(
+            error,
+            CircuitError::ValueExceedsContractDepositRange { field, .. } if field == "value"
         ));
     }
 
