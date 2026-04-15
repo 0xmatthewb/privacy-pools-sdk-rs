@@ -11,6 +11,7 @@ import {
   deriveRecoveryKeyset as runtimeDeriveRecoveryKeyset,
   deriveWithdrawalSecrets,
   fastBackendSupportedOnTarget,
+  formatGroth16ProofBundle as runtimeFormatGroth16ProofBundle,
   generateMerkleProof as runtimeGenerateMerkleProof,
   getArtifactStatuses,
   getCommitmentArtifactStatuses,
@@ -19,6 +20,11 @@ import {
   getStableBackendName,
   getVersion,
   isCurrentStateRoot as runtimeIsCurrentStateRoot,
+  planAspRootRead as runtimePlanAspRootRead,
+  planPoolStateRootRead as runtimePlanPoolStateRootRead,
+  planRagequitTransaction as runtimePlanRagequitTransaction,
+  planRelayTransaction as runtimePlanRelayTransaction,
+  planWithdrawalTransaction as runtimePlanWithdrawalTransaction,
   prepareCommitmentCircuitSession,
   prepareCommitmentCircuitSessionFromBytes,
   prepareWithdrawalCircuitSession,
@@ -118,6 +124,36 @@ export class PrivacyPoolsSdkClient {
 
   async isCurrentStateRoot(expectedRoot, currentRoot) {
     return runtimeIsCurrentStateRoot(expectedRoot, currentRoot);
+  }
+
+  async formatGroth16ProofBundle(proof) {
+    return runtimeFormatGroth16ProofBundle(proof);
+  }
+
+  async planWithdrawalTransaction(chainId, poolAddress, withdrawal, proof) {
+    return runtimePlanWithdrawalTransaction(chainId, poolAddress, withdrawal, proof);
+  }
+
+  async planRelayTransaction(chainId, entrypointAddress, withdrawal, proof, scope) {
+    return runtimePlanRelayTransaction(
+      chainId,
+      entrypointAddress,
+      withdrawal,
+      proof,
+      scope,
+    );
+  }
+
+  async planRagequitTransaction(chainId, poolAddress, proof) {
+    return runtimePlanRagequitTransaction(chainId, poolAddress, proof);
+  }
+
+  async planPoolStateRootRead(poolAddress) {
+    return runtimePlanPoolStateRootRead(poolAddress);
+  }
+
+  async planAspRootRead(entrypointAddress, poolAddress) {
+    return runtimePlanAspRootRead(entrypointAddress, poolAddress);
   }
 
   async getArtifactStatuses(manifestJson, artifactsRoot) {
@@ -386,6 +422,41 @@ class WorkerPrivacyPoolsSdkClient {
 
   async isCurrentStateRoot(expectedRoot, currentRoot) {
     return this.#send("isCurrentStateRoot", [expectedRoot, currentRoot]);
+  }
+
+  async formatGroth16ProofBundle(proof) {
+    return this.#send("formatGroth16ProofBundle", [proof]);
+  }
+
+  async planWithdrawalTransaction(chainId, poolAddress, withdrawal, proof) {
+    return this.#send("planWithdrawalTransaction", [
+      chainId,
+      poolAddress,
+      withdrawal,
+      proof,
+    ]);
+  }
+
+  async planRelayTransaction(chainId, entrypointAddress, withdrawal, proof, scope) {
+    return this.#send("planRelayTransaction", [
+      chainId,
+      entrypointAddress,
+      withdrawal,
+      proof,
+      scope,
+    ]);
+  }
+
+  async planRagequitTransaction(chainId, poolAddress, proof) {
+    return this.#send("planRagequitTransaction", [chainId, poolAddress, proof]);
+  }
+
+  async planPoolStateRootRead(poolAddress) {
+    return this.#send("planPoolStateRootRead", [poolAddress]);
+  }
+
+  async planAspRootRead(entrypointAddress, poolAddress) {
+    return this.#send("planAspRootRead", [entrypointAddress, poolAddress]);
   }
 
   async getArtifactStatuses(manifestJson, artifactsRoot) {

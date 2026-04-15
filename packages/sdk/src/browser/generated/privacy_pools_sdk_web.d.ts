@@ -25,6 +25,8 @@ export function deriveWithdrawalSecretsJson(master_keys_json: string, label: str
 
 export function fastBackendSupportedOnTarget(): boolean;
 
+export function formatGroth16ProofBundleJson(proof_json: string): string;
+
 export function generateMerkleProofJson(leaves_json: string, leaf: string): string;
 
 export function getArtifactStatusesJson(manifest_json: string, artifacts_root: string, circuit: string): string;
@@ -38,6 +40,16 @@ export function getStableBackendName(): string;
 export function getVersion(): string;
 
 export function isCurrentStateRoot(expected_root: string, current_root: string): boolean;
+
+export function planAspRootReadJson(entrypoint_address: string, pool_address: string): string;
+
+export function planPoolStateRootReadJson(pool_address: string): string;
+
+export function planRagequitTransactionJson(chain_id: bigint, pool_address: string, proof_json: string): string;
+
+export function planRelayTransactionJson(chain_id: bigint, entrypoint_address: string, withdrawal_json: string, proof_json: string, scope: string): string;
+
+export function planWithdrawalTransactionJson(chain_id: bigint, pool_address: string, withdrawal_json: string, proof_json: string): string;
 
 export function prepareCommitmentCircuitSessionFromBytes(manifest_json: string, artifacts: Array<any>): string;
 
@@ -89,6 +101,7 @@ export interface InitOutput {
     readonly deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly deriveWithdrawalSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly fastBackendSupportedOnTarget: () => number;
+    readonly formatGroth16ProofBundleJson: (a: number, b: number) => [number, number, number, number];
     readonly generateMerkleProofJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly getArtifactStatusesJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly getBrowserSupportStatusJson: () => [number, number];
@@ -96,6 +109,11 @@ export interface InitOutput {
     readonly getStableBackendName: () => [number, number];
     readonly getVersion: () => [number, number];
     readonly isCurrentStateRoot: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly planAspRootReadJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly planPoolStateRootReadJson: (a: number, b: number) => [number, number, number, number];
+    readonly planRagequitTransactionJson: (a: bigint, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly planRelayTransactionJson: (a: bigint, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
+    readonly planWithdrawalTransactionJson: (a: bigint, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
     readonly prepareCommitmentCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
     readonly prepareWithdrawalCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
     readonly proveCommitmentWithSessionWitnessJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];

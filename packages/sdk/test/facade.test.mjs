@@ -249,31 +249,68 @@ test("unsupported v1 legacy services fail with typed compatibility errors", asyn
   );
 });
 
-test("contract and recovery facade wrappers use Rust-backed Node bindings", async () => {
+test("contract and recovery facade wrappers use Rust-backed bindings", async () => {
   const poolAddress = "0x0987654321098765432109876543210987654321";
   const entrypointAddress = "0x1234567890123456789012345678901234567890";
-  const contractService = new nodeEntry.ContractInteractionsService();
+  const relayData =
+    "0x0000000000000000000000002222222222222222222222222222222222222222" +
+    "0000000000000000000000003333333333333333333333333333333333333333" +
+    "0000000000000000000000000000000000000000000000000000000000000019";
+  const withdrawProof = proofWithPublicSignalCount(8);
+  const ragequitProof = proofWithPublicSignalCount(4);
 
-  const stateRead = await contractService.getStateRoot(poolAddress);
-  assert.equal(stateRead.kind, "pool_state");
-  assert.equal(stateRead.contractAddress, poolAddress);
-  assert.equal(stateRead.poolAddress, poolAddress);
-  assert.match(stateRead.callData, /^0x[0-9a-f]+$/);
+  for (const entry of [nodeEntry, browserEntry]) {
+    const contractService = new entry.ContractInteractionsService();
 
-  const aspRead = await contractService.getScopeData(entrypointAddress, poolAddress);
-  assert.equal(aspRead.kind, "asp");
-  assert.equal(aspRead.contractAddress, entrypointAddress);
-  assert.equal(aspRead.poolAddress, poolAddress);
-  assert.notEqual(aspRead.callData, stateRead.callData);
+    const stateRead = await contractService.getStateRoot(poolAddress);
+    assert.equal(stateRead.kind, "pool_state");
+    assert.equal(stateRead.contractAddress, poolAddress);
+    assert.equal(stateRead.poolAddress, poolAddress);
+    assert.match(stateRead.callData, /^0x[0-9a-f]+$/);
 
-  assert.equal(await contractService.isCurrentStateRoot("12", 12n), true);
-  assert.equal(await nodeEntry.isCurrentStateRoot("12", "18"), false);
+    const aspRead = await contractService.getScopeData(entrypointAddress, poolAddress);
+    assert.equal(aspRead.kind, "asp");
+    assert.equal(aspRead.contractAddress, entrypointAddress);
+    assert.equal(aspRead.poolAddress, poolAddress);
+    assert.notEqual(aspRead.callData, stateRead.callData);
 
-  const formatted = await contractService.formatGroth16Proof(proofFormattingFixture.input);
-  assert.deepEqual(formatted.pA, proofFormattingFixture.expected.pA);
-  assert.deepEqual(formatted.pB, proofFormattingFixture.expected.pB);
-  assert.deepEqual(formatted.pC, proofFormattingFixture.expected.pC);
-  assert.deepEqual(formatted.pubSignals, proofFormattingFixture.expected.pubSignals);
+    assert.equal(await contractService.isCurrentStateRoot("12", 12n), true);
+    assert.equal(await entry.isCurrentStateRoot("12", "18"), false);
+
+    const formatted = await contractService.formatGroth16Proof(proofFormattingFixture.input);
+    assert.deepEqual(formatted.pA, proofFormattingFixture.expected.pA);
+    assert.deepEqual(formatted.pB, proofFormattingFixture.expected.pB);
+    assert.deepEqual(formatted.pC, proofFormattingFixture.expected.pC);
+    assert.deepEqual(formatted.pubSignals, proofFormattingFixture.expected.pubSignals);
+
+    const withdrawalPlan = await contractService.planWithdrawalTransaction(
+      1,
+      poolAddress,
+      { processooor: poolAddress, data: "0x1234" },
+      withdrawProof,
+    );
+    assert.equal(withdrawalPlan.kind, "withdraw");
+    assert.equal(withdrawalPlan.target, poolAddress);
+    assert.match(withdrawalPlan.calldata, /^0x[0-9a-f]+$/);
+
+    const relayPlan = await contractService.planRelayTransaction(
+      1,
+      entrypointAddress,
+      { processooor: entrypointAddress, data: relayData },
+      withdrawProof,
+      cryptoFixture.scope,
+    );
+    assert.equal(relayPlan.kind, "relay");
+    assert.equal(relayPlan.target, entrypointAddress);
+
+    const ragequitPlan = await contractService.planRagequitTransaction(
+      1,
+      poolAddress,
+      ragequitProof,
+    );
+    assert.equal(ragequitPlan.kind, "ragequit");
+    assert.equal(ragequitPlan.target, poolAddress);
+  }
 
   const checkpoint = await nodeEntry.checkpointRecovery(
     [
@@ -337,6 +374,22 @@ async function buildStrictRecoveryPool(entry) {
       ragequitEvents: [],
     },
   ];
+}
+
+function proofWithPublicSignalCount(count) {
+  return {
+    proof: {
+      piA: ["1", "2"],
+      piB: [
+        ["3", "4"],
+        ["5", "6"],
+      ],
+      piC: ["7", "8"],
+      protocol: "groth16",
+      curve: "bn128",
+    },
+    publicSignals: Array.from({ length: count }, (_, index) => String(index + 1)),
+  };
 }
 
 function createFixtureServer() {

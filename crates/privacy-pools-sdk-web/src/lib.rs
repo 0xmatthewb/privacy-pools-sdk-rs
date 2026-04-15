@@ -1,4 +1,5 @@
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_sol_types::{SolCall, SolValue, sol};
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 #[cfg(target_arch = "wasm32")]
@@ -8,8 +9,10 @@ use privacy_pools_sdk_artifacts::{
 };
 use privacy_pools_sdk_circuits as circuits;
 use privacy_pools_sdk_core::{
-    CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest, MasterKeys,
-    MerkleProof, ProofBundle, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+    CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentWitnessRequest,
+    FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle, RootRead, RootReadKind,
+    TransactionKind, TransactionPlan, Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+    field_to_hex_32, parse_decimal_field,
 };
 use privacy_pools_sdk_prover::{self as prover, ProverBackend, ProvingResult};
 use privacy_pools_sdk_recovery::{
@@ -29,6 +32,44 @@ use std::{
 };
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+sol! {
+    struct WithdrawalAbi {
+        address processooor;
+        bytes data;
+    }
+
+    struct RelayDataAbi {
+        address recipient;
+        address feeRecipient;
+        uint256 relayFeeBPS;
+    }
+
+    struct WithdrawProofAbi {
+        uint256[2] pA;
+        uint256[2][2] pB;
+        uint256[2] pC;
+        uint256[8] pubSignals;
+    }
+
+    struct RagequitProofAbi {
+        uint256[2] pA;
+        uint256[2][2] pB;
+        uint256[2] pC;
+        uint256[4] pubSignals;
+    }
+
+    interface IPrivacyPool {
+        function currentRoot() external view returns (uint256);
+        function withdraw(WithdrawalAbi _withdrawal, WithdrawProofAbi _proof) external;
+        function ragequit(RagequitProofAbi _proof) external;
+    }
+
+    interface IEntrypoint {
+        function latestRoot() external view returns (uint256);
+        function relay(WithdrawalAbi _withdrawal, WithdrawProofAbi _proof, uint256 scope) external;
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -275,6 +316,35 @@ struct JsRecoveredAccountState {
     legacy_scopes: Vec<JsRecoveredScope>,
     safe_spendable_commitments: Vec<JsSpendableScope>,
     legacy_spendable_commitments: Vec<JsSpendableScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsFormattedGroth16Proof {
+    p_a: Vec<String>,
+    p_b: Vec<Vec<String>>,
+    p_c: Vec<String>,
+    pub_signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsTransactionPlan {
+    kind: String,
+    chain_id: u64,
+    target: String,
+    calldata: String,
+    value: String,
+    proof: JsFormattedGroth16Proof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRootRead {
+    kind: String,
+    contract_address: String,
+    pool_address: String,
+    call_data: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -538,6 +608,70 @@ pub fn recover_account_state_with_keyset_json(
 
 pub fn is_current_state_root(expected_root: &str, current_root: &str) -> Result<bool> {
     Ok(parse_field(expected_root)? == parse_field(current_root)?)
+}
+
+pub fn format_groth16_proof_bundle_json(proof_json: &str) -> Result<String> {
+    let proof = parse_json::<ProofBundle>(proof_json)?;
+    to_json_string(&to_js_formatted_groth16_proof(format_groth16_proof(
+        &proof,
+    )?))
+}
+
+pub fn plan_pool_state_root_read_json(pool_address: &str) -> Result<String> {
+    to_json_string(&to_js_root_read(state_root_read(parse_address(
+        pool_address,
+    )?)))
+}
+
+pub fn plan_asp_root_read_json(entrypoint_address: &str, pool_address: &str) -> Result<String> {
+    to_json_string(&to_js_root_read(asp_root_read(
+        parse_address(entrypoint_address)?,
+        parse_address(pool_address)?,
+    )))
+}
+
+pub fn plan_withdrawal_transaction_json(
+    chain_id: u64,
+    pool_address: &str,
+    withdrawal_json: &str,
+    proof_json: &str,
+) -> Result<String> {
+    let withdrawal = parse_json::<JsWithdrawal>(withdrawal_json)?;
+    let withdrawal = from_js_withdrawal(&withdrawal)?;
+    let proof = parse_json::<ProofBundle>(proof_json)?;
+    let plan =
+        plan_withdrawal_transaction(chain_id, parse_address(pool_address)?, &withdrawal, &proof)?;
+    to_json_string(&to_js_transaction_plan(plan))
+}
+
+pub fn plan_relay_transaction_json(
+    chain_id: u64,
+    entrypoint_address: &str,
+    withdrawal_json: &str,
+    proof_json: &str,
+    scope: &str,
+) -> Result<String> {
+    let withdrawal = parse_json::<JsWithdrawal>(withdrawal_json)?;
+    let withdrawal = from_js_withdrawal(&withdrawal)?;
+    let proof = parse_json::<ProofBundle>(proof_json)?;
+    let plan = plan_relay_transaction(
+        chain_id,
+        parse_address(entrypoint_address)?,
+        &withdrawal,
+        &proof,
+        parse_field(scope)?,
+    )?;
+    to_json_string(&to_js_transaction_plan(plan))
+}
+
+pub fn plan_ragequit_transaction_json(
+    chain_id: u64,
+    pool_address: &str,
+    proof_json: &str,
+) -> Result<String> {
+    let proof = parse_json::<ProofBundle>(proof_json)?;
+    let plan = plan_ragequit_transaction(chain_id, parse_address(pool_address)?, &proof)?;
+    to_json_string(&to_js_transaction_plan(plan))
 }
 
 pub fn verify_artifact_bytes_json(
@@ -915,6 +1049,72 @@ pub fn wasm_is_current_state_root(
     current_root: &str,
 ) -> std::result::Result<bool, JsValue> {
     is_current_state_root(expected_root, current_root).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = formatGroth16ProofBundleJson)]
+pub fn wasm_format_groth16_proof_bundle_json(
+    proof_json: &str,
+) -> std::result::Result<String, JsValue> {
+    format_groth16_proof_bundle_json(proof_json).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = planPoolStateRootReadJson)]
+pub fn wasm_plan_pool_state_root_read_json(
+    pool_address: &str,
+) -> std::result::Result<String, JsValue> {
+    plan_pool_state_root_read_json(pool_address).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = planAspRootReadJson)]
+pub fn wasm_plan_asp_root_read_json(
+    entrypoint_address: &str,
+    pool_address: &str,
+) -> std::result::Result<String, JsValue> {
+    plan_asp_root_read_json(entrypoint_address, pool_address).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = planWithdrawalTransactionJson)]
+pub fn wasm_plan_withdrawal_transaction_json(
+    chain_id: u64,
+    pool_address: &str,
+    withdrawal_json: &str,
+    proof_json: &str,
+) -> std::result::Result<String, JsValue> {
+    plan_withdrawal_transaction_json(chain_id, pool_address, withdrawal_json, proof_json)
+        .map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = planRelayTransactionJson)]
+pub fn wasm_plan_relay_transaction_json(
+    chain_id: u64,
+    entrypoint_address: &str,
+    withdrawal_json: &str,
+    proof_json: &str,
+    scope: &str,
+) -> std::result::Result<String, JsValue> {
+    plan_relay_transaction_json(
+        chain_id,
+        entrypoint_address,
+        withdrawal_json,
+        proof_json,
+        scope,
+    )
+    .map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = planRagequitTransactionJson)]
+pub fn wasm_plan_ragequit_transaction_json(
+    chain_id: u64,
+    pool_address: &str,
+    proof_json: &str,
+) -> std::result::Result<String, JsValue> {
+    plan_ragequit_transaction_json(chain_id, pool_address, proof_json).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1336,11 +1536,364 @@ fn to_js_proving_result(result: ProvingResult) -> JsProvingResult {
     }
 }
 
+fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof> {
+    Ok(FormattedGroth16Proof {
+        p_a: [
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_a[0],
+                "piA[0]",
+            )?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_a[1],
+                "piA[1]",
+            )?),
+        ],
+        p_b: [
+            [
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[0][1],
+                    "piB[0][1]",
+                )?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[0][0],
+                    "piB[0][0]",
+                )?),
+            ],
+            [
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[1][1],
+                    "piB[1][1]",
+                )?),
+                field_to_hex_32(parse_bn254_proof_coordinate(
+                    &proof.proof.pi_b[1][0],
+                    "piB[1][0]",
+                )?),
+            ],
+        ],
+        p_c: [
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_c[0],
+                "piC[0]",
+            )?),
+            field_to_hex_32(parse_bn254_proof_coordinate(
+                &proof.proof.pi_c[1],
+                "piC[1]",
+            )?),
+        ],
+        pub_signals: proof
+            .public_signals
+            .iter()
+            .enumerate()
+            .map(|(index, value)| parse_bn254_public_signal(value, index).map(field_to_hex_32))
+            .collect::<Result<Vec<_>>>()?,
+    })
+}
+
+fn parse_bn254_proof_coordinate(value: &str, field: &str) -> Result<U256> {
+    let parsed = parse_decimal_field(value)?;
+    ensure_canonical_proof_field(field, parsed, bn254_base_field_modulus())?;
+    Ok(parsed)
+}
+
+fn parse_bn254_public_signal(value: &str, index: usize) -> Result<U256> {
+    let parsed = parse_decimal_field(value)?;
+    ensure_canonical_proof_field(
+        &format!("publicSignals[{index}]"),
+        parsed,
+        bn254_scalar_field_modulus(),
+    )?;
+    Ok(parsed)
+}
+
+fn ensure_canonical_proof_field(field: &str, value: U256, modulus: U256) -> Result<()> {
+    if value >= modulus {
+        bail!("proof field `{field}` is not canonical: {value} >= {modulus}");
+    }
+    Ok(())
+}
+
+fn bn254_base_field_modulus() -> U256 {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+    )
+    .expect("valid BN254 base field modulus")
+}
+
+fn bn254_scalar_field_modulus() -> U256 {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    )
+    .expect("valid BN254 scalar field modulus")
+}
+
 fn prover_backend_label(kind: ProverBackend) -> String {
     match kind {
         ProverBackend::Arkworks => "arkworks".to_owned(),
         ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
     }
+}
+
+fn root_read_kind_label(kind: RootReadKind) -> String {
+    match kind {
+        RootReadKind::PoolState => "pool_state".to_owned(),
+        RootReadKind::Asp => "asp".to_owned(),
+    }
+}
+
+fn transaction_kind_label(kind: TransactionKind) -> String {
+    match kind {
+        TransactionKind::Withdraw => "withdraw".to_owned(),
+        TransactionKind::Relay => "relay".to_owned(),
+        TransactionKind::Ragequit => "ragequit".to_owned(),
+    }
+}
+
+fn to_js_formatted_groth16_proof(proof: FormattedGroth16Proof) -> JsFormattedGroth16Proof {
+    JsFormattedGroth16Proof {
+        p_a: proof.p_a.into_iter().collect(),
+        p_b: proof
+            .p_b
+            .into_iter()
+            .map(|row| row.into_iter().collect())
+            .collect(),
+        p_c: proof.p_c.into_iter().collect(),
+        pub_signals: proof.pub_signals,
+    }
+}
+
+fn to_js_transaction_plan(plan: TransactionPlan) -> JsTransactionPlan {
+    JsTransactionPlan {
+        kind: transaction_kind_label(plan.kind),
+        chain_id: plan.chain_id,
+        target: plan.target.to_string(),
+        calldata: format!("0x{}", hex::encode(plan.calldata)),
+        value: field_label(plan.value),
+        proof: to_js_formatted_groth16_proof(plan.proof),
+    }
+}
+
+fn to_js_root_read(read: RootRead) -> JsRootRead {
+    JsRootRead {
+        kind: root_read_kind_label(read.kind),
+        contract_address: read.contract_address.to_string(),
+        pool_address: read.pool_address.to_string(),
+        call_data: format!("0x{}", hex::encode(read.call_data)),
+    }
+}
+
+fn state_root_read(pool_address: Address) -> RootRead {
+    RootRead {
+        kind: RootReadKind::PoolState,
+        contract_address: pool_address,
+        pool_address,
+        call_data: Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
+    }
+}
+
+fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead {
+    RootRead {
+        kind: RootReadKind::Asp,
+        contract_address: entrypoint_address,
+        pool_address,
+        call_data: Bytes::from(IEntrypoint::latestRootCall {}.abi_encode()),
+    }
+}
+
+fn plan_withdrawal_transaction(
+    chain_id: u64,
+    pool_address: Address,
+    withdrawal: &Withdrawal,
+    proof: &ProofBundle,
+) -> Result<TransactionPlan> {
+    ensure_non_zero_address(pool_address, "pool address")?;
+    ensure_non_zero_address(withdrawal.processooor, "withdrawal processooor")?;
+    let formatted = format_groth16_proof(proof)?;
+    let calldata = Bytes::from(
+        IPrivacyPool::withdrawCall {
+            _withdrawal: withdrawal_abi(withdrawal),
+            _proof: withdraw_proof_abi(proof)?,
+        }
+        .abi_encode(),
+    );
+
+    Ok(TransactionPlan {
+        kind: TransactionKind::Withdraw,
+        chain_id,
+        target: pool_address,
+        calldata,
+        value: U256::ZERO,
+        proof: formatted,
+    })
+}
+
+fn plan_relay_transaction(
+    chain_id: u64,
+    entrypoint_address: Address,
+    withdrawal: &Withdrawal,
+    proof: &ProofBundle,
+    scope: U256,
+) -> Result<TransactionPlan> {
+    ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
+    if withdrawal.processooor != entrypoint_address {
+        bail!(
+            "relay withdrawal processooor mismatch: expected {entrypoint_address}, got {}",
+            withdrawal.processooor
+        );
+    }
+    parse_relay_data(&withdrawal.data)?;
+    let public_signals = withdraw_public_signals(proof)?;
+    if public_signals[2].is_zero() {
+        bail!("relay transactions require a non-zero withdrawn value");
+    }
+
+    let formatted = format_groth16_proof(proof)?;
+    let calldata = Bytes::from(
+        IEntrypoint::relayCall {
+            _withdrawal: withdrawal_abi(withdrawal),
+            _proof: withdraw_proof_abi(proof)?,
+            scope,
+        }
+        .abi_encode(),
+    );
+
+    Ok(TransactionPlan {
+        kind: TransactionKind::Relay,
+        chain_id,
+        target: entrypoint_address,
+        calldata,
+        value: U256::ZERO,
+        proof: formatted,
+    })
+}
+
+fn plan_ragequit_transaction(
+    chain_id: u64,
+    pool_address: Address,
+    proof: &ProofBundle,
+) -> Result<TransactionPlan> {
+    ensure_non_zero_address(pool_address, "pool address")?;
+    let formatted = format_groth16_proof(proof)?;
+    let calldata = Bytes::from(
+        IPrivacyPool::ragequitCall {
+            _proof: ragequit_proof_abi(proof)?,
+        }
+        .abi_encode(),
+    );
+
+    Ok(TransactionPlan {
+        kind: TransactionKind::Ragequit,
+        chain_id,
+        target: pool_address,
+        calldata,
+        value: U256::ZERO,
+        proof: formatted,
+    })
+}
+
+fn withdrawal_abi(withdrawal: &Withdrawal) -> WithdrawalAbi {
+    WithdrawalAbi {
+        processooor: withdrawal.processooor,
+        data: withdrawal.data.clone(),
+    }
+}
+
+fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8]> {
+    let public_signals = proof
+        .public_signals
+        .iter()
+        .enumerate()
+        .map(|(index, value)| parse_bn254_public_signal(value, index))
+        .collect::<Result<Vec<_>>>()?;
+    public_signals.try_into().map_err(|signals: Vec<U256>| {
+        anyhow::anyhow!(
+            "withdraw proof must contain exactly 8 public signals, got {}",
+            signals.len()
+        )
+    })
+}
+
+fn ragequit_public_signals(proof: &ProofBundle) -> Result<[U256; 4]> {
+    let public_signals = proof
+        .public_signals
+        .iter()
+        .enumerate()
+        .map(|(index, value)| parse_bn254_public_signal(value, index))
+        .collect::<Result<Vec<_>>>()?;
+    public_signals.try_into().map_err(|signals: Vec<U256>| {
+        anyhow::anyhow!(
+            "ragequit proof must contain exactly 4 public signals, got {}",
+            signals.len()
+        )
+    })
+}
+
+fn withdraw_proof_abi(proof: &ProofBundle) -> Result<WithdrawProofAbi> {
+    let public_signals = withdraw_public_signals(proof)?;
+    Ok(WithdrawProofAbi {
+        pA: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[0], "piA[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[1], "piA[1]")?,
+        ],
+        pB: [
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][1], "piB[0][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][0], "piB[0][0]")?,
+            ],
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][1], "piB[1][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][0], "piB[1][0]")?,
+            ],
+        ],
+        pC: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[0], "piC[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[1], "piC[1]")?,
+        ],
+        pubSignals: public_signals,
+    })
+}
+
+fn ragequit_proof_abi(proof: &ProofBundle) -> Result<RagequitProofAbi> {
+    let public_signals = ragequit_public_signals(proof)?;
+    Ok(RagequitProofAbi {
+        pA: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[0], "piA[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_a[1], "piA[1]")?,
+        ],
+        pB: [
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][1], "piB[0][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[0][0], "piB[0][0]")?,
+            ],
+            [
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][1], "piB[1][1]")?,
+                parse_bn254_proof_coordinate(&proof.proof.pi_b[1][0], "piB[1][0]")?,
+            ],
+        ],
+        pC: [
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[0], "piC[0]")?,
+            parse_bn254_proof_coordinate(&proof.proof.pi_c[1], "piC[1]")?,
+        ],
+        pubSignals: public_signals,
+    })
+}
+
+fn parse_relay_data(data: &Bytes) -> Result<RelayDataAbi> {
+    let relay_data = RelayDataAbi::abi_decode(data.as_ref())
+        .map_err(|error| anyhow::anyhow!("relay withdrawal data is invalid: {error}"))?;
+    if relay_data.recipient.is_zero() {
+        bail!("relay withdrawal data is invalid: recipient must be non-zero");
+    }
+    if relay_data.feeRecipient.is_zero() {
+        bail!("relay withdrawal data is invalid: fee recipient must be non-zero");
+    }
+    Ok(relay_data)
+}
+
+fn ensure_non_zero_address(address: Address, field: &'static str) -> Result<()> {
+    if address.is_zero() {
+        bail!("{field} must be non-zero");
+    }
+    Ok(())
 }
 
 fn from_js_artifact_bytes(

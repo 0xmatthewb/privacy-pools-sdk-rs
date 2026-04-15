@@ -15,10 +15,11 @@ plan.
 ## In Progress
 
 - browser/Node v1 facade parity for network/event-backed account-data behavior
-  and browser-safe contract planning. A compatibility matrix, contract tests,
-  Rust-backed crypto/proof/recovery wrappers, and typed compatibility
-  boundaries now exist; the remaining work is explicit event/RPC transport and
-  browser-safe contract planning.
+  and CI confirmation for browser-safe contract planning. A compatibility
+  matrix, contract tests, Rust-backed crypto/proof/recovery wrappers, browser
+  Rust/WASM offline contract planning, and typed compatibility boundaries now
+  exist; the remaining work is explicit event/RPC transport and a green CI run
+  for the new browser contract planning coverage.
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
   app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
@@ -117,8 +118,10 @@ plan.
   implicitly.
 - The Node JS package now exposes Rust-backed offline contract planning,
   root-read, Groth16 formatting, current-root, and recovery checkpoint wrappers
-  used by the v1 facade; browser contract planning remains fail-closed until a
-  browser-safe Rust binding lands.
+  used by the v1 facade. Browser Rust/WASM contract planning is implemented in
+  this branch but should move to completed only after CI confirms it green.
+  RPC preflight/submission remains app-owned transport rather than bundled SDK
+  behavior.
 - The fast React Native consumer smoke app now typechecks the reusable withdrawal
   circuit session APIs instead of only importing the older path-based proving
   and verification methods.

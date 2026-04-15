@@ -137,6 +137,66 @@ export async function isCurrentStateRoot(expectedRoot, currentRoot) {
   return wasm.isCurrentStateRoot(String(expectedRoot), String(currentRoot));
 }
 
+export async function formatGroth16ProofBundle(proof) {
+  return invokeJson(
+    "formatGroth16ProofBundleJson",
+    JSON.stringify(encodeProofBundle(proof)),
+  );
+}
+
+export async function planPoolStateRootRead(poolAddress) {
+  return invokeJson("planPoolStateRootReadJson", String(poolAddress));
+}
+
+export async function planAspRootRead(entrypointAddress, poolAddress) {
+  return invokeJson(
+    "planAspRootReadJson",
+    String(entrypointAddress),
+    String(poolAddress),
+  );
+}
+
+export async function planWithdrawalTransaction(
+  chainId,
+  poolAddress,
+  withdrawal,
+  proof,
+) {
+  return invokeJson(
+    "planWithdrawalTransactionJson",
+    BigInt(chainId),
+    String(poolAddress),
+    JSON.stringify(withdrawal),
+    JSON.stringify(encodeProofBundle(proof)),
+  );
+}
+
+export async function planRelayTransaction(
+  chainId,
+  entrypointAddress,
+  withdrawal,
+  proof,
+  scope,
+) {
+  return invokeJson(
+    "planRelayTransactionJson",
+    BigInt(chainId),
+    String(entrypointAddress),
+    JSON.stringify(withdrawal),
+    JSON.stringify(encodeProofBundle(proof)),
+    String(scope),
+  );
+}
+
+export async function planRagequitTransaction(chainId, poolAddress, proof) {
+  return invokeJson(
+    "planRagequitTransactionJson",
+    BigInt(chainId),
+    String(poolAddress),
+    JSON.stringify(encodeProofBundle(proof)),
+  );
+}
+
 export async function verifyArtifactBytes(manifestJson, circuit, artifacts) {
   const wasm = await getWasmModule();
   const normalizedArtifacts = normalizeArtifactInputs(artifacts);

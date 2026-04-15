@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-sol-types.workspace = true
 anyhow.workspace = true
 base64 = "0.22.1"
 getrandom = { workspace = true, features = ["js"] }

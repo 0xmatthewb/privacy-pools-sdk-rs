@@ -29,7 +29,7 @@ verification, or recovery implementations.
 | `WithdrawalService` | implemented wrapper | Uses Rust-backed withdrawal proving/verification; callers must provide withdrawal data or a prepared Rust-shaped request. |
 | `AccountService` | partial wrapper | Exposes Rust-backed recovery checkpointing, recovery keyset derivation, account-state replay, and spendable commitment selection from an explicit recovered-state DTO. Legacy JS account mutation/sync paths still throw `CompatibilityError`. |
 | `DataService` | partial wrapper | Exposes Rust-backed recovery checkpointing and account-state replay over caller-supplied events. v1 event-fetch methods still throw `CompatibilityError` until wired to explicit RPC/event transport. |
-| `ContractInteractionsService` | partial wrapper | Node exposes Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers; browser contract planning remains a typed compatibility boundary until a browser-safe Rust binding is added. |
+| `ContractInteractionsService` | partial wrapper | Node exposes Rust-backed offline root-read, current-root, proof-formatting, and transaction-planning helpers. Browser Rust/WASM offline planning is implemented at branch head and should move to complete status after CI is green. RPC preflight/submission remains an app-owned transport concern. |
 | `BlockchainProvider` | compatibility shell | Constructor validates HTTP(S)-style RPC URLs like v1; `getBalance` throws `CompatibilityError` because this SDK does not bundle `viem` RPC transport in the facade. |
 | `DEFAULT_LOG_FETCH_CONFIG` | implemented constant | Matches v1 log-fetch defaults for callers that still import the constant. |
 | `generateMasterKeys` | implemented wrapper | Delegates to `deriveMasterKeys`. |
@@ -59,5 +59,5 @@ verification, or recovery implementations.
 ## Follow-Up Bindings
 
 The next facade pass should replace the remaining compatibility shells with
-explicit network event ingestion and browser-safe contract/execution planning
-once those APIs are exposed through the JS package.
+explicit network event ingestion and app-owned RPC preflight/submission
+adapters once those APIs are exposed through the JS package.
