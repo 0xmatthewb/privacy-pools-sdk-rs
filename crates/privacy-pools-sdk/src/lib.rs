@@ -1197,6 +1197,26 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_zkeys_during_session_preload() {
+        let sdk = PrivacyPoolsSdk::default();
+        let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/sample-proving-manifest.json"
+        ))
+        .unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+
+        let error = match sdk.prepare_withdrawal_circuit_session(&manifest, root) {
+            Ok(_) => panic!("invalid zkey bytes must not create a cached session"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            SdkError::Prover(prover::ProverError::InvalidZkey(_))
+        ));
+    }
+
+    #[test]
     fn verifies_artifact_bundles_from_bytes() {
         let sdk = PrivacyPoolsSdk::default();
         let manifest: artifacts::ArtifactManifest = serde_json::from_str(include_str!(

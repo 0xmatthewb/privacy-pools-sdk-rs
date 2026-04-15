@@ -2862,22 +2862,20 @@ mod tests {
     }
 
     #[test]
-    fn ffi_exposes_withdrawal_session_entrypoints_fail_closed() {
+    fn ffi_rejects_invalid_withdrawal_session_artifacts() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
         let manifest =
             include_str!("../../../fixtures/artifacts/sample-proving-manifest.json").to_owned();
         let bytes = include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec();
 
-        let from_paths = prepare_withdrawal_circuit_session(
+        let path_error = prepare_withdrawal_circuit_session(
             manifest.clone(),
             root.to_string_lossy().into_owned(),
         )
-        .unwrap();
-        assert_eq!(from_paths.circuit, "withdraw");
-        assert_eq!(from_paths.artifact_version, "0.1.0-alpha.1");
-        assert!(remove_withdrawal_circuit_session(from_paths.handle).unwrap());
+        .unwrap_err();
+        assert!(path_error.to_string().contains("invalid zkey bundle"));
 
-        let from_bytes = prepare_withdrawal_circuit_session_from_bytes(
+        let bytes_error = prepare_withdrawal_circuit_session_from_bytes(
             manifest,
             vec![
                 FfiArtifactBytes {
@@ -2894,10 +2892,8 @@ mod tests {
                 },
             ],
         )
-        .unwrap();
-        assert_eq!(from_bytes.circuit, "withdraw");
-        assert_eq!(from_bytes.artifact_version, "0.1.0-alpha.1");
-        assert!(remove_withdrawal_circuit_session(from_bytes.handle).unwrap());
+        .unwrap_err();
+        assert!(bytes_error.to_string().contains("invalid zkey bundle"));
         assert!(!remove_withdrawal_circuit_session("missing".to_owned()).unwrap());
     }
 

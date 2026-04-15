@@ -19,7 +19,7 @@ use circom_prover::{
 use num_bigint::BigUint;
 use privacy_pools_sdk_artifacts::{self as artifacts, ArtifactKind, VerifiedArtifactBundle};
 use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
-use privacy_pools_sdk_verifier::{PreparedVerifier, VerifierError};
+use privacy_pools_sdk_verifier::{ParsedVerificationKey, PreparedVerifier, VerifierError};
 use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -91,6 +91,8 @@ pub enum ProverError {
     InputSerialization(String),
     #[error("invalid zkey bundle: {0}")]
     InvalidZkey(String),
+    #[error("manifest vkey does not match zkey for circuit `{0}`")]
+    VerificationKeyMismatch(String),
     #[error("circom prover failed: {0}")]
     Circom(String),
     #[error(transparent)]
@@ -115,7 +117,6 @@ struct PreparedCircuitArtifactsInner {
     circuit: String,
     artifact_version: String,
     zkey_bytes: Arc<[u8]>,
-    vkey_bytes: Option<Arc<[u8]>>,
     arkworks_circuit: OnceLock<Arc<PreparedArkworksCircuit>>,
     verifier: OnceLock<Option<PreparedVerifier>>,
 }
@@ -249,19 +250,26 @@ impl NativeProofEngine {
 impl PreparedCircuitArtifacts {
     pub fn from_verified_bundle(bundle: &VerifiedArtifactBundle) -> Result<Self, ProverError> {
         let zkey_bytes = bundle.artifact(ArtifactKind::Zkey)?.bytes.clone();
-        let vkey_bytes = bundle
+        let prepared_circuit = Arc::new(parse_arkworks_circuit(&zkey_bytes)?);
+        let verifier = bundle
             .artifact(ArtifactKind::Vkey)
             .ok()
-            .map(|artifact| Arc::<[u8]>::from(artifact.bytes.clone()));
+            .map(|artifact| {
+                prepare_manifest_bound_verifier(&bundle.circuit, &prepared_circuit, &artifact.bytes)
+            })
+            .transpose()?;
+        let arkworks_circuit = OnceLock::new();
+        let _ = arkworks_circuit.set(Arc::clone(&prepared_circuit));
+        let cached_verifier = OnceLock::new();
+        let _ = cached_verifier.set(verifier);
 
         Ok(Self {
             inner: Arc::new(PreparedCircuitArtifactsInner {
                 circuit: bundle.circuit.clone(),
                 artifact_version: bundle.version.clone(),
                 zkey_bytes: Arc::<[u8]>::from(zkey_bytes),
-                vkey_bytes,
-                arkworks_circuit: OnceLock::new(),
-                verifier: OnceLock::new(),
+                arkworks_circuit,
+                verifier: cached_verifier,
             }),
         })
     }
@@ -360,26 +368,27 @@ impl PreparedCircuitArtifacts {
     }
 
     fn prepare_verifier(&self) -> Result<Option<&PreparedVerifier>, ProverError> {
-        if let Some(prepared) = self.inner.verifier.get() {
-            return Ok(prepared.as_ref());
-        }
-
-        let prepared = self
-            .inner
-            .vkey_bytes
-            .as_deref()
-            .and_then(|bytes| PreparedVerifier::from_vkey_bytes(bytes).ok());
-        let _ = self.inner.verifier.set(prepared);
         Ok(self
             .inner
             .verifier
             .get()
-            .expect("prepared verifier was just initialized")
+            .expect("prepared verifier cache is initialized with the session")
             .as_ref())
     }
 }
 
 impl PreparedArkworksCircuit {
+    fn parsed_verification_key(&self) -> ParsedVerificationKey {
+        match self {
+            Self::Bn254 { proving_key, .. } => {
+                ParsedVerificationKey::from_bn254_verifying_key(proving_key.vk.clone())
+            }
+            Self::Bls12_381 { proving_key, .. } => {
+                ParsedVerificationKey::from_bls12_381_verifying_key(proving_key.vk.clone())
+            }
+        }
+    }
+
     fn prove(&self, witness_thread: JoinHandle<Vec<BigUint>>) -> Result<CircomProof, ProverError> {
         match self {
             Self::Bn254 {
@@ -481,6 +490,20 @@ fn verify_prepared_verifier_circom(
 ) -> Result<bool, ProverError> {
     let bundle = circom_proof_to_bundle(proof.clone());
     verifier.verify(&bundle).map_err(Into::into)
+}
+
+fn prepare_manifest_bound_verifier(
+    circuit: &str,
+    zkey_circuit: &PreparedArkworksCircuit,
+    vkey_bytes: &[u8],
+) -> Result<PreparedVerifier, ProverError> {
+    let parsed_vkey = ParsedVerificationKey::from_vkey_bytes(vkey_bytes)?;
+    let zkey_vkey = zkey_circuit.parsed_verification_key();
+    if !parsed_vkey.matches(&zkey_vkey) {
+        return Err(ProverError::VerificationKeyMismatch(circuit.to_owned()));
+    }
+
+    Ok(parsed_vkey.prepare())
 }
 
 impl ProofEngine for NativeProofEngine {
@@ -852,6 +875,9 @@ pub fn rapidsnark_supported_target() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use privacy_pools_sdk_artifacts::{
+        ArtifactDescriptor, ArtifactKind, VerifiedArtifact, VerifiedArtifactBundle,
+    };
     use privacy_pools_sdk_core::parse_decimal_field;
     use serde_json::Value;
 
@@ -989,5 +1015,30 @@ mod tests {
             engine.prove_with_compiled_witness(&request),
             Err(ProverError::MissingZkey(_))
         ));
+    }
+
+    #[test]
+    fn session_preload_rejects_invalid_zkey_bytes() {
+        let bundle = VerifiedArtifactBundle {
+            version: "0.1.0-alpha.1".to_owned(),
+            circuit: "withdraw".to_owned(),
+            artifacts: vec![VerifiedArtifact {
+                descriptor: ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: ArtifactKind::Zkey,
+                    filename: "sample-artifact.bin".to_owned(),
+                    sha256: "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+                        .to_owned(),
+                },
+                bytes: include_bytes!("../../../fixtures/artifacts/sample-artifact.bin").to_vec(),
+            }],
+        };
+
+        let error = match PreparedCircuitArtifacts::from_verified_bundle(&bundle) {
+            Ok(_) => panic!("invalid zkey bytes must not create a cached session"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, ProverError::InvalidZkey(_)));
     }
 }

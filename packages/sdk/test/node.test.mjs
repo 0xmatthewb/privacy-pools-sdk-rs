@@ -172,30 +172,23 @@ test("node addon reports artifact statuses from the sample manifest", async () =
   assert.equal(statuses[0].verified, true);
 });
 
-test("node addon fails closed for stale sessions and invalid proving artifacts", async () => {
+test("node addon fails closed for invalid proving artifacts and stale sessions", async () => {
   const sdk = new PrivacyPoolsSdkClient();
-  const session = await sdk.prepareWithdrawalCircuitSessionFromBytes(
-    sampleProvingManifest,
-    [
-      { kind: "wasm", bytes: sampleArtifact },
-      { kind: "zkey", bytes: sampleArtifact },
-      { kind: "vkey", bytes: sampleArtifact },
-    ],
-  );
-  assert.equal(session.circuit, "withdraw");
-
-  const request = await buildWithdrawalRequest(sdk);
   await assert.rejects(
-    () => sdk.proveWithdrawalWithSession("stable", session.handle, request),
+    () =>
+      sdk.prepareWithdrawalCircuitSessionFromBytes(sampleProvingManifest, [
+        { kind: "wasm", bytes: sampleArtifact },
+        { kind: "zkey", bytes: sampleArtifact },
+        { kind: "vkey", bytes: sampleArtifact },
+      ]),
     /invalid zkey|unexpected end of zkey header|missing Groth16 header/,
   );
 
-  assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
   await assert.rejects(
     () =>
       sdk.verifyWithdrawalProofWithSession(
         "stable",
-        session.handle,
+        "withdraw-session-missing",
         browserVerificationProof,
       ),
     /withdrawal circuit session handle not found/,

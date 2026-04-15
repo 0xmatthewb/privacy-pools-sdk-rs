@@ -3,7 +3,7 @@ use ark_bn254::{
     Bn254, Fq as Bn254Fq, Fq2 as Bn254Fq2, Fr as Bn254Fr, G1Projective as Bn254G1Projective,
     G2Projective as Bn254G2Projective,
 };
-use ark_groth16::{Groth16, PreparedVerifyingKey, prepare_verifying_key};
+use ark_groth16::{Groth16, PreparedVerifyingKey, VerifyingKey, prepare_verifying_key};
 use ark_snark::SNARK;
 use privacy_pools_sdk_core::ProofBundle;
 use serde_json::Value;
@@ -16,6 +16,12 @@ pub enum PreparedVerifier {
     Bls12_381(Box<PreparedVerifyingKey<Bls12_381>>),
 }
 
+#[derive(Debug, Clone)]
+pub enum ParsedVerificationKey {
+    Bn254(Box<VerifyingKey<Bn254>>),
+    Bls12_381(Box<VerifyingKey<Bls12_381>>),
+}
+
 #[derive(Debug, Error)]
 pub enum VerifierError {
     #[error("invalid verification key: {0}")]
@@ -26,27 +32,58 @@ pub enum VerifierError {
 
 impl PreparedVerifier {
     pub fn from_vkey_bytes(vkey_bytes: &[u8]) -> Result<Self, VerifierError> {
-        let json: Value = serde_json::from_slice(vkey_bytes)
-            .map_err(|error| VerifierError::InvalidVerificationKey(error.to_string()))?;
-        let curve = json.get("curve").and_then(Value::as_str).unwrap_or("bn128");
-
-        match curve {
-            "bn128" | "bn254" => Ok(Self::Bn254(Box::new(prepare_verifying_key(
-                &parse_bn254_verifying_key(&json)?,
-            )))),
-            "bls12_381" => Ok(Self::Bls12_381(Box::new(prepare_verifying_key(
-                &parse_bls12_381_verifying_key(&json)?,
-            )))),
-            other => Err(VerifierError::InvalidVerificationKey(format!(
-                "unsupported verification-key curve `{other}`"
-            ))),
-        }
+        Ok(ParsedVerificationKey::from_vkey_bytes(vkey_bytes)?.prepare())
     }
 
     pub fn verify(&self, proof: &ProofBundle) -> Result<bool, VerifierError> {
         match self {
             Self::Bn254(verifier) => verify_with_prepared_bn254_verifier(verifier, proof),
             Self::Bls12_381(verifier) => verify_with_prepared_bls12_381_verifier(verifier, proof),
+        }
+    }
+}
+
+impl ParsedVerificationKey {
+    pub fn from_vkey_bytes(vkey_bytes: &[u8]) -> Result<Self, VerifierError> {
+        let json: Value = serde_json::from_slice(vkey_bytes)
+            .map_err(|error| VerifierError::InvalidVerificationKey(error.to_string()))?;
+        let curve = json.get("curve").and_then(Value::as_str).unwrap_or("bn128");
+
+        match curve {
+            "bn128" | "bn254" => Ok(Self::Bn254(Box::new(parse_bn254_verifying_key(&json)?))),
+            "bls12_381" => Ok(Self::Bls12_381(Box::new(parse_bls12_381_verifying_key(
+                &json,
+            )?))),
+            other => Err(VerifierError::InvalidVerificationKey(format!(
+                "unsupported verification-key curve `{other}`"
+            ))),
+        }
+    }
+
+    pub fn from_bn254_verifying_key(vkey: VerifyingKey<Bn254>) -> Self {
+        Self::Bn254(Box::new(vkey))
+    }
+
+    pub fn from_bls12_381_verifying_key(vkey: VerifyingKey<Bls12_381>) -> Self {
+        Self::Bls12_381(Box::new(vkey))
+    }
+
+    pub fn prepare(&self) -> PreparedVerifier {
+        match self {
+            Self::Bn254(vkey) => {
+                PreparedVerifier::Bn254(Box::new(prepare_verifying_key(vkey.as_ref())))
+            }
+            Self::Bls12_381(vkey) => {
+                PreparedVerifier::Bls12_381(Box::new(prepare_verifying_key(vkey.as_ref())))
+            }
+        }
+    }
+
+    pub fn matches(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Bn254(left), Self::Bn254(right)) => left == right,
+            (Self::Bls12_381(left), Self::Bls12_381(right)) => left == right,
+            _ => false,
         }
     }
 }
@@ -509,6 +546,22 @@ mod tests {
     }
 
     #[test]
+    fn parsed_verification_keys_detect_mismatches() {
+        let first = generate_bn254_fixture_with_seed(7);
+        let second = generate_bn254_fixture_with_seed(8);
+
+        let first_vkey = ParsedVerificationKey::from_vkey_bytes(first.vkey_json.as_bytes())
+            .expect("first vkey parses");
+        let first_vkey_again = ParsedVerificationKey::from_vkey_bytes(first.vkey_json.as_bytes())
+            .expect("first vkey parses again");
+        let second_vkey = ParsedVerificationKey::from_vkey_bytes(second.vkey_json.as_bytes())
+            .expect("second vkey parses");
+
+        assert!(first_vkey.matches(&first_vkey_again));
+        assert!(!first_vkey.matches(&second_vkey));
+    }
+
+    #[test]
     #[ignore = "utility for regenerating browser verification fixtures"]
     fn emit_bn254_fixture_json() {
         let fixture = generate_bn254_fixture();
@@ -530,7 +583,11 @@ mod tests {
     }
 
     fn generate_bn254_fixture() -> TestFixture {
-        let mut rng = StdRng::seed_from_u64(7);
+        generate_bn254_fixture_with_seed(7)
+    }
+
+    fn generate_bn254_fixture_with_seed(seed: u64) -> TestFixture {
+        let mut rng = StdRng::seed_from_u64(seed);
         let empty_circuit = MultiplyCircuit {
             x: None,
             y: None,
