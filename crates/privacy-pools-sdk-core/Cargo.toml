@@ -14,6 +14,7 @@ categories = ["cryptography::cryptocurrencies", "api-bindings"]
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
+alloy-sol-types.workspace = true
 hex.workspace = true
 serde.workspace = true
 thiserror.workspace = true

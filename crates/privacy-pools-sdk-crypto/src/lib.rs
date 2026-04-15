@@ -96,7 +96,7 @@ pub fn hash_nullifier(nullifier: Nullifier) -> Result<FieldElement, CryptoError>
     poseidon_hash(&[nullifier])
 }
 
-pub fn get_commitment(
+pub fn build_commitment(
     value: FieldElement,
     label: FieldElement,
     nullifier: impl Into<Nullifier>,
@@ -112,7 +112,7 @@ pub fn get_commitment(
     let hash = poseidon_hash(&[value, label, precommitment_hash])?;
     Ok(Commitment {
         hash,
-        nullifier_hash: precommitment_hash,
+        precommitment_hash,
         preimage: CommitmentPreimage {
             value,
             label,
@@ -125,11 +125,29 @@ pub fn get_commitment(
     })
 }
 
-pub fn calculate_context(withdrawal: &Withdrawal, scope: Scope) -> Result<String, CryptoError> {
-    Ok(field_to_hex_32(calculate_context_field(withdrawal, scope)?))
+pub fn get_commitment(
+    value: FieldElement,
+    label: FieldElement,
+    nullifier: impl Into<Nullifier>,
+    secret: impl Into<Secret>,
+) -> Result<Commitment, CryptoError> {
+    build_commitment(value, label, nullifier, secret)
 }
 
-pub fn calculate_context_field(
+pub fn calculate_withdrawal_context(
+    withdrawal: &Withdrawal,
+    scope: Scope,
+) -> Result<String, CryptoError> {
+    Ok(field_to_hex_32(calculate_withdrawal_context_field(
+        withdrawal, scope,
+    )?))
+}
+
+pub fn calculate_context(withdrawal: &Withdrawal, scope: Scope) -> Result<String, CryptoError> {
+    calculate_withdrawal_context(withdrawal, scope)
+}
+
+pub fn calculate_withdrawal_context_field(
     withdrawal: &Withdrawal,
     scope: Scope,
 ) -> Result<FieldElement, CryptoError> {
@@ -144,6 +162,13 @@ pub fn calculate_context_field(
 
     let keccak = U256::from_be_slice(keccak256(encoded).as_slice());
     Ok(keccak % snark_scalar_field())
+}
+
+pub fn calculate_context_field(
+    withdrawal: &Withdrawal,
+    scope: Scope,
+) -> Result<FieldElement, CryptoError> {
+    calculate_withdrawal_context_field(withdrawal, scope)
 }
 
 fn derive_account_private_key(mnemonic: &str, account_index: u32) -> Result<U256, CryptoError> {
@@ -281,13 +306,13 @@ mod tests {
             U256::from_str(fixture["commitment"]["hash"].as_str().unwrap()).unwrap()
         );
         assert_eq!(
-            commitment.nullifier_hash,
+            commitment.precommitment_hash,
             U256::from_str(fixture["commitment"]["nullifierHash"].as_str().unwrap()).unwrap()
         );
     }
 
     #[test]
-    fn distinguishes_circuit_nullifier_hash_from_sdk_compat_field() {
+    fn distinguishes_circuit_nullifier_hash_from_precommitment_hash() {
         let fixture = vector();
         let mnemonic = fixture["mnemonic"].as_str().unwrap();
         let keys = generate_master_keys(mnemonic).unwrap();
@@ -303,7 +328,7 @@ mod tests {
         .unwrap();
         let circuit_nullifier_hash = hash_nullifier(deposit_nullifier).unwrap();
 
-        assert_ne!(circuit_nullifier_hash, commitment.nullifier_hash);
+        assert_ne!(circuit_nullifier_hash, commitment.precommitment_hash);
     }
 
     #[test]
@@ -314,7 +339,7 @@ mod tests {
             data: bytes!("1234"),
         };
 
-        let context = calculate_context(&withdrawal, U256::from(123)).unwrap();
+        let context = calculate_withdrawal_context(&withdrawal, U256::from(123)).unwrap();
         assert_eq!(context, fixture["context"].as_str().unwrap());
     }
 

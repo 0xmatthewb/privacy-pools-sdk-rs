@@ -465,7 +465,7 @@ pub fn calculate_withdrawal_context(withdrawal_json: String, scope: String) -> N
     let withdrawal = parse_json::<JsWithdrawal>(&withdrawal_json)
         .and_then(from_js_withdrawal)
         .map_err(to_napi_error)?;
-    SDK.calculate_context(&withdrawal, parse_field(&scope).map_err(to_napi_error)?)
+    SDK.calculate_withdrawal_context(&withdrawal, parse_field(&scope).map_err(to_napi_error)?)
         .map_err(to_napi_error)
 }
 
@@ -1181,8 +1181,8 @@ fn to_js_master_keys(keys: &MasterKeys) -> JsMasterKeys {
 fn to_js_commitment(commitment: Commitment) -> JsCommitment {
     JsCommitment {
         hash: field_label(commitment.hash),
-        nullifier_hash: field_label(commitment.nullifier_hash),
-        precommitment_hash: field_label(commitment.preimage.precommitment.hash),
+        nullifier_hash: field_label(commitment.precommitment_hash),
+        precommitment_hash: field_label(commitment.precommitment_hash),
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
         nullifier: field_label(commitment.preimage.precommitment.nullifier),
@@ -1191,14 +1191,20 @@ fn to_js_commitment(commitment: Commitment) -> JsCommitment {
 }
 
 fn from_js_commitment(commitment: JsCommitment) -> Result<Commitment> {
+    let precommitment_hash = parse_field(&commitment.precommitment_hash)?;
+    let compatibility_hash = parse_field(&commitment.nullifier_hash)?;
+    if compatibility_hash != precommitment_hash {
+        bail!("commitment nullifierHash compatibility field must match precommitmentHash");
+    }
+
     Ok(Commitment {
         hash: parse_field(&commitment.hash)?,
-        nullifier_hash: parse_field(&commitment.nullifier_hash)?,
+        precommitment_hash,
         preimage: CommitmentPreimage {
             value: parse_field(&commitment.value)?,
             label: parse_field(&commitment.label)?,
             precommitment: Precommitment {
-                hash: parse_field(&commitment.precommitment_hash)?,
+                hash: precommitment_hash,
                 nullifier: parse_field(&commitment.nullifier)?,
                 secret: parse_field(&commitment.secret)?.into(),
             },

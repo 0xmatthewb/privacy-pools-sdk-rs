@@ -990,8 +990,8 @@ fn to_ffi_root_read(read: privacy_pools_sdk::core::RootRead) -> FfiRootRead {
 fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiCommitment {
     FfiCommitment {
         hash: field_label(commitment.hash),
-        nullifier_hash: field_label(commitment.nullifier_hash),
-        precommitment_hash: field_label(commitment.preimage.precommitment.hash),
+        nullifier_hash: field_label(commitment.precommitment_hash),
+        precommitment_hash: field_label(commitment.precommitment_hash),
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
         nullifier: field_label(commitment.preimage.precommitment.nullifier),
@@ -1000,14 +1000,22 @@ fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiComm
 }
 
 fn from_ffi_commitment(commitment: FfiCommitment) -> Result<Commitment, FfiError> {
+    let precommitment_hash = parse_field(&commitment.precommitment_hash)?;
+    let compatibility_hash = parse_field(&commitment.nullifier_hash)?;
+    if compatibility_hash != precommitment_hash {
+        return Err(FfiError::OperationFailed(
+            "commitment nullifierHash compatibility field must match precommitmentHash".to_owned(),
+        ));
+    }
+
     Ok(Commitment {
         hash: parse_field(&commitment.hash)?,
-        nullifier_hash: parse_field(&commitment.nullifier_hash)?,
+        precommitment_hash,
         preimage: privacy_pools_sdk::core::CommitmentPreimage {
             value: parse_field(&commitment.value)?,
             label: parse_field(&commitment.label)?,
             precommitment: privacy_pools_sdk::core::Precommitment {
-                hash: parse_field(&commitment.precommitment_hash)?,
+                hash: precommitment_hash,
                 nullifier: parse_field(&commitment.nullifier)?,
                 secret: parse_field(&commitment.secret)?.into(),
             },
@@ -1827,7 +1835,7 @@ pub fn calculate_withdrawal_context(
     scope: String,
 ) -> Result<String, FfiError> {
     sdk()
-        .calculate_context(&from_ffi_withdrawal(withdrawal)?, parse_field(&scope)?)
+        .calculate_withdrawal_context(&from_ffi_withdrawal(withdrawal)?, parse_field(&scope)?)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))
 }
 
@@ -2800,7 +2808,7 @@ mod tests {
             fixture["commitment"]["hash"].as_str().unwrap()
         );
         assert_eq!(
-            commitment.nullifier_hash,
+            commitment.precommitment_hash,
             fixture["commitment"]["nullifierHash"].as_str().unwrap()
         );
 

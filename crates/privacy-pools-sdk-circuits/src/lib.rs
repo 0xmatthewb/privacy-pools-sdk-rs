@@ -97,7 +97,7 @@ pub fn build_withdrawal_circuit_input(
         state_tree_depth: request.state_witness.depth,
         asp_root: request.asp_witness.root,
         asp_tree_depth: request.asp_witness.depth,
-        context: crypto::calculate_context_field(&request.withdrawal, request.scope)?,
+        context: crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope)?,
         label: request.commitment.preimage.label,
         existing_value: request.commitment.preimage.value,
         existing_nullifier: request.commitment.preimage.precommitment.nullifier.into(),
@@ -165,9 +165,9 @@ fn validate_commitment(
         ),
         ("commitmentHash", commitment.hash, computed_commitment.hash),
         (
-            "nullifierHash",
-            commitment.nullifier_hash,
-            computed_commitment.nullifier_hash,
+            "commitmentPrecommitmentHash",
+            commitment.precommitment_hash,
+            computed_commitment.precommitment_hash,
         ),
     ] {
         if expected != actual {

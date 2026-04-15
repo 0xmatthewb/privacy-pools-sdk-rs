@@ -6,31 +6,34 @@
 //! and applications should pin exact versions.
 //!
 //! The root crate gathers the protocol-focused crates behind one facade for
-//! key derivation, deposit commitment construction, Merkle witnesses, local
+//! key derivation, deposit preparation, commitment construction, Merkle witnesses, local
 //! proving, verification, recovery, transaction planning, and execution
 //! preflight.
 //! Secret protocol material uses redacted Rust types and should only be
 //! exported through explicitly named serialization methods.
 //!
 //! ```
-//! use alloy_primitives::{address, bytes, U256};
+//! use alloy_primitives::{address, U256};
 //! use privacy_pools_sdk::{PrivacyPoolsSdk, core};
 //!
 //! let sdk = PrivacyPoolsSdk::default();
-//! let secret = core::Secret::new(U256::from(7_u64));
-//! assert_eq!(format!("{secret:?}"), "Secret([redacted])");
-//! let commitment = sdk.create_deposit_commitment(
+//! let keys = core::MasterKeys {
+//!     master_nullifier: core::Secret::new(U256::from(11_u64)),
+//!     master_secret: core::Secret::new(U256::from(22_u64)),
+//! };
+//! let prepared = sdk.prepare_deposit(&keys, U256::from(123_u64), U256::ZERO)?;
+//! let commitment = sdk.build_commitment(
 //!     U256::from(100_u64),
 //!     U256::from(456_u64),
-//!     U256::from(1_u64),
-//!     secret.clone(),
+//!     prepared.nullifier(),
+//!     prepared.secret().clone(),
 //! )?;
-//! assert_eq!(commitment.preimage.value, U256::from(100_u64));
+//! assert_eq!(commitment.precommitment_hash, prepared.precommitment_hash());
 //!
-//! let withdrawal = core::Withdrawal::new(
-//!     address!("1111111111111111111111111111111111111111"),
-//!     bytes!("1234"),
-//! );
+//! let secret = prepared.secret().clone();
+//! assert_eq!(format!("{secret:?}"), "Secret([redacted])");
+//!
+//! let withdrawal = core::Withdrawal::direct(address!("1111111111111111111111111111111111111111"));
 //! let json = serde_json::to_value(&withdrawal)?;
 //! assert!(json.get("processooor").is_some());
 //! assert_eq!(withdrawal.processor(), address!("1111111111111111111111111111111111111111"));
@@ -51,7 +54,7 @@ pub use privacy_pools_sdk_tree as tree;
 
 use alloy_primitives::{Address, U256};
 use privacy_pools_sdk_prover::{BackendPolicy, BackendProfile, NativeProofEngine, ProverError};
-use std::{collections::VecDeque, path::Path};
+use std::{collections::VecDeque, fmt, path::Path};
 use thiserror::Error;
 
 /// Prepared proof, transaction calldata, and preflight report for a transaction.
@@ -101,13 +104,16 @@ pub struct CommitmentCircuitSession {
 /// underlying artifact is still named `commitment` in the deployed circuit set.
 pub type RagequitCircuitSession = CommitmentCircuitSession;
 
-/// Request object for deriving deposit nullifier and secret values.
+/// Request object for preparing the precommitment submitted by a deposit.
 #[derive(Debug, Clone, Copy)]
-pub struct DepositSecretsRequest<'a> {
+pub struct DepositRequest<'a> {
     pub keys: &'a core::MasterKeys,
     pub scope: U256,
     pub index: U256,
 }
+
+/// Compatibility alias for deriving deposit nullifier and secret values.
+pub type DepositSecretsRequest<'a> = DepositRequest<'a>;
 
 /// Request object for deriving withdrawal nullifier and secret values.
 #[derive(Debug, Clone, Copy)]
@@ -117,23 +123,84 @@ pub struct WithdrawalSecretsRequest<'a> {
     pub index: U256,
 }
 
-/// Request object for constructing the commitment created by a deposit.
+/// Prepared deposit material.
+///
+/// The precommitment hash is the value submitted to the pool deposit function.
+/// The nullifier and secret are retained for later commitment construction and
+/// proving after the pool has assigned a label.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PreparedDeposit {
+    precommitment_hash: U256,
+    nullifier: core::Nullifier,
+    secret: core::Secret,
+}
+
+impl PreparedDeposit {
+    /// Creates prepared deposit material from already-derived secrets.
+    pub fn new(
+        precommitment_hash: U256,
+        nullifier: core::Nullifier,
+        secret: impl Into<core::Secret>,
+    ) -> Self {
+        Self {
+            precommitment_hash,
+            nullifier,
+            secret: secret.into(),
+        }
+    }
+
+    /// The precommitment hash submitted to the pool deposit function.
+    pub const fn precommitment_hash(&self) -> U256 {
+        self.precommitment_hash
+    }
+
+    /// The deposit nullifier retained for later proving.
+    pub const fn nullifier(&self) -> core::Nullifier {
+        self.nullifier
+    }
+
+    /// The deposit secret retained for later proving.
+    pub const fn secret(&self) -> &core::Secret {
+        &self.secret
+    }
+
+    /// Converts the prepared deposit into its protocol components.
+    pub fn into_parts(self) -> (U256, core::Nullifier, core::Secret) {
+        (self.precommitment_hash, self.nullifier, self.secret)
+    }
+
+    /// Builds a commitment request once the deposited value and label are known.
+    pub fn commitment_request(&self, value: U256, label: U256) -> CommitmentRequest {
+        CommitmentRequest::new(value, label, self.nullifier, self.secret.clone())
+    }
+}
+
+impl fmt::Debug for PreparedDeposit {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreparedDeposit")
+            .field("precommitment_hash", &self.precommitment_hash)
+            .field("nullifier", &"[redacted]")
+            .field("secret", &self.secret)
+            .finish()
+    }
+}
+
+/// Request object for constructing a Privacy Pools commitment.
 ///
 /// The resulting [`core::Commitment`] is the cryptographic state object that
-/// enters the pool tree. The request is deposit-named so application code reads
-/// like the protocol workflow: derive deposit secrets, create a deposit
-/// commitment, then submit that commitment's precommitment onchain.
+/// enters the pool tree after combining value, label, and precommitment.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DepositCommitmentRequest {
+pub struct CommitmentRequest {
     pub value: U256,
     pub label: U256,
     pub nullifier: core::Nullifier,
     pub secret: core::Secret,
 }
 
-impl DepositCommitmentRequest {
-    /// Creates a deposit commitment request while accepting raw field elements
-    /// at the explicit construction boundary.
+impl CommitmentRequest {
+    /// Creates a commitment request while accepting raw field elements at the
+    /// explicit construction boundary.
     pub fn new(
         value: U256,
         label: U256,
@@ -149,10 +216,8 @@ impl DepositCommitmentRequest {
     }
 }
 
-/// Compatibility alias for lower-level commitment construction.
-///
-/// Prefer [`DepositCommitmentRequest`] in new application code.
-pub type CommitmentRequest = DepositCommitmentRequest;
+/// Compatibility alias for older deposit-named commitment construction.
+pub type DepositCommitmentRequest = CommitmentRequest;
 
 /// Request object for withdrawal transaction planning.
 #[derive(Debug, Clone, Copy)]
@@ -758,6 +823,24 @@ impl PrivacyPoolsSdk {
         self.generate_deposit_secrets(request.keys, request.scope, request.index)
     }
 
+    pub fn prepare_deposit(
+        &self,
+        keys: &core::MasterKeys,
+        scope: U256,
+        index: U256,
+    ) -> Result<PreparedDeposit, crypto::CryptoError> {
+        let (nullifier, secret) = self.generate_deposit_secrets(keys, scope, index)?;
+        let precommitment_hash = self.compute_precommitment_hash(nullifier, secret.clone())?;
+        Ok(PreparedDeposit::new(precommitment_hash, nullifier, secret))
+    }
+
+    pub fn prepare_deposit_with(
+        &self,
+        request: DepositRequest<'_>,
+    ) -> Result<PreparedDeposit, crypto::CryptoError> {
+        self.prepare_deposit(request.keys, request.scope, request.index)
+    }
+
     pub fn generate_withdrawal_secrets(
         &self,
         keys: &core::MasterKeys,
@@ -774,31 +857,36 @@ impl PrivacyPoolsSdk {
         self.generate_withdrawal_secrets(request.keys, request.label, request.index)
     }
 
-    pub fn get_commitment(
+    pub fn compute_precommitment_hash(
+        &self,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
+    ) -> Result<U256, crypto::CryptoError> {
+        crypto::hash_precommitment(nullifier, secret)
+    }
+
+    pub fn compute_nullifier_hash(
+        &self,
+        nullifier: core::Nullifier,
+    ) -> Result<U256, crypto::CryptoError> {
+        crypto::hash_nullifier(nullifier)
+    }
+
+    pub fn build_commitment(
         &self,
         value: U256,
         label: U256,
         nullifier: impl Into<core::Nullifier>,
         secret: impl Into<core::Secret>,
     ) -> Result<core::Commitment, crypto::CryptoError> {
-        crypto::get_commitment(value, label, nullifier, secret)
+        crypto::build_commitment(value, label, nullifier, secret)
     }
 
-    pub fn create_deposit_commitment(
+    pub fn build_commitment_with(
         &self,
-        value: U256,
-        label: U256,
-        nullifier: impl Into<core::Nullifier>,
-        secret: impl Into<core::Secret>,
+        request: CommitmentRequest,
     ) -> Result<core::Commitment, crypto::CryptoError> {
-        self.get_commitment(value, label, nullifier, secret)
-    }
-
-    pub fn create_deposit_commitment_with(
-        &self,
-        request: DepositCommitmentRequest,
-    ) -> Result<core::Commitment, crypto::CryptoError> {
-        self.create_deposit_commitment(
+        self.build_commitment(
             request.value,
             request.label,
             request.nullifier,
@@ -806,11 +894,56 @@ impl PrivacyPoolsSdk {
         )
     }
 
+    pub fn get_commitment(
+        &self,
+        value: U256,
+        label: U256,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.build_commitment(value, label, nullifier, secret)
+    }
+
+    /// Compatibility alias for older deposit-named commitment construction.
+    pub fn create_deposit_commitment(
+        &self,
+        value: U256,
+        label: U256,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.build_commitment(value, label, nullifier, secret)
+    }
+
+    /// Compatibility alias for older deposit-named commitment construction.
+    pub fn create_deposit_commitment_with(
+        &self,
+        request: DepositCommitmentRequest,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.build_commitment_with(request)
+    }
+
     pub fn get_commitment_with(
         &self,
         request: CommitmentRequest,
     ) -> Result<core::Commitment, crypto::CryptoError> {
-        self.create_deposit_commitment_with(request)
+        self.build_commitment_with(request)
+    }
+
+    pub fn calculate_withdrawal_context(
+        &self,
+        withdrawal: &core::Withdrawal,
+        scope: U256,
+    ) -> Result<String, crypto::CryptoError> {
+        crypto::calculate_withdrawal_context(withdrawal, scope)
+    }
+
+    pub fn calculate_withdrawal_context_field(
+        &self,
+        withdrawal: &core::Withdrawal,
+        scope: U256,
+    ) -> Result<U256, crypto::CryptoError> {
+        crypto::calculate_withdrawal_context_field(withdrawal, scope)
     }
 
     pub fn calculate_context(
@@ -818,7 +951,7 @@ impl PrivacyPoolsSdk {
         withdrawal: &core::Withdrawal,
         scope: U256,
     ) -> Result<String, crypto::CryptoError> {
-        crypto::calculate_context(withdrawal, scope)
+        self.calculate_withdrawal_context(withdrawal, scope)
     }
 
     pub fn generate_merkle_proof(
@@ -1315,7 +1448,8 @@ impl PrivacyPoolsSdk {
             request.new_nullifier.clone(),
             request.new_secret.clone(),
         )?;
-        let expected_context = crypto::calculate_context_field(&request.withdrawal, request.scope)?;
+        let expected_context =
+            crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope)?;
         let expected_signals = [
             ("newCommitmentHash", new_commitment.hash),
             (
@@ -1763,30 +1897,36 @@ mod tests {
     }
 
     #[test]
-    fn request_object_api_builds_deposit_commitments_and_secrets() {
+    fn request_object_api_prepares_deposits_and_builds_commitments() {
         let sdk = PrivacyPoolsSdk::default();
         let keys = sdk
             .generate_master_keys("test test test test test test test test test test test junk")
             .unwrap();
 
-        let (nullifier, secret) = sdk
-            .generate_deposit_secrets_with(DepositSecretsRequest {
+        let prepared = sdk
+            .prepare_deposit_with(DepositRequest {
                 keys: &keys,
                 scope: U256::from(123_u64),
                 index: U256::ZERO,
             })
             .unwrap();
+        let expected_precommitment_hash = sdk
+            .compute_precommitment_hash(prepared.nullifier(), prepared.secret().clone())
+            .unwrap();
+        assert_eq!(prepared.precommitment_hash(), expected_precommitment_hash);
+
+        let true_nullifier_hash = sdk.compute_nullifier_hash(prepared.nullifier()).unwrap();
+        assert_ne!(prepared.precommitment_hash(), true_nullifier_hash);
+
         let commitment = sdk
-            .create_deposit_commitment_with(DepositCommitmentRequest::new(
-                U256::from(1_000_u64),
-                U256::from(456_u64),
-                nullifier,
-                secret,
-            ))
+            .build_commitment_with(
+                prepared.commitment_request(U256::from(1_000_u64), U256::from(456_u64)),
+            )
             .unwrap();
 
         assert_eq!(commitment.preimage.value, U256::from(1_000_u64));
         assert_eq!(commitment.preimage.label, U256::from(456_u64));
+        assert_eq!(commitment.precommitment_hash, prepared.precommitment_hash());
 
         let compatibility_commitment = sdk
             .get_commitment_with(CommitmentRequest::new(
@@ -1797,6 +1937,16 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(compatibility_commitment, commitment);
+
+        let deposit_named_compatibility = sdk
+            .create_deposit_commitment_with(DepositCommitmentRequest::new(
+                commitment.preimage.value,
+                commitment.preimage.label,
+                commitment.preimage.precommitment.nullifier,
+                commitment.preimage.precommitment.secret.clone(),
+            ))
+            .unwrap();
+        assert_eq!(deposit_named_compatibility, commitment);
     }
 
     #[test]
@@ -2335,7 +2485,7 @@ mod tests {
         );
         assert_eq!(
             public_signals[7],
-            crypto::calculate_context_field(&request.withdrawal, request.scope).unwrap()
+            crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope).unwrap()
         );
 
         let plan = sdk
@@ -2524,7 +2674,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment: core::Commitment {
                 hash: U256::from(44_u64),
-                nullifier_hash: U256::from(55_u64),
+                precommitment_hash: U256::from(55_u64),
                 preimage: core::CommitmentPreimage {
                     value: U256::from(1000_u64),
                     label: U256::from(456_u64),
@@ -2575,7 +2725,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment: core::Commitment {
                 hash: U256::from(123_u64),
-                nullifier_hash: U256::from(55_u64),
+                precommitment_hash: U256::from(55_u64),
                 preimage: core::CommitmentPreimage {
                     value: U256::from(1_000_u64),
                     label: U256::from(456_u64),
@@ -2876,7 +3026,7 @@ mod tests {
                 "0".to_owned(),
                 request.asp_witness.root.to_string(),
                 "0".to_owned(),
-                crypto::calculate_context_field(&request.withdrawal, request.scope)
+                crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope)
                     .unwrap()
                     .to_string(),
             ],
@@ -2953,7 +3103,7 @@ mod tests {
                 "0".to_owned(),
                 request.asp_witness.root.to_string(),
                 "0".to_owned(),
-                crypto::calculate_context_field(&request.withdrawal, request.scope)
+                crypto::calculate_withdrawal_context_field(&request.withdrawal, request.scope)
                     .unwrap()
                     .to_string(),
             ],

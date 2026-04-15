@@ -6,10 +6,19 @@
 //! Rust-facing names are cleaned up.
 
 use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_sol_types::{SolValue, sol};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 use thiserror::Error;
 use zeroize::Zeroize;
+
+sol! {
+    struct RelayDataAbi {
+        address recipient;
+        address feeRecipient;
+        uint256 relayFeeBPS;
+    }
+}
 
 /// A field element represented as a 256-bit integer.
 pub type FieldElement = U256;
@@ -132,10 +141,51 @@ pub struct CommitmentPreimage {
 pub struct Commitment {
     /// Commitment hash inserted into the pool tree.
     pub hash: FieldElement,
-    /// Hash of the commitment nullifier.
-    pub nullifier_hash: FieldElement,
+    /// Poseidon hash of the commitment nullifier and secret.
+    #[serde(
+        alias = "precommitmentHash",
+        alias = "nullifier_hash",
+        alias = "nullifierHash"
+    )]
+    pub precommitment_hash: FieldElement,
     /// Client-side preimage for witness construction.
     pub preimage: CommitmentPreimage,
+}
+
+/// ABI payload used by relayed withdrawals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelayData {
+    /// Final recipient of withdrawn funds.
+    pub recipient: Address,
+    /// Address receiving relay fees.
+    #[serde(rename = "feeRecipient", alias = "fee_recipient")]
+    pub fee_recipient: Address,
+    /// Relay fee in basis points.
+    #[serde(rename = "relayFeeBPS", alias = "relay_fee_bps")]
+    pub relay_fee_bps: U256,
+}
+
+impl RelayData {
+    /// Creates a relay payload.
+    pub const fn new(recipient: Address, fee_recipient: Address, relay_fee_bps: U256) -> Self {
+        Self {
+            recipient,
+            fee_recipient,
+            relay_fee_bps,
+        }
+    }
+
+    /// ABI-encodes the relay payload for [`Withdrawal::relayed`].
+    pub fn encode(&self) -> Bytes {
+        Bytes::from(
+            RelayDataAbi {
+                recipient: self.recipient,
+                feeRecipient: self.fee_recipient,
+                relayFeeBPS: self.relay_fee_bps,
+            }
+            .abi_encode(),
+        )
+    }
 }
 
 /// Withdrawal target data.
@@ -154,6 +204,19 @@ impl Withdrawal {
     /// Creates a withdrawal using the preferred Rust-facing `processor` name.
     pub fn new(processor: Address, data: Bytes) -> Self {
         Self { processor, data }
+    }
+
+    /// Creates a direct pool withdrawal.
+    ///
+    /// In the direct path, the final recipient is also the withdrawal
+    /// processor and the withdrawal data is empty.
+    pub fn direct(recipient: Address) -> Self {
+        Self::new(recipient, Bytes::new())
+    }
+
+    /// Creates a withdrawal processed through the entrypoint relay path.
+    pub fn relayed(entrypoint: Address, relay_data: &RelayData) -> Self {
+        Self::new(entrypoint, relay_data.encode())
     }
 
     /// Returns the processor address.
@@ -463,5 +526,57 @@ mod tests {
         }))
         .expect("processor alias decodes");
         assert_eq!(decoded, withdrawal);
+    }
+
+    #[test]
+    fn withdrawal_constructors_model_direct_and_relay_paths() {
+        let recipient = address!("2222222222222222222222222222222222222222");
+        let entrypoint = address!("3333333333333333333333333333333333333333");
+        let fee_recipient = address!("4444444444444444444444444444444444444444");
+
+        let direct = Withdrawal::direct(recipient);
+        assert_eq!(direct.processor(), recipient);
+        assert!(direct.data.is_empty());
+
+        let relay_data = RelayData::new(recipient, fee_recipient, U256::from(25_u64));
+        let relayed = Withdrawal::relayed(entrypoint, &relay_data);
+        let decoded = RelayDataAbi::abi_decode(relayed.data.as_ref()).expect("relay data decodes");
+
+        assert_eq!(relayed.processor(), entrypoint);
+        assert_eq!(decoded.recipient, recipient);
+        assert_eq!(decoded.feeRecipient, fee_recipient);
+        assert_eq!(decoded.relayFeeBPS, U256::from(25_u64));
+    }
+
+    #[test]
+    fn commitment_prefers_precommitment_hash_and_accepts_old_alias() {
+        let commitment = Commitment {
+            hash: U256::from(1_u64),
+            precommitment_hash: U256::from(2_u64),
+            preimage: CommitmentPreimage {
+                value: U256::from(3_u64),
+                label: U256::from(4_u64),
+                precommitment: Precommitment {
+                    hash: U256::from(2_u64),
+                    nullifier: U256::from(5_u64),
+                    secret: U256::from(6_u64).into(),
+                },
+            },
+        };
+
+        let mut json = serde_json::to_value(&commitment).expect("commitment serializes");
+        assert!(json.get("precommitment_hash").is_some());
+        assert!(json.get("nullifier_hash").is_none());
+
+        let precommitment_hash = json
+            .as_object_mut()
+            .expect("commitment json is an object")
+            .remove("precommitment_hash")
+            .expect("precommitment hash exists");
+        json.as_object_mut()
+            .expect("commitment json is an object")
+            .insert("nullifier_hash".to_owned(), precommitment_hash);
+        let decoded: Commitment = serde_json::from_value(json).expect("old alias decodes");
+        assert_eq!(decoded, commitment);
     }
 }

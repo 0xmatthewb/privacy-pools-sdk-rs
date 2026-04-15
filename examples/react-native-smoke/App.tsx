@@ -97,8 +97,8 @@ const formattedProof = {
 
 const commitment = {
   hash: "12",
-  nullifier_hash: "13",
   precommitment_hash: "14",
+  nullifier_hash: "14",
   value: "1000000000000000",
   label: "15",
   nullifier: "16",
