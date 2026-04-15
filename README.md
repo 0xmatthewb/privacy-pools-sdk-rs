@@ -1,6 +1,7 @@
 # Privacy Pools SDK
 
-Privacy Pools SDK for Rust, iOS, Android, and React Native apps.
+Privacy Pools SDK for Rust, iOS, Android, and React Native apps, with browser
+and Node package work in progress on the same Rust core.
 
 > [!CAUTION]
 > Experimental software. Use at your own risk.
@@ -20,8 +21,17 @@ verification, account recovery, transaction planning, and mobile bindings.
 
 ## SDK Surfaces
 
-The SDK is available as a Rust crate, generated iOS and Android bindings, and a
-React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`.
+Current first-class surfaces:
+
+- Rust crate
+- generated iOS bindings
+- generated Android bindings
+- React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`
+
+Planned next surfaces:
+
+- browser package for local client-side proving
+- plain Node package for JS/server-side DX
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -98,6 +108,7 @@ Further documentation:
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
 - [`docs/dependency-audit.md`](docs/dependency-audit.md)
+- [`docs/multi-runtime-status.md`](docs/multi-runtime-status.md)
 
 ## License
 
