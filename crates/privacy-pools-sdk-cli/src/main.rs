@@ -26,6 +26,7 @@ struct BenchmarkArgs {
     backend: BackendProfile,
     iterations: usize,
     warmup: usize,
+    allow_debug_build: bool,
     report_json: Option<PathBuf>,
     device_label: Option<String>,
     device_model: Option<String>,
@@ -125,7 +126,7 @@ fn print_help() {
     println!("  benchmark-withdraw");
     println!("    benchmark the compiled Rust withdraw proving path");
     println!(
-        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n] [--report-json path --device-label desktop|ios|android --device-model model]"
+        "    flags: --manifest <path> --artifacts-root <path> [--backend stable|fast] [--iterations n] [--warmup n] [--allow-debug-build] [--report-json path --device-label desktop|ios|android --device-model model]"
     );
 }
 
@@ -136,6 +137,7 @@ impl BenchmarkArgs {
         let mut backend = BackendProfile::Stable;
         let mut iterations = 5usize;
         let mut warmup = 1usize;
+        let mut allow_debug_build = false;
         let mut report_json = None;
         let mut device_label = None;
         let mut device_model = None;
@@ -171,6 +173,9 @@ impl BenchmarkArgs {
                         .parse()
                         .context("failed to parse --warmup")?;
                 }
+                "--allow-debug-build" => {
+                    allow_debug_build = true;
+                }
                 "--report-json" => {
                     report_json = Some(PathBuf::from(
                         iter.next().context("--report-json requires a path value")?,
@@ -203,6 +208,7 @@ impl BenchmarkArgs {
             backend,
             iterations,
             warmup,
+            allow_debug_build,
             report_json,
             device_label,
             device_model,
@@ -219,6 +225,8 @@ fn parse_backend(value: &str) -> Result<BackendProfile> {
 }
 
 fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
+    ensure_release_build(args.allow_debug_build)?;
+
     let manifest: ArtifactManifest = serde_json::from_slice(
         &fs::read(&args.manifest)
             .with_context(|| format!("failed to read manifest {}", args.manifest.display()))?,
@@ -232,37 +240,34 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
 
     let artifact_resolution_start = Instant::now();
     let bundle = sdk
-        .resolve_verified_artifact_bundle(&manifest, &args.artifacts_root, "withdraw")
+        .load_verified_artifact_bundle(&manifest, &args.artifacts_root, "withdraw")
         .with_context(|| {
             format!(
-                "failed to resolve a verified withdraw artifact bundle from {}",
+                "failed to load a verified withdraw artifact bundle from {}",
                 args.artifacts_root.display()
             )
         })?;
-    let artifact_resolution = artifact_resolution_start.elapsed();
-    let zkey_path = bundle
+    let zkey = bundle
         .artifact(ArtifactKind::Zkey)
         .context("withdraw bundle is missing the zkey descriptor")?;
-    let zkey_sha256 = zkey_path.descriptor.sha256.clone();
+    let zkey_sha256 = zkey.descriptor.sha256.clone();
+    let session = sdk
+        .prepare_withdrawal_circuit_session_from_bundle(bundle.clone())
+        .context("failed to prepare cached withdraw artifacts for benchmarking")?;
+    let artifact_resolution = artifact_resolution_start.elapsed();
 
     println!("privacy-pools-sdk-cli withdraw benchmark");
     println!("backend profile: {:?}", args.backend);
     println!("artifact version: {}", bundle.version);
     println!("artifact root: {}", args.artifacts_root.display());
-    println!("zkey path: {}", zkey_path.path.display());
-    println!("artifact resolution: {:?}", artifact_resolution);
+    println!("zkey sha256: {}", zkey_sha256);
+    println!("artifact preload: {:?}", artifact_resolution);
     println!("iterations: {}", args.iterations);
     println!("warmup: {}", args.warmup);
     println!();
 
-    let first_iteration = run_iteration(
-        &sdk,
-        &manifest,
-        &args.artifacts_root,
-        args.backend,
-        &request,
-    )
-    .context("first proof iteration failed")?;
+    let first_iteration = run_iteration(&sdk, &session, args.backend, &request)
+        .context("first proof iteration failed")?;
 
     println!(
         "first proof latency: prove {:?}, verify {:?}, prove+verify {:?}",
@@ -272,26 +277,14 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
     );
 
     for index in 0..args.warmup {
-        let _ = run_iteration(
-            &sdk,
-            &manifest,
-            &args.artifacts_root,
-            args.backend,
-            &request,
-        )
-        .with_context(|| format!("warmup iteration {} failed", index + 1))?;
+        let _ = run_iteration(&sdk, &session, args.backend, &request)
+            .with_context(|| format!("warmup iteration {} failed", index + 1))?;
     }
 
     let mut metrics = Vec::with_capacity(args.iterations);
     for index in 0..args.iterations {
-        let iteration = run_iteration(
-            &sdk,
-            &manifest,
-            &args.artifacts_root,
-            args.backend,
-            &request,
-        )
-        .with_context(|| format!("benchmark iteration {} failed", index + 1))?;
+        let iteration = run_iteration(&sdk, &session, args.backend, &request)
+            .with_context(|| format!("benchmark iteration {} failed", index + 1))?;
         println!(
             "iteration {:>2}: prove {:?}, verify {:?}, prove+verify {:?}",
             index + 1,
@@ -353,8 +346,7 @@ fn benchmark_withdraw(args: BenchmarkArgs) -> Result<()> {
 
 fn run_iteration(
     sdk: &PrivacyPoolsSdk,
-    manifest: &ArtifactManifest,
-    artifacts_root: &Path,
+    session: &privacy_pools_sdk::WithdrawalCircuitSession,
     backend: BackendProfile,
     request: &core::WithdrawalWitnessRequest,
 ) -> Result<BenchmarkIteration> {
@@ -371,15 +363,15 @@ fn run_iteration(
 
     let proof_start = Instant::now();
     let proof =
-        catch_panics_silently(|| sdk.prove_withdrawal(backend, manifest, artifacts_root, request))
+        catch_panics_silently(|| sdk.prove_withdrawal_with_session(backend, session, request))
             .map_err(|_| {
-                anyhow::anyhow!("prover backend panicked while reading proving artifacts")
-            })??;
+            anyhow::anyhow!("prover backend panicked while reading proving artifacts")
+        })??;
     let proof_generation = proof_start.elapsed();
 
     let verify_start = Instant::now();
     let verified = catch_panics_silently(|| {
-        sdk.verify_withdrawal_proof(backend, manifest, artifacts_root, &proof.proof)
+        sdk.verify_withdrawal_proof_with_session(backend, session, &proof.proof)
     })
     .map_err(|_| anyhow::anyhow!("prover backend panicked while verifying the proof bundle"))??;
     let verification = verify_start.elapsed();
@@ -392,6 +384,23 @@ fn run_iteration(
         verification,
         prove_and_verify: prove_and_verify_start.elapsed(),
     })
+}
+
+fn ensure_release_build(allow_debug_build: bool) -> Result<()> {
+    if cfg!(debug_assertions) {
+        if allow_debug_build {
+            eprintln!(
+                "warning: benchmark-withdraw is running in a debug build; timings are not representative"
+            );
+            return Ok(());
+        }
+
+        bail!(
+            "benchmark-withdraw must be run with `cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw ...`; pass --allow-debug-build only for diagnostic runs"
+        );
+    }
+
+    Ok(())
 }
 
 fn print_duration_summary(label: &str, durations: impl Iterator<Item = Duration>) {

@@ -3,7 +3,7 @@
 Use `benchmark-withdraw` to measure the SDK's local `withdraw` proving path.
 
 ```sh
-cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
+cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --manifest /absolute/path/to/artifact-manifest.json \
   --artifacts-root /absolute/path/to/artifacts \
   --backend stable \
@@ -33,6 +33,8 @@ Notes:
 - `fixtures/artifacts/sample-proving-manifest.json` is only a structural sample
   and does not contain a real proving key, so it is not suitable for real
   benchmark runs.
+- The benchmark CLI now refuses debug builds by default because they produce
+  misleading proving timings. Use `--allow-debug-build` only for diagnostics.
 - `--backend fast` requires a build with the `rapidsnark` feature enabled and a
   supported target; the stable `arkworks` backend remains the default.
 - `--report-json` writes machine-readable timing summaries and per-iteration

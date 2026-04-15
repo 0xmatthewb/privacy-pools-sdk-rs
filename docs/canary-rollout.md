@@ -37,7 +37,7 @@ Use the benchmark CLI documented in `docs/benchmarking.md` with a real verified
 artifact manifest:
 
 ```sh
-cargo run -p privacy-pools-sdk-cli -- benchmark-withdraw \
+cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
   --manifest /absolute/path/to/artifact-manifest.json \
   --artifacts-root /absolute/path/to/artifacts \
   --backend stable \
