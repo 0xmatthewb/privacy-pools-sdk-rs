@@ -10,6 +10,7 @@ repository.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-chain = { path = "../privacy-pools-sdk-chain" }
+privacy-pools-sdk-circuits = { path = "../privacy-pools-sdk-circuits" }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
 privacy-pools-sdk-crypto = { path = "../privacy-pools-sdk-crypto" }
 privacy-pools-sdk-prover = { path = "../privacy-pools-sdk-prover" }

@@ -1,7 +1,7 @@
 # Privacy Pools SDK
 
-Privacy Pools SDK for Rust, iOS, Android, React Native, and Node apps, with
-browser package work in progress on the same Rust core.
+Privacy Pools SDK for Rust, browser, Node, iOS, Android, and React Native
+apps, with browser local proving still in progress on the same Rust core.
 
 > [!CAUTION]
 > Experimental software. Use at your own risk.
@@ -24,14 +24,14 @@ verification, account recovery, transaction planning, and mobile bindings.
 Current first-class surfaces:
 
 - Rust crate
-- Node package published as `@0xmatthewb/privacy-pools-sdk`
+- browser and Node package published as `@0xmatthewb/privacy-pools-sdk`
 - generated iOS bindings
 - generated Android bindings
 - React Native package published as `@0xmatthewb/privacy-pools-sdk-react-native`
 
-Planned next surfaces:
+Remaining browser milestone:
 
-- browser package for local client-side proving
+- local client-side proving in the browser runtime
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -48,8 +48,8 @@ locally, and verifies those proofs before any execution flow moves forward.
 At the application layer, it reconstructs account state from onchain events,
 including legacy migration cases, plans withdraw and relay transactions against
 the deployed contracts, and keeps signing as an explicit boundary. The same core
-logic is shared across Rust, iOS, Android, and React Native so different app
-surfaces are working from the same implementation.
+logic is shared across Rust, browser, Node, iOS, Android, and React Native so
+different app surfaces are working from the same implementation.
 
 ## Safety Model
 
@@ -81,6 +81,7 @@ Prerequisites:
 
 - Rust stable
 - Node.js 22+ for the JS packages and smoke tests
+- Rust `wasm32-unknown-unknown` target plus `wasm-bindgen-cli` for browser package builds
 - full Xcode for iOS builds and XCFramework packaging
 - Android SDK, NDK, Java 17, and `cargo-ndk` for Android native packaging
 

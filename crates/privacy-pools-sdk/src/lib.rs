@@ -1,5 +1,6 @@
 pub use privacy_pools_sdk_artifacts as artifacts;
 pub use privacy_pools_sdk_chain as chain;
+pub use privacy_pools_sdk_circuits as circuits;
 pub use privacy_pools_sdk_core as core;
 pub use privacy_pools_sdk_crypto as crypto;
 pub use privacy_pools_sdk_prover as prover;
@@ -106,6 +107,59 @@ pub enum SdkError {
         expected: String,
         actual: String,
     },
+}
+
+impl From<circuits::CircuitError> for SdkError {
+    fn from(error: circuits::CircuitError) -> Self {
+        match error {
+            circuits::CircuitError::Core(error) => Self::Core(error),
+            circuits::CircuitError::Crypto(error) => Self::Crypto(error),
+            circuits::CircuitError::Tree(error) => Self::Tree(error),
+            circuits::CircuitError::WithdrawalAmountExceedsExistingValue {
+                existing_value,
+                withdrawal_amount,
+            } => Self::WithdrawalAmountExceedsExistingValue {
+                existing_value,
+                withdrawal_amount,
+            },
+            circuits::CircuitError::StateWitnessLeafMismatch { expected, actual } => {
+                Self::StateWitnessLeafMismatch { expected, actual }
+            }
+            circuits::CircuitError::AspWitnessLeafMismatch { expected, actual } => {
+                Self::AspWitnessLeafMismatch { expected, actual }
+            }
+            circuits::CircuitError::CommitmentFieldMismatch {
+                field,
+                expected,
+                actual,
+            } => Self::CommitmentFieldMismatch {
+                field,
+                expected,
+                actual,
+            },
+            circuits::CircuitError::WitnessDepthExceedsProtocolMaximum {
+                name,
+                depth,
+                max_depth,
+            } => Self::WitnessDepthExceedsProtocolMaximum {
+                name,
+                depth,
+                max_depth,
+            },
+            circuits::CircuitError::WitnessPaddingNotZero { name, depth } => {
+                Self::WitnessPaddingNotZero { name, depth }
+            }
+            circuits::CircuitError::WitnessRootMismatch {
+                name,
+                expected,
+                actual,
+            } => Self::WitnessRootMismatch {
+                name,
+                expected,
+                actual,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -302,26 +356,7 @@ impl PrivacyPoolsSdk {
         &self,
         request: &core::WithdrawalWitnessRequest,
     ) -> Result<core::WithdrawalCircuitInput, SdkError> {
-        validate_withdrawal_request_semantics(request)?;
-
-        Ok(core::WithdrawalCircuitInput {
-            withdrawn_value: request.withdrawal_amount,
-            state_root: request.state_witness.root,
-            state_tree_depth: request.state_witness.depth,
-            asp_root: request.asp_witness.root,
-            asp_tree_depth: request.asp_witness.depth,
-            context: crypto::calculate_context_field(&request.withdrawal, request.scope)?,
-            label: request.commitment.preimage.label,
-            existing_value: request.commitment.preimage.value,
-            existing_nullifier: request.commitment.preimage.precommitment.nullifier,
-            existing_secret: request.commitment.preimage.precommitment.secret,
-            new_nullifier: request.new_nullifier,
-            new_secret: request.new_secret,
-            state_siblings: request.state_witness.siblings.clone(),
-            state_index: request.state_witness.index,
-            asp_siblings: request.asp_witness.siblings.clone(),
-            asp_index: request.asp_witness.index,
-        })
+        circuits::build_withdrawal_circuit_input(request).map_err(Into::into)
     }
 
     pub fn serialize_withdrawal_circuit_input(
@@ -428,7 +463,7 @@ impl PrivacyPoolsSdk {
         request: &core::WithdrawalWitnessRequest,
         proof: &core::ProofBundle,
     ) -> Result<(), SdkError> {
-        validate_withdrawal_request_semantics(request)?;
+        circuits::validate_withdrawal_request(request)?;
 
         let public_signals = chain::withdraw_public_signals(proof)?;
         let remaining_value = request.commitment.preimage.value - request.withdrawal_amount;
@@ -478,7 +513,7 @@ impl PrivacyPoolsSdk {
         config: &core::WithdrawalExecutionConfig,
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
-        validate_withdrawal_request_semantics(request)?;
+        circuits::validate_withdrawal_request(request)?;
         let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
         let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
         self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
@@ -518,7 +553,7 @@ impl PrivacyPoolsSdk {
         config: &core::RelayExecutionConfig,
         client: &C,
     ) -> Result<PreparedTransactionExecution, SdkError> {
-        validate_withdrawal_request_semantics(request)?;
+        circuits::validate_withdrawal_request(request)?;
         let session = self.prepare_withdrawal_circuit_session(manifest, root.as_ref())?;
         let proving = self.prove_withdrawal_with_session(profile, &session, request)?;
         self.validate_withdrawal_proof_against_request(request, &proving.proof)?;
@@ -691,114 +726,6 @@ impl PrivacyPoolsSdk {
     ) -> Result<recovery::RecoveredAccountState, recovery::RecoveryError> {
         recovery::recover_account_state_with_keyset(keyset, pools, policy)
     }
-}
-
-fn validate_witness_shape(
-    name: &'static str,
-    witness: &core::CircuitMerkleWitness,
-) -> Result<(), SdkError> {
-    if witness.depth > tree::DEFAULT_CIRCUIT_DEPTH {
-        return Err(SdkError::WitnessDepthExceedsProtocolMaximum {
-            name,
-            depth: witness.depth,
-            max_depth: tree::DEFAULT_CIRCUIT_DEPTH,
-        });
-    }
-
-    if witness.siblings.len() != tree::DEFAULT_CIRCUIT_DEPTH {
-        return Err(core::CoreError::InvalidWitnessShape {
-            name,
-            expected: tree::DEFAULT_CIRCUIT_DEPTH,
-            actual: witness.siblings.len(),
-        }
-        .into());
-    }
-
-    if witness
-        .siblings
-        .iter()
-        .skip(witness.depth)
-        .any(|sibling| !sibling.is_zero())
-    {
-        return Err(SdkError::WitnessPaddingNotZero {
-            name,
-            depth: witness.depth,
-        });
-    }
-
-    let computed_root = tree::compute_circuit_root(witness)?;
-    if computed_root != witness.root {
-        return Err(SdkError::WitnessRootMismatch {
-            name,
-            expected: witness.root,
-            actual: computed_root,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_withdrawal_request_semantics(
-    request: &core::WithdrawalWitnessRequest,
-) -> Result<(), SdkError> {
-    validate_witness_shape("state", &request.state_witness)?;
-    validate_witness_shape("asp", &request.asp_witness)?;
-
-    let computed_commitment = crypto::get_commitment(
-        request.commitment.preimage.value,
-        request.commitment.preimage.label,
-        request.commitment.preimage.precommitment.nullifier,
-        request.commitment.preimage.precommitment.secret,
-    )?;
-
-    for (field, expected, actual) in [
-        (
-            "precommitmentHash",
-            request.commitment.preimage.precommitment.hash,
-            computed_commitment.preimage.precommitment.hash,
-        ),
-        (
-            "commitmentHash",
-            request.commitment.hash,
-            computed_commitment.hash,
-        ),
-        (
-            "nullifierHash",
-            request.commitment.nullifier_hash,
-            computed_commitment.nullifier_hash,
-        ),
-    ] {
-        if expected != actual {
-            return Err(SdkError::CommitmentFieldMismatch {
-                field,
-                expected,
-                actual,
-            });
-        }
-    }
-
-    if request.withdrawal_amount > request.commitment.preimage.value {
-        return Err(SdkError::WithdrawalAmountExceedsExistingValue {
-            existing_value: request.commitment.preimage.value,
-            withdrawal_amount: request.withdrawal_amount,
-        });
-    }
-
-    if request.state_witness.leaf != request.commitment.hash {
-        return Err(SdkError::StateWitnessLeafMismatch {
-            expected: request.commitment.hash,
-            actual: request.state_witness.leaf,
-        });
-    }
-
-    if request.asp_witness.leaf != request.commitment.preimage.label {
-        return Err(SdkError::AspWitnessLeafMismatch {
-            expected: request.commitment.preimage.label,
-            actual: request.asp_witness.leaf,
-        });
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

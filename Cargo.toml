@@ -4,6 +4,8 @@ members = [
     "crates/privacy-pools-sdk-ffi",
     "crates/privacy-pools-sdk-node",
     "crates/privacy-pools-sdk-web",
+    "crates/privacy-pools-sdk-circuits",
+    "crates/privacy-pools-sdk-verifier",
     "crates/privacy-pools-sdk-core",
     "crates/privacy-pools-sdk-crypto",
     "crates/privacy-pools-sdk-tree",
@@ -46,6 +48,7 @@ ark-std = { version = "0.5.0", default-features = false, features = ["parallel"]
 ark-ff = "0.5.0"
 camino = "1.2.2"
 circom-prover = "0.1.4"
+getrandom = "0.2.17"
 hex = "0.4.3"
 num-bigint = "0.4.6"
 pso-poseidon = "0.2.0"

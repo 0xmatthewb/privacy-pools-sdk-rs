@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo install --locked wasm-bindgen-cli
       - run: cargo run -p xtask -- sdk-smoke
       - run: npm pack --dry-run --json
         working-directory: packages/sdk

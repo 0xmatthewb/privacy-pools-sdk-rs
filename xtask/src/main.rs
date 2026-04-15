@@ -20,6 +20,7 @@ fn run() -> Result<()> {
         Some("bindings-release") => generate_bindings(true),
         Some("react-native-package") => stage_react_native_package(args.collect()),
         Some("react-native-smoke") => react_native_smoke(),
+        Some("sdk-web-package") => stage_sdk_web_package(args.collect()),
         Some("sdk-smoke") => sdk_smoke(),
         Some("dependency-check") => dependency_check(),
         Some("release-check") => release_check(args.collect()),
@@ -47,8 +48,11 @@ fn print_help() {
     println!(
         "                   install the packed RN package into the sample app and typecheck it"
     );
+    println!("  sdk-web-package");
+    println!("                   build the Rust web crate and generate browser WASM bindings");
+    println!("                   flags: --debug");
     println!("  sdk-smoke");
-    println!("                   build the Node addon and run the JS package integration tests");
+    println!("                   build the SDK package runtimes and run the JS integration tests");
     println!("  dependency-check validate accepted dependency-risk advisories");
     println!("  release-check    validate release-channel versions across public surfaces");
     println!("                   flags: --channel alpha|beta|rc|stable");
@@ -218,6 +222,66 @@ fn react_native_smoke() -> Result<()> {
     )?;
 
     println!("react native smoke ok");
+    Ok(())
+}
+
+fn stage_sdk_web_package(args: Vec<String>) -> Result<()> {
+    let mut release = true;
+    for arg in args {
+        match arg.as_str() {
+            "--debug" => release = false,
+            "--release" => release = true,
+            _ => bail!("unknown sdk-web-package flag: {arg}"),
+        }
+    }
+
+    let workspace_root = workspace_root()?;
+    let profile = if release { "release" } else { "debug" };
+    let generated_root = workspace_root.join("packages/sdk/src/browser/generated");
+    reset_directory(&generated_root)?;
+
+    run_command(
+        "cargo",
+        &[
+            "build",
+            "-p",
+            "privacy-pools-sdk-web",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--lib",
+            if release { "--release" } else { "--quiet" },
+        ],
+        &workspace_root,
+        "failed to build privacy-pools-sdk-web for wasm32-unknown-unknown",
+    )?;
+
+    let wasm_path = workspace_root
+        .join("target")
+        .join("wasm32-unknown-unknown")
+        .join(profile)
+        .join("privacy_pools_sdk_web.wasm");
+    ensure!(
+        wasm_path.exists(),
+        "expected browser wasm artifact at {}",
+        wasm_path
+    );
+
+    run_command(
+        "wasm-bindgen",
+        &[
+            "--target",
+            "web",
+            "--out-dir",
+            generated_root.as_str(),
+            "--out-name",
+            "privacy_pools_sdk_web",
+            wasm_path.as_str(),
+        ],
+        &workspace_root,
+        "failed to generate browser WASM bindings; install wasm-bindgen-cli and ensure it is on PATH",
+    )?;
+
+    println!("staged browser WASM bindings into packages/sdk/src/browser/generated");
     Ok(())
 }
 

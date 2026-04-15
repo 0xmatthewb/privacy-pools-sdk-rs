@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0-alpha.1",
+  "artifacts": [
+    {
+      "circuit": "withdraw",
+      "kind": "vkey",
+      "filename": "browser-verification.vkey.json",
+      "sha256": "0edd1fb5b62a640de98a03716b556a81586e9e88ae617bf19b6d3daa35290977"
+    }
+  ]
+}

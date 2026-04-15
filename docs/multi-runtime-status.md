@@ -6,6 +6,7 @@ plan.
 ## Current Surfaces
 
 - Rust crate
+- browser package
 - Node package
 - Swift/iOS bindings
 - Kotlin/Android bindings
@@ -13,7 +14,7 @@ plan.
 
 ## In Progress
 
-- browser package for local client-side proving
+- browser local client-side proving
 
 ## Completed
 
@@ -36,8 +37,16 @@ plan.
   `privacy-pools-sdk-node` addon crate, published as
   `@0xmatthewb/privacy-pools-sdk`.
 - A browser-facing package surface and `./worker` entrypoint now exist, and the
-  repo contains a dedicated `privacy-pools-sdk-web` Rust binding crate for the
-  browser-safe helper and artifact APIs that do not depend on proving yet.
+  repo contains a dedicated `privacy-pools-sdk-web` Rust binding crate.
+- The browser package now uses Rust/WASM for key derivation, commitments,
+  Merkle helpers, withdrawal input shaping, manifest-bound artifact
+  verification, and proof verification instead of a blanket JS-side
+  unavailability stub.
+- The browser package worker now executes those supported Rust/WASM helper and
+  artifact APIs off-thread instead of returning placeholder responses.
+- The browser runtime now supports real proof verification and verification
+  session reuse against manifest-bound `vkey` artifacts through the shared Rust
+  verifier layer.
 - The Rust protocol/core crates still keep the workspace `unsafe_code = forbid`
   posture. The only exception is the thin Node addon wrapper crate, which needs
   generated `unsafe` for N-API module registration.
@@ -49,22 +58,25 @@ plan.
   tested directly, while the React Native smoke app still validates packaging
   and typechecking rather than running a full native prove/verify flow.
 - The runtime matrix is now documented explicitly, and Node is shipped, but the
-  browser surface is still only partially implemented.
+  browser surface is still only partially implemented because proving remains
+  unavailable there.
 - Fast-backend benchmarking exists, but the broader release-mode benchmark
   matrix across surfaces and environments is not complete yet.
-- The browser package exports the intended worker-facing API shape, but the
-  worker still reports the real current blocker instead of performing proving.
+- The browser package exports the intended worker-facing API shape, and the
+  worker now performs the currently supported helper/artifact methods, but
+  proving-specific methods still fail closed.
 
 ## Not Yet Completed
 
-- No browser integration tests have shipped yet.
 - No production-ready browser proving path has shipped yet.
-- No production-ready browser verification path has shipped yet.
+- Mobile app-level smoke coverage still does not execute a full native
+  prove/verify fixture in React Native, iOS, and Android sample apps.
 
 ## Current Browser Blocker
 
 The proving stack is still native-oriented. The workspace now contains a
-browser-focused Rust binding crate, but the prover dependencies still rely on
-the native `rust-witness` toolchain. Browser support should be built on the
-same Rust-first foundation, and it still needs a WASM-capable prover path
-before real local browser proving and verification can ship safely.
+browser-focused Rust binding crate plus real browser helper, artifact, and
+verification APIs, but the prover dependencies still rely on the native
+`rust-witness` toolchain. Browser support should stay on the same Rust-first
+foundation, and it still needs a WASM-capable prover path before real local
+browser proving can ship safely.

@@ -1,26 +1,111 @@
-const BROWSER_UNAVAILABLE_MESSAGE =
-  "Browser proving support is still in progress. The Rust web binding foundation exists, but the browser prover backend is not ready yet.";
+import {
+  BrowserRuntimeUnavailableError,
+  buildCircuitMerkleWitness,
+  buildWithdrawalCircuitInput,
+  calculateWithdrawalContext,
+  deriveDepositSecrets,
+  deriveMasterKeys,
+  deriveWithdrawalSecrets,
+  fastBackendSupportedOnTarget,
+  generateMerkleProof,
+  getArtifactStatuses,
+  getCommitment,
+  getRuntimeCapabilities,
+  getStableBackendName,
+  getVersion,
+  prepareWithdrawalCircuitSession,
+  prepareWithdrawalCircuitSessionFromBytes,
+  proveWithdrawal,
+  proveWithdrawalWithSession,
+  removeWithdrawalCircuitSession,
+  resolveVerifiedArtifactBundle,
+  verifyArtifactBytes,
+  verifyWithdrawalProof,
+  verifyWithdrawalProofWithSession,
+} from "./runtime.mjs";
 
-function capabilities() {
-  return {
-    runtime: "browser-worker",
-    provingAvailable: false,
-    verificationAvailable: false,
-    workerAvailable: true,
-    reason: BROWSER_UNAVAILABLE_MESSAGE,
-  };
-}
+const METHODS = {
+  getVersion,
+  getStableBackendName,
+  fastBackendSupportedOnTarget,
+  deriveMasterKeys,
+  deriveDepositSecrets,
+  deriveWithdrawalSecrets,
+  getCommitment,
+  calculateWithdrawalContext,
+  generateMerkleProof,
+  buildCircuitMerkleWitness,
+  buildWithdrawalCircuitInput,
+  getArtifactStatuses,
+  resolveVerifiedArtifactBundle,
+  verifyArtifactBytes,
+  prepareWithdrawalCircuitSession,
+  prepareWithdrawalCircuitSessionFromBytes,
+  removeWithdrawalCircuitSession,
+  proveWithdrawal,
+  proveWithdrawalWithSession,
+  verifyWithdrawalProof,
+  verifyWithdrawalProofWithSession,
+};
 
-self.onmessage = (event) => {
-  const { id, method } = event.data ?? {};
-  if (method === "getRuntimeCapabilities") {
-    self.postMessage({ id, ok: true, result: capabilities() });
+await attachWorkerHandler();
+
+async function attachWorkerHandler() {
+  if (typeof self !== "undefined" && typeof self.postMessage === "function") {
+    self.addEventListener("message", (event) => {
+      void handleMessage(event.data ?? {}, (payload) => self.postMessage(payload));
+    });
     return;
   }
 
-  self.postMessage({
-    id,
-    ok: false,
-    error: BROWSER_UNAVAILABLE_MESSAGE,
+  const { parentPort } = await import("node:worker_threads");
+  parentPort.on("message", (message) => {
+    void handleMessage(message ?? {}, (payload) => parentPort.postMessage(payload));
   });
-};
+}
+
+async function handleMessage(message, respond) {
+  const { id, method, params = [] } = message;
+  if (method === "getRuntimeCapabilities") {
+    respond({ id, ok: true, result: getRuntimeCapabilities() });
+    return;
+  }
+
+  const implementation = METHODS[method];
+  if (!implementation) {
+    respond({
+      id,
+      ok: false,
+      error: serializeError(new Error(`unsupported worker method: ${method}`)),
+    });
+    return;
+  }
+
+  try {
+    const result = await implementation(...params);
+    respond({ id, ok: true, result });
+  } catch (error) {
+    respond({ id, ok: false, error: serializeError(error) });
+  }
+}
+
+function serializeError(error) {
+  if (error instanceof BrowserRuntimeUnavailableError) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+    };
+  }
+
+  return {
+    name: "Error",
+    message: String(error),
+  };
+}

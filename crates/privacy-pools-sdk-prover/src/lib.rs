@@ -1,8 +1,5 @@
 use ark_bls12_381::{Bls12_381, Fr as Bls12_381Fr};
-use ark_bn254::{
-    Bn254, Fq as Bn254Fq, Fq2 as Bn254Fq2, Fr as Bn254Fr, G1Projective as Bn254G1Projective,
-    G2Projective as Bn254G2Projective,
-};
+use ark_bn254::{Bn254, Fr as Bn254Fr};
 use ark_crypto_primitives::snark::SNARK;
 use ark_ec::pairing::Pairing;
 use ark_ff::{BigInteger, PrimeField};
@@ -22,6 +19,7 @@ use circom_prover::{
 use num_bigint::BigUint;
 use privacy_pools_sdk_artifacts::{self as artifacts, ArtifactKind, VerifiedArtifactBundle};
 use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof, WithdrawalCircuitInput};
+use privacy_pools_sdk_verifier::{PreparedVerifier, VerifierError};
 use rust_witness::BigInt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -93,10 +91,10 @@ pub enum ProverError {
     InputSerialization(String),
     #[error("invalid zkey bundle: {0}")]
     InvalidZkey(String),
-    #[error("invalid verification key bundle: {0}")]
-    InvalidVerificationKey(String),
     #[error("circom prover failed: {0}")]
     Circom(String),
+    #[error(transparent)]
+    Verification(#[from] VerifierError),
 }
 
 pub trait ProofEngine {
@@ -133,10 +131,6 @@ enum PreparedArkworksCircuit {
         matrices: Arc<ConstraintMatrices<Bls12_381Fr>>,
         verifier: Box<PreparedVerifyingKey<Bls12_381>>,
     },
-}
-
-enum PreparedVerifier {
-    Bn254(PreparedVerifyingKey<Bn254>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,7 +319,7 @@ impl PreparedCircuitArtifacts {
         let circom_proof = bundle_to_circom_proof(proof)?;
 
         if let Some(verifier) = self.prepare_verifier()? {
-            return verifier.verify(&circom_proof);
+            return verify_prepared_verifier_circom(verifier, &circom_proof);
         }
 
         match engine.backend {
@@ -374,7 +368,7 @@ impl PreparedCircuitArtifacts {
             .inner
             .vkey_bytes
             .as_deref()
-            .and_then(|bytes| parse_prepared_verifier(bytes).ok());
+            .and_then(|bytes| PreparedVerifier::from_vkey_bytes(bytes).ok());
         let _ = self.inner.verifier.set(prepared);
         Ok(self
             .inner
@@ -407,14 +401,6 @@ impl PreparedArkworksCircuit {
             Self::Bls12_381 { verifier, .. } => {
                 verify_with_prepared_bls12_381_verifier(verifier, proof)
             }
-        }
-    }
-}
-
-impl PreparedVerifier {
-    fn verify(&self, proof: &CircomProof) -> Result<bool, ProverError> {
-        match self {
-            Self::Bn254(verifier) => verify_with_prepared_bn254_verifier(verifier, proof),
         }
     }
 }
@@ -487,6 +473,14 @@ where
         key.to_owned(),
         Value::Array(values.into_iter().map(Value::String).collect()),
     );
+}
+
+fn verify_prepared_verifier_circom(
+    verifier: &PreparedVerifier,
+    proof: &CircomProof,
+) -> Result<bool, ProverError> {
+    let bundle = circom_proof_to_bundle(proof.clone());
+    verifier.verify(&bundle).map_err(Into::into)
 }
 
 impl ProofEngine for NativeProofEngine {
@@ -672,148 +666,6 @@ fn read_zkey_header(zkey_bytes: &[u8]) -> Result<ZkeyHeader, ProverError> {
 
     r.map(|r| ZkeyHeader { r })
         .ok_or_else(|| ProverError::InvalidZkey("missing Groth16 header".to_owned()))
-}
-
-fn parse_prepared_verifier(vkey_bytes: &[u8]) -> Result<PreparedVerifier, ProverError> {
-    let json: Value = serde_json::from_slice(vkey_bytes)
-        .map_err(|error| ProverError::InvalidVerificationKey(error.to_string()))?;
-    let curve = json.get("curve").and_then(Value::as_str).unwrap_or("bn128");
-
-    match curve {
-        "bn128" | "bn254" => Ok(PreparedVerifier::Bn254(prepare_verifying_key(
-            &parse_bn254_verifying_key(&json)?,
-        ))),
-        other => Err(ProverError::InvalidVerificationKey(format!(
-            "unsupported verification-key curve `{other}`"
-        ))),
-    }
-}
-
-fn parse_bn254_verifying_key(
-    json: &Value,
-) -> Result<ark_groth16::VerifyingKey<Bn254>, ProverError> {
-    Ok(ark_groth16::VerifyingKey {
-        alpha_g1: parse_bn254_g1(
-            json.get("vk_alpha_1")
-                .ok_or_else(|| missing_vkey_field("vk_alpha_1"))?,
-        )?,
-        beta_g2: parse_bn254_g2(
-            json.get("vk_beta_2")
-                .ok_or_else(|| missing_vkey_field("vk_beta_2"))?,
-        )?,
-        gamma_g2: parse_bn254_g2(
-            json.get("vk_gamma_2")
-                .ok_or_else(|| missing_vkey_field("vk_gamma_2"))?,
-        )?,
-        delta_g2: parse_bn254_g2(
-            json.get("vk_delta_2")
-                .ok_or_else(|| missing_vkey_field("vk_delta_2"))?,
-        )?,
-        gamma_abc_g1: json
-            .get("IC")
-            .and_then(Value::as_array)
-            .ok_or_else(|| missing_vkey_field("IC"))?
-            .iter()
-            .map(parse_bn254_g1)
-            .collect::<Result<Vec<_>, _>>()?,
-    })
-}
-
-fn parse_bn254_g1(value: &Value) -> Result<ark_bn254::G1Affine, ProverError> {
-    let coordinates = value
-        .as_array()
-        .ok_or_else(|| ProverError::InvalidVerificationKey("expected G1 point array".to_owned()))?;
-    let x = parse_bn254_fq(
-        coordinates
-            .first()
-            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G1 x".to_owned()))?,
-    )?;
-    let y = parse_bn254_fq(
-        coordinates
-            .get(1)
-            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G1 y".to_owned()))?,
-    )?;
-    let z = parse_optional_bn254_fq(coordinates.get(2), "missing G1 z")?;
-
-    Ok(Bn254G1Projective::new(x, y, z).into())
-}
-
-fn parse_bn254_g2(value: &Value) -> Result<ark_bn254::G2Affine, ProverError> {
-    let coordinates = value
-        .as_array()
-        .ok_or_else(|| ProverError::InvalidVerificationKey("expected G2 point array".to_owned()))?;
-    let x = parse_bn254_fq2(
-        coordinates
-            .first()
-            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G2 x".to_owned()))?,
-    )?;
-    let y = parse_bn254_fq2(
-        coordinates
-            .get(1)
-            .ok_or_else(|| ProverError::InvalidVerificationKey("missing G2 y".to_owned()))?,
-    )?;
-    let z = parse_optional_bn254_fq2(coordinates.get(2), "missing G2 z")?;
-
-    Ok(Bn254G2Projective::new(x, y, z).into())
-}
-
-fn parse_bn254_fq(value: &Value) -> Result<Bn254Fq, ProverError> {
-    let value = value
-        .as_str()
-        .ok_or_else(|| ProverError::InvalidVerificationKey("expected decimal string".to_owned()))?;
-    Bn254Fq::from_str(value).map_err(|_| {
-        ProverError::InvalidVerificationKey(format!(
-            "invalid field element in verification key: {value}"
-        ))
-    })
-}
-
-fn parse_optional_bn254_fq(
-    value: Option<&Value>,
-    missing_message: &str,
-) -> Result<Bn254Fq, ProverError> {
-    match value {
-        Some(value) => parse_bn254_fq(value),
-        None => {
-            let _ = missing_message;
-            Ok(Bn254Fq::from(1u64))
-        }
-    }
-}
-
-fn parse_bn254_fq2(value: &Value) -> Result<Bn254Fq2, ProverError> {
-    let coordinates = value.as_array().ok_or_else(|| {
-        ProverError::InvalidVerificationKey("expected Fq2 coordinate array".to_owned())
-    })?;
-    Ok(Bn254Fq2::new(
-        parse_bn254_fq(
-            coordinates
-                .first()
-                .ok_or_else(|| ProverError::InvalidVerificationKey("missing Fq2 c0".to_owned()))?,
-        )?,
-        parse_bn254_fq(
-            coordinates
-                .get(1)
-                .ok_or_else(|| ProverError::InvalidVerificationKey("missing Fq2 c1".to_owned()))?,
-        )?,
-    ))
-}
-
-fn parse_optional_bn254_fq2(
-    value: Option<&Value>,
-    missing_message: &str,
-) -> Result<Bn254Fq2, ProverError> {
-    match value {
-        Some(value) => parse_bn254_fq2(value),
-        None => {
-            let _ = missing_message;
-            Ok(Bn254Fq2::new(Bn254Fq::from(1u64), Bn254Fq::from(0u64)))
-        }
-    }
-}
-
-fn missing_vkey_field(field: &str) -> ProverError {
-    ProverError::InvalidVerificationKey(format!("missing verification-key field `{field}`"))
 }
 
 fn prove_with_prepared_key_bn254(

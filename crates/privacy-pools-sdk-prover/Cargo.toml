@@ -24,6 +24,7 @@ circom-prover.workspace = true
 num-bigint.workspace = true
 privacy-pools-sdk-artifacts = { path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-verifier = { path = "../privacy-pools-sdk-verifier" }
 rand.workspace = true
 rust-witness.workspace = true
 serde.workspace = true

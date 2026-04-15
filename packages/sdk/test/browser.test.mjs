@@ -1,0 +1,282 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
+
+import {
+  BrowserRuntimeUnavailableError,
+  PrivacyPoolsSdkClient,
+  createWorkerClient,
+  getRuntimeCapabilities,
+} from "../src/browser/index.mjs";
+
+const testDir = fileURLToPath(new URL(".", import.meta.url));
+const workspaceRoot = join(testDir, "..", "..", "..");
+const fixturesRoot = join(workspaceRoot, "fixtures");
+
+const cryptoFixture = JSON.parse(
+  readFileSync(join(fixturesRoot, "vectors", "crypto-compatibility.json"), "utf8"),
+);
+const withdrawalFixture = JSON.parse(
+  readFileSync(
+    join(fixturesRoot, "vectors", "withdrawal-circuit-input.json"),
+    "utf8",
+  ),
+);
+const sampleManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "sample-manifest.json"),
+  "utf8",
+);
+const sampleProvingManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "sample-proving-manifest.json"),
+  "utf8",
+);
+const browserVerificationManifest = readFileSync(
+  join(fixturesRoot, "artifacts", "browser-verification-manifest.json"),
+  "utf8",
+);
+const sampleArtifact = readFileSync(
+  join(fixturesRoot, "artifacts", "sample-artifact.bin"),
+);
+const browserVerificationProof = JSON.parse(
+  readFileSync(
+    join(fixturesRoot, "vectors", "browser-verification-proof.json"),
+    "utf8",
+  ),
+);
+const artifactsFixtureRoot = join(fixturesRoot, "artifacts");
+
+test("browser runtime reports browser verification capabilities", () => {
+  assert.deepEqual(getRuntimeCapabilities(), {
+    runtime: "browser",
+    provingAvailable: false,
+    verificationAvailable: true,
+    workerAvailable: true,
+    reason:
+      "Browser verification is available via Rust/WASM; proving is still blocked on a wasm-capable Rust prover backend.",
+  });
+});
+
+test("browser wasm runtime matches reference helper vectors", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+
+  assert.equal(await sdk.getStableBackendName(), "Arkworks");
+  assert.equal(await sdk.fastBackendSupportedOnTarget(), false);
+
+  const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
+  assert.equal(keys.masterNullifier, cryptoFixture.keys.masterNullifier);
+  assert.equal(keys.masterSecret, cryptoFixture.keys.masterSecret);
+
+  const depositSecrets = await sdk.deriveDepositSecrets(
+    keys,
+    cryptoFixture.scope,
+    "0",
+  );
+  assert.deepEqual(depositSecrets, cryptoFixture.depositSecrets);
+
+  const withdrawalSecrets = await sdk.deriveWithdrawalSecrets(
+    keys,
+    cryptoFixture.label,
+    "1",
+  );
+  assert.deepEqual(withdrawalSecrets, cryptoFixture.withdrawalSecrets);
+
+  const commitment = await sdk.getCommitment(
+    withdrawalFixture.existingValue,
+    withdrawalFixture.label,
+    depositSecrets.nullifier,
+    depositSecrets.secret,
+  );
+  assert.equal(commitment.hash, cryptoFixture.commitment.hash);
+  assert.equal(commitment.nullifierHash, cryptoFixture.commitment.nullifierHash);
+
+  const merkleProof = await sdk.generateMerkleProof(
+    ["11", "22", "33", "44", "55"],
+    "44",
+  );
+  assert.equal(merkleProof.root, cryptoFixture.merkleProof.root);
+
+  const paddedWitness = await sdk.buildCircuitMerkleWitness(merkleProof, 32);
+  assert.deepEqual(paddedWitness.siblings, cryptoFixture.merkleProof.siblings);
+
+  const context = await sdk.calculateWithdrawalContext(
+    {
+      processooor: "0x1111111111111111111111111111111111111111",
+      data: "0x1234",
+    },
+    cryptoFixture.scope,
+  );
+  assert.equal(context, cryptoFixture.context);
+
+  const input = await sdk.buildWithdrawalCircuitInput({
+    commitment,
+    withdrawal: {
+      processooor: "0x1111111111111111111111111111111111111111",
+      data: "0x1234",
+    },
+    scope: cryptoFixture.scope,
+    withdrawalAmount: withdrawalFixture.withdrawalAmount,
+    stateWitness: withdrawalFixture.stateWitness,
+    aspWitness: withdrawalFixture.aspWitness,
+    newNullifier: withdrawalFixture.newNullifier,
+    newSecret: withdrawalFixture.newSecret,
+  });
+  assert.equal(input.context, withdrawalFixture.expected.normalizedInputs.context[0]);
+  assert.equal(
+    input.withdrawnValue,
+    withdrawalFixture.expected.normalizedInputs.withdrawnValue[0],
+  );
+});
+
+test("browser wasm runtime verifies artifact bytes without base64 bridging", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+
+  const verified = await sdk.verifyArtifactBytes(sampleManifest, "withdraw", [
+    { kind: "wasm", bytes: sampleArtifact },
+  ]);
+  assert.equal(verified.artifacts.length, 1);
+  assert.equal(verified.artifacts[0].kind, "wasm");
+
+  const provingBundle = await sdk.verifyArtifactBytes(
+    sampleProvingManifest,
+    "withdraw",
+    [
+      { kind: "wasm", bytes: sampleArtifact },
+      { kind: "zkey", bytes: sampleArtifact },
+      { kind: "vkey", bytes: sampleArtifact },
+    ],
+  );
+  assert.equal(provingBundle.artifacts.length, 3);
+});
+
+test("browser runtime fetches and verifies manifest-bound artifact URLs", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const server = createFixtureServer();
+  await server.start();
+
+  try {
+    const rootUrl = server.rootUrl;
+    const statuses = await sdk.getArtifactStatuses(sampleManifest, rootUrl);
+    assert.equal(statuses.length, 1);
+    assert.equal(statuses[0].exists, true);
+    assert.equal(statuses[0].verified, true);
+    assert.match(statuses[0].path, /^http:\/\//);
+
+    const bundle = await sdk.resolveVerifiedArtifactBundle(sampleManifest, rootUrl);
+    assert.equal(bundle.artifacts.length, 1);
+    assert.equal(bundle.artifacts[0].kind, "wasm");
+    assert.match(bundle.artifacts[0].path, /^http:\/\//);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("browser runtime verifies proofs through Rust/WASM sessions", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const server = createFixtureServer();
+  await server.start();
+
+  try {
+    const verified = await sdk.verifyWithdrawalProof(
+      "stable",
+      browserVerificationManifest,
+      server.rootUrl,
+      browserVerificationProof,
+    );
+    assert.equal(verified, true);
+
+    const session = await sdk.prepareWithdrawalCircuitSession(
+      browserVerificationManifest,
+      server.rootUrl,
+    );
+    assert.equal(session.circuit, "withdraw");
+    assert.equal(
+      await sdk.verifyWithdrawalProofWithSession(
+        "stable",
+        session.handle,
+        browserVerificationProof,
+      ),
+      true,
+    );
+    assert.equal(await sdk.removeWithdrawalCircuitSession(session.handle), true);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("browser worker client performs real wasm-backed helper calls", async () => {
+  const worker = new Worker(new URL("../src/browser/worker.mjs", import.meta.url), {
+    type: "module",
+  });
+  const sdk = createWorkerClient(worker);
+  const server = createFixtureServer();
+  await server.start();
+
+  try {
+    const keys = await sdk.deriveMasterKeys(cryptoFixture.mnemonic);
+    assert.equal(keys.masterNullifier, cryptoFixture.keys.masterNullifier);
+
+    const session = await sdk.prepareWithdrawalCircuitSession(
+      browserVerificationManifest,
+      server.rootUrl,
+    );
+    assert.equal(
+      await sdk.verifyWithdrawalProofWithSession(
+        "stable",
+        session.handle,
+        browserVerificationProof,
+      ),
+      true,
+    );
+
+    await assert.rejects(
+      () =>
+        sdk.proveWithdrawal("stable", sampleProvingManifest, "https://example.com/", {
+          commitment: {},
+        }),
+      (error) =>
+        error instanceof BrowserRuntimeUnavailableError &&
+        error.message.includes("wasm-capable Rust prover backend"),
+    );
+  } finally {
+    await server.stop();
+    await worker.terminate();
+  }
+});
+
+function createFixtureServer() {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    const filename = url.pathname.replace(/^\/+/, "");
+    try {
+      const bytes = readFileSync(join(artifactsFixtureRoot, filename));
+      response.statusCode = 200;
+      response.setHeader("content-type", "application/octet-stream");
+      response.end(bytes);
+    } catch {
+      response.statusCode = 404;
+      response.end("not found");
+    }
+  });
+
+  return {
+    rootUrl: "",
+    async start() {
+      await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      this.rootUrl = `http://127.0.0.1:${address.port}/`;
+    },
+    async stop() {
+      await new Promise((resolve, reject) => server.close((error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      }));
+    },
+  };
+}

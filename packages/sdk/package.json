@@ -27,7 +27,10 @@
   "scripts": {
     "build:native": "node ./scripts/build-native.mjs",
     "build:native:release": "node ./scripts/build-native.mjs --release",
-    "test": "npm run build:native && node --test ./test/*.test.mjs"
+    "build:web": "node ./scripts/build-web.mjs",
+    "build:web:debug": "node ./scripts/build-web.mjs --debug",
+    "build:web:release": "node ./scripts/build-web.mjs --release",
+    "test": "npm run build:web && npm run build:native && node --test ./test/*.test.mjs"
   },
   "files": [
     "src",

@@ -1,0 +1,26 @@
+[package]
+name = "privacy-pools-sdk-verifier"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+ark-bls12-381.workspace = true
+ark-bn254.workspace = true
+ark-ec = { version = "0.5.0", default-features = false }
+ark-ff.workspace = true
+ark-groth16 = { version = "0.5.0", default-features = false }
+ark-snark = { version = "0.5.1", default-features = false }
+privacy-pools-sdk-core = { path = "../privacy-pools-sdk-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ark-groth16 = { version = "0.5.0", default-features = false, features = ["r1cs"] }
+ark-relations.workspace = true
+ark-std.workspace = true
+serde_json.workspace = true
