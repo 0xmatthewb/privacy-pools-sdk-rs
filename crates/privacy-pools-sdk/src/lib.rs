@@ -38,6 +38,8 @@ pub enum SdkError {
     #[error(transparent)]
     Crypto(#[from] crypto::CryptoError),
     #[error(transparent)]
+    Tree(#[from] tree::TreeError),
+    #[error(transparent)]
     Artifact(#[from] artifacts::ArtifactError),
     #[error(transparent)]
     Prover(#[from] prover::ProverError),
@@ -58,6 +60,12 @@ pub enum SdkError {
     StateWitnessLeafMismatch { expected: U256, actual: U256 },
     #[error("asp witness leaf mismatch: expected label {expected}, got {actual}")]
     AspWitnessLeafMismatch { expected: U256, actual: U256 },
+    #[error("commitment field mismatch for {field}: expected {expected}, got {actual}")]
+    CommitmentFieldMismatch {
+        field: &'static str,
+        expected: U256,
+        actual: U256,
+    },
     #[error("merkle witness depth for `{name}` exceeds protocol maximum {max_depth}: got {depth}")]
     WitnessDepthExceedsProtocolMaximum {
         name: &'static str,
@@ -66,6 +74,12 @@ pub enum SdkError {
     },
     #[error("merkle witness padding for `{name}` must be zero beyond depth {depth}")]
     WitnessPaddingNotZero { name: &'static str, depth: usize },
+    #[error("merkle witness root mismatch for `{name}`: expected {expected}, got {actual}")]
+    WitnessRootMismatch {
+        name: &'static str,
+        expected: U256,
+        actual: U256,
+    },
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
         field: &'static str,
@@ -233,15 +247,7 @@ impl PrivacyPoolsSdk {
         &self,
         request: &core::WithdrawalWitnessRequest,
     ) -> Result<core::WithdrawalCircuitInput, SdkError> {
-        validate_witness_shape("state", &request.state_witness)?;
-        validate_witness_shape("asp", &request.asp_witness)?;
-
-        if request.withdrawal_amount > request.commitment.preimage.value {
-            return Err(SdkError::WithdrawalAmountExceedsExistingValue {
-                existing_value: request.commitment.preimage.value,
-                withdrawal_amount: request.withdrawal_amount,
-            });
-        }
+        validate_withdrawal_request_semantics(request)?;
 
         Ok(core::WithdrawalCircuitInput {
             withdrawn_value: request.withdrawal_amount,
@@ -633,6 +639,15 @@ fn validate_witness_shape(
         });
     }
 
+    let computed_root = tree::compute_circuit_root(witness)?;
+    if computed_root != witness.root {
+        return Err(SdkError::WitnessRootMismatch {
+            name,
+            expected: witness.root,
+            actual: computed_root,
+        });
+    }
+
     Ok(())
 }
 
@@ -641,6 +656,39 @@ fn validate_withdrawal_request_semantics(
 ) -> Result<(), SdkError> {
     validate_witness_shape("state", &request.state_witness)?;
     validate_witness_shape("asp", &request.asp_witness)?;
+
+    let computed_commitment = crypto::get_commitment(
+        request.commitment.preimage.value,
+        request.commitment.preimage.label,
+        request.commitment.preimage.precommitment.nullifier,
+        request.commitment.preimage.precommitment.secret,
+    )?;
+
+    for (field, expected, actual) in [
+        (
+            "precommitmentHash",
+            request.commitment.preimage.precommitment.hash,
+            computed_commitment.preimage.precommitment.hash,
+        ),
+        (
+            "commitmentHash",
+            request.commitment.hash,
+            computed_commitment.hash,
+        ),
+        (
+            "nullifierHash",
+            request.commitment.nullifier_hash,
+            computed_commitment.nullifier_hash,
+        ),
+    ] {
+        if expected != actual {
+            return Err(SdkError::CommitmentFieldMismatch {
+                field,
+                expected,
+                actual,
+            });
+        }
+    }
 
     if request.withdrawal_amount > request.commitment.preimage.value {
         return Err(SdkError::WithdrawalAmountExceedsExistingValue {
@@ -1050,20 +1098,16 @@ mod tests {
     #[test]
     fn rejects_witness_leaf_mismatches_before_execution() {
         let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let commitment_hash = commitment.hash;
         let request = core::WithdrawalWitnessRequest {
-            commitment: core::Commitment {
-                hash: U256::from(44_u64),
-                nullifier_hash: U256::from(55_u64),
-                preimage: core::CommitmentPreimage {
-                    value: U256::from(1000_u64),
-                    label: U256::from(456_u64),
-                    precommitment: core::Precommitment {
-                        hash: U256::from(55_u64),
-                        nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
-                    },
-                },
-            },
+            commitment,
             withdrawal: core::Withdrawal {
                 processooor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
@@ -1071,18 +1115,18 @@ mod tests {
             scope: U256::from(123_u64),
             withdrawal_amount: U256::from(250_u64),
             state_witness: core::CircuitMerkleWitness {
-                root: U256::from(88_u64),
+                root: U256::from(99_u64),
                 leaf: U256::from(99_u64),
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             asp_witness: core::CircuitMerkleWitness {
-                root: U256::from(111_u64),
+                root: U256::from(456_u64),
                 leaf: U256::from(456_u64),
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             new_nullifier: U256::from(222_u64),
             new_secret: U256::from(333_u64),
@@ -1104,7 +1148,7 @@ mod tests {
         assert!(matches!(
             sdk.validate_withdrawal_proof_against_request(&request, &proof),
             Err(SdkError::StateWitnessLeafMismatch { expected, actual })
-                if expected == U256::from(44_u64) && actual == U256::from(99_u64)
+                if expected == commitment_hash && actual == U256::from(99_u64)
         ));
     }
 
@@ -1262,22 +1306,125 @@ mod tests {
     }
 
     #[test]
+    fn rejects_witness_root_mismatches_before_execution() {
+        let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let commitment_hash = commitment.hash;
+        let request = core::WithdrawalWitnessRequest {
+            commitment,
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(789_u64),
+            withdrawal_amount: U256::from(400_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: U256::from(999_u64),
+                leaf: commitment_hash,
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 0,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(456_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 0,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+
+        let error = sdk.build_withdrawal_circuit_input(&request).unwrap_err();
+        match error {
+            SdkError::WitnessRootMismatch {
+                name,
+                expected,
+                actual,
+            } => {
+                assert_eq!(name, "state");
+                assert_eq!(expected, U256::from(999_u64));
+                assert_eq!(actual, commitment_hash);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_inconsistent_commitment_fields_before_execution() {
+        let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let actual_precommitment = commitment.preimage.precommitment.hash;
+        let commitment_hash = commitment.hash;
+        let mut inconsistent_commitment = commitment.clone();
+        inconsistent_commitment.preimage.precommitment.hash = U256::from(999_u64);
+        let request = core::WithdrawalWitnessRequest {
+            commitment: inconsistent_commitment,
+            withdrawal: core::Withdrawal {
+                processooor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            scope: U256::from(789_u64),
+            withdrawal_amount: U256::from(400_u64),
+            state_witness: core::CircuitMerkleWitness {
+                root: commitment_hash,
+                leaf: commitment_hash,
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 0,
+            },
+            asp_witness: core::CircuitMerkleWitness {
+                root: U256::from(456_u64),
+                leaf: U256::from(456_u64),
+                index: 0,
+                siblings: vec![U256::ZERO; 32],
+                depth: 0,
+            },
+            new_nullifier: U256::from(222_u64),
+            new_secret: U256::from(333_u64),
+        };
+
+        let error = sdk.build_withdrawal_circuit_input(&request).unwrap_err();
+        match error {
+            SdkError::CommitmentFieldMismatch {
+                field,
+                expected,
+                actual,
+            } => {
+                assert_eq!(field, "precommitmentHash");
+                assert_eq!(expected, U256::from(999_u64));
+                assert_eq!(actual, actual_precommitment);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_public_signal_mismatches_against_request() {
         let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let commitment_hash = commitment.hash;
         let request = core::WithdrawalWitnessRequest {
-            commitment: core::Commitment {
-                hash: U256::from(44_u64),
-                nullifier_hash: U256::from(55_u64),
-                preimage: core::CommitmentPreimage {
-                    value: U256::from(1000_u64),
-                    label: U256::from(456_u64),
-                    precommitment: core::Precommitment {
-                        hash: U256::from(55_u64),
-                        nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
-                    },
-                },
-            },
+            commitment,
             withdrawal: core::Withdrawal {
                 processooor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
@@ -1285,18 +1432,18 @@ mod tests {
             scope: U256::from(123_u64),
             withdrawal_amount: U256::from(250_u64),
             state_witness: core::CircuitMerkleWitness {
-                root: U256::from(88_u64),
-                leaf: U256::from(44_u64),
+                root: commitment_hash,
+                leaf: commitment_hash,
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             asp_witness: core::CircuitMerkleWitness {
-                root: U256::from(111_u64),
+                root: U256::from(456_u64),
                 leaf: U256::from(456_u64),
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             new_nullifier: U256::from(222_u64),
             new_secret: U256::from(333_u64),
@@ -1314,12 +1461,14 @@ mod tests {
             },
             public_signals: vec![
                 "999".to_owned(),
-                "55".to_owned(),
+                crypto::hash_nullifier(request.commitment.preimage.precommitment.nullifier)
+                    .unwrap()
+                    .to_string(),
                 "250".to_owned(),
-                "88".to_owned(),
-                "32".to_owned(),
-                "111".to_owned(),
-                "32".to_owned(),
+                request.state_witness.root.to_string(),
+                "0".to_owned(),
+                request.asp_witness.root.to_string(),
+                "0".to_owned(),
                 crypto::calculate_context_field(&request.withdrawal, request.scope)
                     .unwrap()
                     .to_string(),
@@ -1336,20 +1485,16 @@ mod tests {
     #[test]
     fn accepts_circuit_nullifier_hash_semantics_for_withdraw_proofs() {
         let sdk = PrivacyPoolsSdk::default();
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let commitment_hash = commitment.hash;
         let request = core::WithdrawalWitnessRequest {
-            commitment: core::Commitment {
-                hash: U256::from(44_u64),
-                nullifier_hash: U256::from(55_u64),
-                preimage: core::CommitmentPreimage {
-                    value: U256::from(1000_u64),
-                    label: U256::from(456_u64),
-                    precommitment: core::Precommitment {
-                        hash: U256::from(55_u64),
-                        nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
-                    },
-                },
-            },
+            commitment,
             withdrawal: core::Withdrawal {
                 processooor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
@@ -1357,18 +1502,18 @@ mod tests {
             scope: U256::from(123_u64),
             withdrawal_amount: U256::from(250_u64),
             state_witness: core::CircuitMerkleWitness {
-                root: U256::from(88_u64),
-                leaf: U256::from(44_u64),
+                root: commitment_hash,
+                leaf: commitment_hash,
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             asp_witness: core::CircuitMerkleWitness {
-                root: U256::from(111_u64),
+                root: U256::from(456_u64),
                 leaf: U256::from(456_u64),
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             new_nullifier: U256::from(222_u64),
             new_secret: U256::from(333_u64),
@@ -1393,13 +1538,14 @@ mod tests {
             },
             public_signals: vec![
                 new_commitment.hash.to_string(),
-                "506091454650568783913867607798865803589405944288788850564754505122530534451"
-                    .to_owned(),
+                crypto::hash_nullifier(request.commitment.preimage.precommitment.nullifier)
+                    .unwrap()
+                    .to_string(),
                 "250".to_owned(),
-                "88".to_owned(),
-                "32".to_owned(),
-                "111".to_owned(),
-                "32".to_owned(),
+                request.state_witness.root.to_string(),
+                "0".to_owned(),
+                request.asp_witness.root.to_string(),
+                "0".to_owned(),
                 crypto::calculate_context_field(&request.withdrawal, request.scope)
                     .unwrap()
                     .to_string(),

@@ -10,6 +10,8 @@ pub const DEFAULT_CIRCUIT_DEPTH: usize = 32;
 pub enum TreeError {
     #[error("leaf not found in the leaves array")]
     LeafNotFound,
+    #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
+    InvalidCircuitWitnessShape { expected: usize, actual: usize },
     #[error("circuit depth {depth} is smaller than proof depth {proof_depth}")]
     InvalidCircuitDepth { depth: usize, proof_depth: usize },
     #[error("circuit depth {depth} exceeds protocol maximum {max_depth}")]
@@ -75,6 +77,42 @@ pub fn to_circuit_witness(
         siblings,
         depth,
     })
+}
+
+pub fn compute_circuit_root(witness: &CircuitMerkleWitness) -> Result<FieldElement, TreeError> {
+    if witness.depth > DEFAULT_CIRCUIT_DEPTH {
+        return Err(TreeError::DepthExceedsProtocolMaximum {
+            depth: witness.depth,
+            max_depth: DEFAULT_CIRCUIT_DEPTH,
+        });
+    }
+
+    if witness.siblings.len() != DEFAULT_CIRCUIT_DEPTH {
+        return Err(TreeError::InvalidCircuitWitnessShape {
+            expected: DEFAULT_CIRCUIT_DEPTH,
+            actual: witness.siblings.len(),
+        });
+    }
+
+    let mut node = witness.leaf;
+    for (level, sibling) in witness.siblings.iter().copied().enumerate() {
+        if sibling.is_zero() {
+            continue;
+        }
+
+        let is_right = ((witness.index >> level) & 1) == 1;
+        node = if is_right {
+            poseidon_hash(&[sibling, node])?
+        } else {
+            poseidon_hash(&[node, sibling])?
+        };
+    }
+
+    Ok(node)
+}
+
+pub fn verify_circuit_witness(witness: &CircuitMerkleWitness) -> Result<bool, TreeError> {
+    Ok(compute_circuit_root(witness)? == witness.root)
 }
 
 fn from_lean_proof(proof: LeanMerkleProof<32>) -> MerkleProof {
@@ -223,6 +261,8 @@ mod tests {
                 .iter()
                 .all(|sibling| *sibling == U256::ZERO)
         );
+        assert_eq!(compute_circuit_root(&witness).unwrap(), proof.root);
+        assert!(verify_circuit_witness(&witness).unwrap());
     }
 
     #[test]
@@ -245,5 +285,42 @@ mod tests {
                 max_depth
             }) if depth == DEFAULT_CIRCUIT_DEPTH + 1 && max_depth == DEFAULT_CIRCUIT_DEPTH
         ));
+    }
+
+    #[test]
+    fn rejects_invalid_circuit_witness_shapes() {
+        let witness = CircuitMerkleWitness {
+            root: U256::from(44_u64),
+            leaf: U256::from(44_u64),
+            index: 0,
+            siblings: vec![U256::ZERO; 3],
+            depth: 3,
+        };
+
+        assert!(matches!(
+            compute_circuit_root(&witness),
+            Err(TreeError::InvalidCircuitWitnessShape { expected, actual })
+                if expected == DEFAULT_CIRCUIT_DEPTH && actual == 3
+        ));
+    }
+
+    #[test]
+    fn detects_mismatched_circuit_witness_roots() {
+        let proof = generate_merkle_proof(
+            &[
+                U256::from(11),
+                U256::from(22),
+                U256::from(33),
+                U256::from(44),
+                U256::from(55),
+            ],
+            U256::from(44),
+        )
+        .unwrap();
+        let mut witness = to_circuit_witness(&proof, proof.siblings.len()).unwrap();
+
+        witness.root += U256::from(1_u64);
+
+        assert!(!verify_circuit_witness(&witness).unwrap());
     }
 }

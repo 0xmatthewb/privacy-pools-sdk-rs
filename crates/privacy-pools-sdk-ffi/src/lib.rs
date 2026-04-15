@@ -2452,8 +2452,8 @@ mod tests {
                 .map(|value| value.as_str().unwrap().to_owned())
                 .collect::<Vec<_>>()
         );
-        assert_eq!(input.state_tree_depth, 32);
-        assert_eq!(input.asp_tree_depth, 32);
+        assert_eq!(input.state_tree_depth, 0);
+        assert_eq!(input.asp_tree_depth, 0);
 
         let missing_manifest = serde_json::to_string(&ArtifactManifest {
             version: "0.1.0-alpha.1".to_owned(),
