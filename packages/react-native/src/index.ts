@@ -71,6 +71,7 @@ type ExecutionPolicy = {
   caller: string;
   expected_pool_code_hash?: string | null;
   expected_entrypoint_code_hash?: string | null;
+  mode?: "strict" | "insecure_dev" | null;
 };
 
 type CodeHashCheck = {

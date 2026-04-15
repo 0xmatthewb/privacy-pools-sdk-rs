@@ -1223,14 +1223,16 @@ public struct FfiExecutionPolicy: Equatable, Hashable {
     public var caller: String
     public var expectedPoolCodeHash: String?
     public var expectedEntrypointCodeHash: String?
+    public var mode: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?) {
+    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?, mode: String?) {
         self.expectedChainId = expectedChainId
         self.caller = caller
         self.expectedPoolCodeHash = expectedPoolCodeHash
         self.expectedEntrypointCodeHash = expectedEntrypointCodeHash
+        self.mode = mode
     }
 
 
@@ -1252,7 +1254,8 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
                 expectedChainId: FfiConverterUInt64.read(from: &buf),
                 caller: FfiConverterString.read(from: &buf),
                 expectedPoolCodeHash: FfiConverterOptionString.read(from: &buf),
-                expectedEntrypointCodeHash: FfiConverterOptionString.read(from: &buf)
+                expectedEntrypointCodeHash: FfiConverterOptionString.read(from: &buf),
+                mode: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -1261,6 +1264,7 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
         FfiConverterString.write(value.caller, into: &buf)
         FfiConverterOptionString.write(value.expectedPoolCodeHash, into: &buf)
         FfiConverterOptionString.write(value.expectedEntrypointCodeHash, into: &buf)
+        FfiConverterOptionString.write(value.mode, into: &buf)
     }
 }
 
@@ -2980,6 +2984,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case InvalidCompatibilityMode(String
     )
+    case InvalidExecutionPolicyMode(String
+    )
     case SessionNotFound(String
     )
     case SignerNotFound(String
@@ -3039,22 +3045,25 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 6: return .InvalidCompatibilityMode(
             try FfiConverterString.read(from: &buf)
             )
-        case 7: return .SessionNotFound(
+        case 7: return .InvalidExecutionPolicyMode(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .SignerNotFound(
+        case 8: return .SessionNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 9: return .JobNotFound(
+        case 9: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .SignerRequiresExternalSigning(
+        case 10: return .JobNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 11: return .InvalidManifest(
+        case 11: return .SignerRequiresExternalSigning(
             try FfiConverterString.read(from: &buf)
             )
-        case 12: return .OperationFailed(
+        case 12: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 13: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -3099,33 +3108,38 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SessionNotFound(v1):
+        case let .InvalidExecutionPolicyMode(v1):
             writeInt(&buf, Int32(7))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerNotFound(v1):
+        case let .SessionNotFound(v1):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .JobNotFound(v1):
+        case let .SignerNotFound(v1):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerRequiresExternalSigning(v1):
+        case let .JobNotFound(v1):
             writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerRequiresExternalSigning(v1):
             writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .InvalidManifest(v1):
             writeInt(&buf, Int32(12))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(13))
             FfiConverterString.write(v1, into: &buf)
 
         }

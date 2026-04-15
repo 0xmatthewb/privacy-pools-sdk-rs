@@ -111,6 +111,8 @@ pub enum ChainError {
         expected: B256,
         actual: B256,
     },
+    #[error("missing required code hash expectation for contract at {address}")]
+    MissingCodeHashExpectation { address: Address },
     #[error("state root mismatch: expected {expected}, got {actual}")]
     StateRootMismatch { expected: U256, actual: U256 },
     #[error("asp root mismatch: expected {expected}, got {actual}")]
@@ -970,6 +972,10 @@ async fn preflight_transaction<C: ExecutionClient>(
 
     let mut code_hash_checks = Vec::with_capacity(code_expectations.len());
     for (address, expected_code_hash) in code_expectations {
+        if expected_code_hash.is_none() && !policy.is_insecure_dev() {
+            return Err(ChainError::MissingCodeHashExpectation { address });
+        }
+
         let actual_code_hash = client.code_hash(address).await?;
         let matches_expected = if let Some(expected_code_hash) = expected_code_hash {
             if expected_code_hash != actual_code_hash {
@@ -1411,6 +1417,7 @@ fn ragequit_proof_abi(proof: &ProofBundle) -> Result<RagequitProofAbi, ChainErro
 mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
+    use privacy_pools_sdk_core::ExecutionPolicyMode;
     use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
     use serde_json::Value;
 
@@ -2005,6 +2012,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy)
@@ -2019,6 +2027,95 @@ mod tests {
         assert_eq!(report.root_checks.len(), 2);
         assert!(report.root_checks[0].matches);
         assert!(report.root_checks[1].matches);
+    }
+
+    #[tokio::test]
+    async fn strict_policy_rejects_missing_code_hash_expectations() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let strict_policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: None,
+            mode: ExecutionPolicyMode::Strict,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &strict_policy).await,
+            Err(ChainError::MissingCodeHashExpectation { address }) if address == entrypoint
+        ));
+
+        let dev_policy =
+            ExecutionPolicy::insecure_dev(1, address!("9999999999999999999999999999999999999999"));
+        let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &dev_policy)
+            .await
+            .unwrap();
+
+        assert_eq!(report.code_hash_checks.len(), 2);
+        assert!(
+            report
+                .code_hash_checks
+                .iter()
+                .all(|check| check.matches_expected.is_none())
+        );
     }
 
     #[tokio::test]
@@ -2103,6 +2200,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         let report =
@@ -2188,6 +2286,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2272,6 +2371,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2335,6 +2435,7 @@ mod tests {
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             )),
             expected_entrypoint_code_hash: None,
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2399,6 +2500,7 @@ mod tests {
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
             )),
             expected_entrypoint_code_hash: None,
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2492,6 +2594,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2577,6 +2680,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2645,6 +2749,7 @@ mod tests {
             caller: Address::ZERO,
             expected_pool_code_hash: None,
             expected_entrypoint_code_hash: None,
+            mode: ExecutionPolicyMode::Strict,
         };
 
         assert!(matches!(
@@ -2737,6 +2842,7 @@ mod tests {
             expected_entrypoint_code_hash: Some(b256!(
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
+            mode: ExecutionPolicyMode::Strict,
         };
         let report = preflight_relay(
             &valid_client,

@@ -1648,6 +1648,12 @@ class PrivacyPoolsSdkModule(
                 } else {
                     null
                 },
+            mode =
+                if (policy.hasKey("mode") && !policy.isNull("mode")) {
+                    policy.getString("mode")
+                } else {
+                    null
+                },
         )
 
     private fun recoveryPolicyRecord(policy: ReadableMap): FfiRecoveryPolicy {

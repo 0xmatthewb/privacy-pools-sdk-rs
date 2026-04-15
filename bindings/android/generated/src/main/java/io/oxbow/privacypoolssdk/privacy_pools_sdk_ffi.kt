@@ -1947,6 +1947,8 @@ data class FfiExecutionPolicy (
     var `expectedPoolCodeHash`: kotlin.String?
     ,
     var `expectedEntrypointCodeHash`: kotlin.String?
+    ,
+    var `mode`: kotlin.String?
 
 ){
 
@@ -1967,6 +1969,7 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -1974,7 +1977,8 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterULong.allocationSize(value.`expectedChainId`) +
             FfiConverterString.allocationSize(value.`caller`) +
             FfiConverterOptionalString.allocationSize(value.`expectedPoolCodeHash`) +
-            FfiConverterOptionalString.allocationSize(value.`expectedEntrypointCodeHash`)
+            FfiConverterOptionalString.allocationSize(value.`expectedEntrypointCodeHash`) +
+            FfiConverterOptionalString.allocationSize(value.`mode`)
     )
 
     override fun write(value: FfiExecutionPolicy, buf: ByteBuffer) {
@@ -1982,6 +1986,7 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterString.write(value.`caller`, buf)
             FfiConverterOptionalString.write(value.`expectedPoolCodeHash`, buf)
             FfiConverterOptionalString.write(value.`expectedEntrypointCodeHash`, buf)
+            FfiConverterOptionalString.write(value.`mode`, buf)
     }
 }
 
@@ -3377,6 +3382,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class InvalidExecutionPolicyMode(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class SessionNotFound(
 
         val v1: kotlin.String
@@ -3462,22 +3475,25 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             6 -> FfiException.InvalidCompatibilityMode(
                 FfiConverterString.read(buf),
                 )
-            7 -> FfiException.SessionNotFound(
+            7 -> FfiException.InvalidExecutionPolicyMode(
                 FfiConverterString.read(buf),
                 )
-            8 -> FfiException.SignerNotFound(
+            8 -> FfiException.SessionNotFound(
                 FfiConverterString.read(buf),
                 )
-            9 -> FfiException.JobNotFound(
+            9 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            10 -> FfiException.SignerRequiresExternalSigning(
+            10 -> FfiException.JobNotFound(
                 FfiConverterString.read(buf),
                 )
-            11 -> FfiException.InvalidManifest(
+            11 -> FfiException.SignerRequiresExternalSigning(
                 FfiConverterString.read(buf),
                 )
-            12 -> FfiException.OperationFailed(
+            12 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            13 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -3512,6 +3528,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidCompatibilityMode -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidExecutionPolicyMode -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -3581,33 +3602,38 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SessionNotFound -> {
+            is FfiException.InvalidExecutionPolicyMode -> {
                 buf.putInt(7)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerNotFound -> {
+            is FfiException.SessionNotFound -> {
                 buf.putInt(8)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.JobNotFound -> {
+            is FfiException.SignerNotFound -> {
                 buf.putInt(9)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerRequiresExternalSigning -> {
+            is FfiException.JobNotFound -> {
                 buf.putInt(10)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.SignerRequiresExternalSigning -> {
                 buf.putInt(11)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(12)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(13)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }

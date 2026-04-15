@@ -5,7 +5,7 @@ use privacy_pools_sdk::{
     artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
     core::{
         CircuitMerkleWitness, CodeHashCheck, Commitment, CommitmentCircuitInput,
-        CommitmentWitnessRequest, ExecutionPolicy, ExecutionPreflightReport,
+        CommitmentWitnessRequest, ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
         FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
         RootCheck, RootReadKind, SnarkJsProof, TransactionPlan, TransactionReceiptSummary,
         Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
@@ -39,6 +39,8 @@ pub enum FfiError {
     InvalidArtifactKind(String),
     #[error("invalid compatibility mode: {0}")]
     InvalidCompatibilityMode(String),
+    #[error("invalid execution policy mode: {0}")]
+    InvalidExecutionPolicyMode(String),
     #[error("withdrawal circuit session handle not found: {0}")]
     SessionNotFound(String),
     #[error("signer handle not found: {0}")]
@@ -127,6 +129,7 @@ pub struct FfiExecutionPolicy {
     pub caller: String,
     pub expected_pool_code_hash: Option<String>,
     pub expected_entrypoint_code_hash: Option<String>,
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -492,6 +495,14 @@ fn parse_field(value: &str) -> Result<U256, FfiError> {
 
 fn parse_hash(value: &str) -> Result<B256, FfiError> {
     B256::from_str(value).map_err(|_| FfiError::InvalidHash(value.to_owned()))
+}
+
+fn parse_execution_policy_mode(value: &str) -> Result<ExecutionPolicyMode, FfiError> {
+    match value {
+        "strict" => Ok(ExecutionPolicyMode::Strict),
+        "insecure_dev" => Ok(ExecutionPolicyMode::InsecureDev),
+        _ => Err(FfiError::InvalidExecutionPolicyMode(value.to_owned())),
+    }
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind, FfiError> {
@@ -1077,6 +1088,13 @@ fn to_ffi_transaction_plan(plan: TransactionPlan) -> FfiTransactionPlan {
 }
 
 fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
+    let mode = policy
+        .mode
+        .as_deref()
+        .map(parse_execution_policy_mode)
+        .transpose()?
+        .unwrap_or_default();
+
     Ok(ExecutionPolicy {
         expected_chain_id: policy.expected_chain_id,
         caller: parse_address(&policy.caller)?,
@@ -1090,6 +1108,7 @@ fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPoli
             .as_deref()
             .map(parse_hash)
             .transpose()?,
+        mode,
     })
 }
 

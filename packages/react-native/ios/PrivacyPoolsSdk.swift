@@ -1832,7 +1832,8 @@ final class PrivacyPoolsSdk: NSObject {
             expectedChainId: expectedChainId.uint64Value,
             caller: caller,
             expectedPoolCodeHash: value["expected_pool_code_hash"] as? String,
-            expectedEntrypointCodeHash: value["expected_entrypoint_code_hash"] as? String
+            expectedEntrypointCodeHash: value["expected_entrypoint_code_hash"] as? String,
+            mode: value["mode"] as? String
         )
     }
 
