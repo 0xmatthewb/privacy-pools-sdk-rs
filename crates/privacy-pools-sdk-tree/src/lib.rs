@@ -12,7 +12,7 @@ pub enum TreeError {
     LeafNotFound,
     #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
     InvalidCircuitWitnessShape { expected: usize, actual: usize },
-    #[error("circuit witness index {index} exceeds declared depth {depth}")]
+    #[error("circuit witness index {index} exceeds circuit index bit width {depth}")]
     InvalidCircuitWitnessIndex { index: usize, depth: usize },
     #[error("circuit depth {depth} is smaller than proof depth {proof_depth}")]
     InvalidCircuitDepth { depth: usize, proof_depth: usize },
@@ -97,20 +97,19 @@ pub fn compute_circuit_root(witness: &CircuitMerkleWitness) -> Result<FieldEleme
     }
 
     let mut node = witness.leaf;
-    if witness.depth < usize::BITS as usize && (witness.index >> witness.depth) != 0 {
+    if DEFAULT_CIRCUIT_DEPTH < usize::BITS as usize && (witness.index >> DEFAULT_CIRCUIT_DEPTH) != 0
+    {
         return Err(TreeError::InvalidCircuitWitnessIndex {
             index: witness.index,
-            depth: witness.depth,
+            depth: DEFAULT_CIRCUIT_DEPTH,
         });
     }
 
-    for (level, sibling) in witness
-        .siblings
-        .iter()
-        .copied()
-        .take(witness.depth)
-        .enumerate()
-    {
+    for (level, sibling) in witness.siblings.iter().copied().enumerate() {
+        if sibling.is_zero() {
+            continue;
+        }
+
         let is_right = ((witness.index >> level) & 1) == 1;
         node = if is_right {
             poseidon_hash(&[sibling, node])?
@@ -191,6 +190,8 @@ mod tests {
         let witness = to_circuit_witness(&proof, DEFAULT_CIRCUIT_DEPTH).unwrap();
         assert_eq!(witness.siblings.len(), DEFAULT_CIRCUIT_DEPTH);
         assert_eq!(witness.siblings[3], U256::ZERO);
+        assert_eq!(compute_circuit_root(&witness).unwrap(), proof.root);
+        assert!(verify_circuit_witness(&witness).unwrap());
         assert!(verify_merkle_proof(&proof).unwrap());
     }
 
@@ -336,9 +337,9 @@ mod tests {
     }
 
     #[test]
-    fn zero_siblings_within_depth_are_hashed_not_ignored() {
+    fn zero_siblings_match_circuit_empty_node_semantics() {
         let witness = CircuitMerkleWitness {
-            root: U256::ZERO,
+            root: U256::from(44_u64),
             leaf: U256::from(44_u64),
             index: 0,
             siblings: {
@@ -349,16 +350,16 @@ mod tests {
             depth: 1,
         };
 
-        let expected = poseidon_hash(&[U256::from(44_u64), U256::ZERO]).unwrap();
-        assert_eq!(compute_circuit_root(&witness).unwrap(), expected);
+        assert_eq!(compute_circuit_root(&witness).unwrap(), U256::from(44_u64));
+        assert!(verify_circuit_witness(&witness).unwrap());
     }
 
     #[test]
-    fn rejects_indices_outside_declared_depth() {
+    fn rejects_indices_outside_circuit_depth() {
         let witness = CircuitMerkleWitness {
             root: U256::from(44_u64),
             leaf: U256::from(44_u64),
-            index: 4,
+            index: 1usize << DEFAULT_CIRCUIT_DEPTH,
             siblings: vec![U256::ZERO; DEFAULT_CIRCUIT_DEPTH],
             depth: 1,
         };
@@ -366,7 +367,8 @@ mod tests {
         assert!(matches!(
             compute_circuit_root(&witness),
             Err(TreeError::InvalidCircuitWitnessIndex { index, depth })
-                if index == 4 && depth == 1
+                if index == 1usize << DEFAULT_CIRCUIT_DEPTH
+                    && depth == DEFAULT_CIRCUIT_DEPTH
         ));
     }
 }

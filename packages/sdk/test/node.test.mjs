@@ -141,6 +141,16 @@ test("node addon matches merkle/context/input fixtures", async () => {
     input.withdrawnValue,
     withdrawalFixture.expected.normalizedInputs.withdrawnValue[0],
   );
+
+  const websiteShapedRequest = JSON.parse(JSON.stringify(request));
+  websiteShapedRequest.stateWitness.depth = 32;
+  websiteShapedRequest.aspWitness.depth = 32;
+  const websiteShapedInput =
+    await sdk.buildWithdrawalCircuitInput(websiteShapedRequest);
+  assert.equal(websiteShapedInput.stateTreeDepth, 32);
+  assert.equal(websiteShapedInput.aspTreeDepth, 32);
+  assert.equal(websiteShapedInput.stateRoot, request.stateWitness.root);
+  assert.equal(websiteShapedInput.aspRoot, request.aspWitness.root);
 });
 
 test("node addon verifies manifest-bound artifact bytes", async () => {

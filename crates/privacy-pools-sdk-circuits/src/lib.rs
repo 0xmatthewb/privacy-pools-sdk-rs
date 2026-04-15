@@ -21,6 +21,24 @@ pub enum CircuitError {
         existing_value: FieldElement,
         withdrawal_amount: FieldElement,
     },
+    #[error("withdrawal field `{field}` exceeds the circuit uint128 range: {value} > {max}")]
+    ValueExceedsCircuitU128 {
+        field: &'static str,
+        value: FieldElement,
+        max: FieldElement,
+    },
+    #[error(
+        "withdrawal field `{field}` is outside the contract deposit range: {value} >= {max_exclusive}"
+    )]
+    ValueExceedsContractDepositRange {
+        field: &'static str,
+        value: FieldElement,
+        max_exclusive: FieldElement,
+    },
+    #[error("new commitment field `{field}` cannot be zero")]
+    NewCommitmentFieldZero { field: &'static str },
+    #[error("new nullifier must not match the existing nullifier")]
+    NewNullifierMatchesExisting,
     #[error("state witness leaf mismatch: expected commitment hash {expected}, got {actual}")]
     StateWitnessLeafMismatch {
         expected: FieldElement,
@@ -43,8 +61,6 @@ pub enum CircuitError {
         depth: usize,
         max_depth: usize,
     },
-    #[error("merkle witness padding for `{name}` must be zero beyond depth {depth}")]
-    WitnessPaddingNotZero { name: &'static str, depth: usize },
     #[error("merkle witness root mismatch for `{name}`: expected {expected}, got {actual}")]
     WitnessRootMismatch {
         name: &'static str,
@@ -116,6 +132,15 @@ pub fn validate_withdrawal_request(request: &WithdrawalWitnessRequest) -> Result
         });
     }
 
+    validate_contract_deposit_value("existingValue", request.commitment.preimage.value)?;
+    validate_circuit_u128("withdrawnValue", request.withdrawal_amount)?;
+    validate_new_commitment_secret("newNullifier", request.new_nullifier)?;
+    validate_new_commitment_secret("newSecret", request.new_secret)?;
+
+    if request.new_nullifier == request.commitment.preimage.precommitment.nullifier {
+        return Err(CircuitError::NewNullifierMatchesExisting);
+    }
+
     if request.state_witness.leaf != request.commitment.hash {
         return Err(CircuitError::StateWitnessLeafMismatch {
             expected: request.commitment.hash,
@@ -154,18 +179,6 @@ fn validate_witness_shape(
         .into());
     }
 
-    if witness
-        .siblings
-        .iter()
-        .skip(witness.depth)
-        .any(|sibling| !sibling.is_zero())
-    {
-        return Err(CircuitError::WitnessPaddingNotZero {
-            name,
-            depth: witness.depth,
-        });
-    }
-
     let computed_root = tree::compute_circuit_root(witness)?;
     if computed_root != witness.root {
         return Err(CircuitError::WitnessRootMismatch {
@@ -175,6 +188,39 @@ fn validate_witness_shape(
         });
     }
 
+    Ok(())
+}
+
+fn validate_circuit_u128(field: &'static str, value: FieldElement) -> Result<(), CircuitError> {
+    let max = FieldElement::from(u128::MAX);
+    if value > max {
+        return Err(CircuitError::ValueExceedsCircuitU128 { field, value, max });
+    }
+    Ok(())
+}
+
+fn validate_contract_deposit_value(
+    field: &'static str,
+    value: FieldElement,
+) -> Result<(), CircuitError> {
+    let max_exclusive = FieldElement::from(u128::MAX);
+    if value >= max_exclusive {
+        return Err(CircuitError::ValueExceedsContractDepositRange {
+            field,
+            value,
+            max_exclusive,
+        });
+    }
+    Ok(())
+}
+
+fn validate_new_commitment_secret(
+    field: &'static str,
+    value: FieldElement,
+) -> Result<(), CircuitError> {
+    if value.is_zero() {
+        return Err(CircuitError::NewCommitmentFieldZero { field });
+    }
     Ok(())
 }
 
@@ -210,6 +256,71 @@ mod tests {
         assert!(matches!(
             error,
             CircuitError::CommitmentFieldMismatch { field, .. } if field == "precommitmentHash"
+        ));
+    }
+
+    #[test]
+    fn accepts_circuit_zero_sentinel_merkle_semantics() {
+        let mut request = valid_request();
+        request.state_witness.siblings[0] = U256::from(999_u64);
+        request.state_witness.depth = 0;
+        request.state_witness.root =
+            tree::compute_circuit_root(&request.state_witness).expect("root should compute");
+
+        let input = build_withdrawal_circuit_input(&request).expect("request should be valid");
+
+        assert_eq!(input.state_root, request.state_witness.root);
+        assert_eq!(input.state_tree_depth, 0);
+    }
+
+    #[test]
+    fn rejects_new_commitment_zero_secrets() {
+        let mut request = valid_request();
+        request.new_nullifier = U256::ZERO;
+
+        let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
+        assert!(matches!(
+            error,
+            CircuitError::NewCommitmentFieldZero { field } if field == "newNullifier"
+        ));
+
+        let mut request = valid_request();
+        request.new_secret = U256::ZERO;
+
+        let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
+        assert!(matches!(
+            error,
+            CircuitError::NewCommitmentFieldZero { field } if field == "newSecret"
+        ));
+    }
+
+    #[test]
+    fn rejects_reused_nullifiers_before_proving() {
+        let mut request = valid_request();
+        request.new_nullifier = request.commitment.preimage.precommitment.nullifier;
+
+        let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
+        assert!(matches!(error, CircuitError::NewNullifierMatchesExisting));
+    }
+
+    #[test]
+    fn rejects_existing_values_outside_contract_deposit_range() {
+        let mut request = valid_request();
+        request.withdrawal_amount = U256::from(1_u64);
+        request.commitment = crypto::get_commitment(
+            U256::from(u128::MAX),
+            request.commitment.preimage.label,
+            request.commitment.preimage.precommitment.nullifier,
+            request.commitment.preimage.precommitment.secret,
+        )
+        .expect("commitment should build");
+        request.state_witness.leaf = request.commitment.hash;
+        request.state_witness.root = request.commitment.hash;
+
+        let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
+        assert!(matches!(
+            error,
+            CircuitError::ValueExceedsContractDepositRange { field, .. } if field == "existingValue"
         ));
     }
 

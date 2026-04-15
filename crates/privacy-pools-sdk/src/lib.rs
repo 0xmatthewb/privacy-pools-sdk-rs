@@ -77,6 +77,24 @@ pub enum SdkError {
         existing_value: U256,
         withdrawal_amount: U256,
     },
+    #[error("withdrawal field `{field}` exceeds the circuit uint128 range: {value} > {max}")]
+    ValueExceedsCircuitU128 {
+        field: &'static str,
+        value: U256,
+        max: U256,
+    },
+    #[error(
+        "withdrawal field `{field}` is outside the contract deposit range: {value} >= {max_exclusive}"
+    )]
+    ValueExceedsContractDepositRange {
+        field: &'static str,
+        value: U256,
+        max_exclusive: U256,
+    },
+    #[error("new commitment field `{field}` cannot be zero")]
+    NewCommitmentFieldZero { field: &'static str },
+    #[error("new nullifier must not match the existing nullifier")]
+    NewNullifierMatchesExisting,
     #[error("state witness leaf mismatch: expected commitment hash {expected}, got {actual}")]
     StateWitnessLeafMismatch { expected: U256, actual: U256 },
     #[error("asp witness leaf mismatch: expected label {expected}, got {actual}")]
@@ -93,8 +111,6 @@ pub enum SdkError {
         depth: usize,
         max_depth: usize,
     },
-    #[error("merkle witness padding for `{name}` must be zero beyond depth {depth}")]
-    WitnessPaddingNotZero { name: &'static str, depth: usize },
     #[error("merkle witness root mismatch for `{name}`: expected {expected}, got {actual}")]
     WitnessRootMismatch {
         name: &'static str,
@@ -122,6 +138,24 @@ impl From<circuits::CircuitError> for SdkError {
                 existing_value,
                 withdrawal_amount,
             },
+            circuits::CircuitError::ValueExceedsCircuitU128 { field, value, max } => {
+                Self::ValueExceedsCircuitU128 { field, value, max }
+            }
+            circuits::CircuitError::ValueExceedsContractDepositRange {
+                field,
+                value,
+                max_exclusive,
+            } => Self::ValueExceedsContractDepositRange {
+                field,
+                value,
+                max_exclusive,
+            },
+            circuits::CircuitError::NewCommitmentFieldZero { field } => {
+                Self::NewCommitmentFieldZero { field }
+            }
+            circuits::CircuitError::NewNullifierMatchesExisting => {
+                Self::NewNullifierMatchesExisting
+            }
             circuits::CircuitError::StateWitnessLeafMismatch { expected, actual } => {
                 Self::StateWitnessLeafMismatch { expected, actual }
             }
@@ -146,9 +180,6 @@ impl From<circuits::CircuitError> for SdkError {
                 depth,
                 max_depth,
             },
-            circuits::CircuitError::WitnessPaddingNotZero { name, depth } => {
-                Self::WitnessPaddingNotZero { name, depth }
-            }
             circuits::CircuitError::WitnessRootMismatch {
                 name,
                 expected,
@@ -1417,54 +1448,50 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_zero_merkle_padding() {
+    fn accepts_circuit_zero_sentinel_merkle_semantics() {
         let sdk = PrivacyPoolsSdk::default();
-        let mut padded_siblings = vec![U256::ZERO; 32];
-        padded_siblings[3] = U256::from(999_u64);
+        let commitment = crypto::get_commitment(
+            U256::from(1_000_u64),
+            U256::from(456_u64),
+            U256::from(66_u64),
+            U256::from(77_u64),
+        )
+        .unwrap();
+        let mut state_witness = core::CircuitMerkleWitness {
+            root: U256::ZERO,
+            leaf: commitment.hash,
+            index: 0,
+            siblings: vec![U256::ZERO; 32],
+            depth: 3,
+        };
+        state_witness.siblings[3] = U256::from(999_u64);
+        state_witness.root = tree::compute_circuit_root(&state_witness).unwrap();
 
         let request = core::WithdrawalWitnessRequest {
-            commitment: core::Commitment {
-                hash: U256::from(123_u64),
-                nullifier_hash: U256::from(55_u64),
-                preimage: core::CommitmentPreimage {
-                    value: U256::from(1_000_u64),
-                    label: U256::from(456_u64),
-                    precommitment: core::Precommitment {
-                        hash: U256::from(55_u64),
-                        nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
-                    },
-                },
-            },
+            commitment,
             withdrawal: core::Withdrawal {
                 processooor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
             withdrawal_amount: U256::from(400_u64),
-            state_witness: core::CircuitMerkleWitness {
-                root: U256::from(999_u64),
-                leaf: U256::from(123_u64),
-                index: 0,
-                siblings: padded_siblings,
-                depth: 3,
-            },
+            state_witness,
             asp_witness: core::CircuitMerkleWitness {
-                root: U256::from(111_u64),
+                root: U256::from(456_u64),
                 leaf: U256::from(456_u64),
                 index: 0,
                 siblings: vec![U256::ZERO; 32],
-                depth: 32,
+                depth: 0,
             },
             new_nullifier: U256::from(222_u64),
             new_secret: U256::from(333_u64),
         };
 
-        assert!(matches!(
-            sdk.build_withdrawal_circuit_input(&request),
-            Err(SdkError::WitnessPaddingNotZero { name, depth })
-                if name == "state" && depth == 3
-        ));
+        let input = sdk
+            .build_withdrawal_circuit_input(&request)
+            .expect("request should be valid");
+        assert_eq!(input.state_root, request.state_witness.root);
+        assert_eq!(input.state_tree_depth, 3);
     }
 
     #[test]
@@ -1520,7 +1547,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_witness_indices_outside_declared_depth() {
+    fn rejects_witness_indices_outside_circuit_depth() {
         let sdk = PrivacyPoolsSdk::default();
         let commitment = crypto::get_commitment(
             U256::from(1_000_u64),
@@ -1541,7 +1568,7 @@ mod tests {
             state_witness: core::CircuitMerkleWitness {
                 root: commitment_hash,
                 leaf: commitment_hash,
-                index: 4,
+                index: 1usize << tree::DEFAULT_CIRCUIT_DEPTH,
                 siblings: vec![U256::ZERO; 32],
                 depth: 1,
             },
@@ -1559,7 +1586,8 @@ mod tests {
         assert!(matches!(
             sdk.build_withdrawal_circuit_input(&request),
             Err(SdkError::Tree(tree::TreeError::InvalidCircuitWitnessIndex { index, depth }))
-                if index == 4 && depth == 1
+                if index == 1usize << tree::DEFAULT_CIRCUIT_DEPTH
+                    && depth == tree::DEFAULT_CIRCUIT_DEPTH
         ));
     }
 
