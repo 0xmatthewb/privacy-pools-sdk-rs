@@ -23,7 +23,8 @@ verification, account recovery, transaction planning, and mobile bindings.
 
 Current first-class surfaces:
 
-- Rust crate
+- Rust crate published as `privacy-pools-sdk` from this `privacy-pools-sdk-rs`
+  repository
 - browser and Node package published as `@0xmatthewb/privacy-pools-sdk`
 - generated iOS bindings
 - generated Android bindings
@@ -65,6 +66,18 @@ Pool state roots and ASP roots are handled as distinct concepts. Prepared
 execution flows re-check chain identity, contract code hashes, roots, and
 transaction parameters before broadcast, and signer integrations remain explicit
 interfaces rather than raw private-key convenience paths hidden inside the SDK.
+
+## Rust SDK Naming
+
+The Rust package is `privacy-pools-sdk`, imported as `privacy_pools_sdk`. The
+repository name includes `-rs` only to distinguish this implementation from the
+browser, Node, mobile, and React Native package surfaces.
+
+Rust-facing APIs should make the protocol legible. Domain objects keep protocol
+names such as `Withdrawal`, `Commitment`, `ProofBundle`, and recovery state. The
+SDK uses the preferred Rust spelling `processor` for the processor address
+inside a withdrawal, while serialization keeps the deployed protocol key
+`processooor`.
 
 ## Workspace Layout
 
