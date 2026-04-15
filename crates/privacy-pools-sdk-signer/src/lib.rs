@@ -24,7 +24,7 @@ pub struct ExternalSigner {
     kind: SignerKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LocalMnemonicSigner {
     signer: PrivateKeySigner,
 }
@@ -46,11 +46,11 @@ impl LocalMnemonicSigner {
         })
     }
 
-    pub fn private_key_bytes(&self) -> B256 {
+    pub fn dangerously_export_private_key_bytes(&self) -> B256 {
         self.signer.to_bytes()
     }
 
-    pub fn private_key_signer(&self) -> PrivateKeySigner {
+    pub fn dangerously_clone_private_key_signer(&self) -> PrivateKeySigner {
         self.signer.clone()
     }
 
@@ -100,6 +100,16 @@ impl LocalMnemonicSigner {
         };
 
         Ok(envelope.encoded_2718().into())
+    }
+}
+
+impl std::fmt::Debug for LocalMnemonicSigner {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LocalMnemonicSigner")
+            .field("address", &self.address())
+            .field("private_key", &"[redacted]")
+            .finish()
     }
 }
 

@@ -207,7 +207,7 @@ impl LocalSignerExecutionClient {
 
         Ok(Self {
             provider: ProviderBuilder::new()
-                .wallet(signer.private_key_signer())
+                .wallet(signer.dangerously_clone_private_key_signer())
                 .connect_http(url)
                 .erased(),
             caller,
@@ -597,7 +597,7 @@ pub fn plan_withdrawal_transaction(
     proof: &ProofBundle,
 ) -> Result<TransactionPlan, ChainError> {
     ensure_non_zero_address(pool_address, "pool address")?;
-    ensure_non_zero_address(withdrawal.processooor, "withdrawal processooor")?;
+    ensure_non_zero_address(withdrawal.processor, "withdrawal processor")?;
 
     let formatted = format_groth16_proof(proof)?;
     let calldata = Bytes::from(
@@ -627,10 +627,10 @@ pub fn plan_relay_transaction(
 ) -> Result<TransactionPlan, ChainError> {
     ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
 
-    if withdrawal.processooor != entrypoint_address {
+    if withdrawal.processor != entrypoint_address {
         return Err(ChainError::RelayProcessooorMismatch {
             expected: entrypoint_address,
-            actual: withdrawal.processooor,
+            actual: withdrawal.processor,
         });
     }
 
@@ -1350,7 +1350,7 @@ fn receipt_summary<R: ReceiptResponse>(receipt: R) -> TransactionReceiptSummary 
 
 fn withdrawal_abi(withdrawal: &Withdrawal) -> WithdrawalAbi {
     WithdrawalAbi {
-        processooor: withdrawal.processooor,
+        processooor: withdrawal.processor,
         data: withdrawal.data.clone(),
     }
 }
@@ -1582,7 +1582,7 @@ mod tests {
             1,
             address!("0987654321098765432109876543210987654321"),
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -1615,11 +1615,11 @@ mod tests {
             public_signals: vec!["911".to_owned(); 4],
         };
         let withdrawal = Withdrawal {
-            processooor: address!("1111111111111111111111111111111111111111"),
+            processor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
         };
         let relay_withdrawal = Withdrawal {
-            processooor: entrypoint,
+            processor: entrypoint,
             data: valid_relay_data_bytes(),
         };
 
@@ -1688,7 +1688,7 @@ mod tests {
                 1,
                 address!("0987654321098765432109876543210987654321"),
                 &Withdrawal {
-                    processooor: address!("1111111111111111111111111111111111111111"),
+                    processor: address!("1111111111111111111111111111111111111111"),
                     data: bytes!("1234"),
                 },
                 &proof,
@@ -1744,7 +1744,7 @@ mod tests {
                 1,
                 Address::ZERO,
                 &Withdrawal {
-                    processooor: address!("1111111111111111111111111111111111111111"),
+                    processor: address!("1111111111111111111111111111111111111111"),
                     data: bytes!("1234"),
                 },
                 &proof,
@@ -1759,13 +1759,13 @@ mod tests {
                 1,
                 address!("0987654321098765432109876543210987654321"),
                 &Withdrawal {
-                    processooor: Address::ZERO,
+                    processor: Address::ZERO,
                     data: bytes!("1234"),
                 },
                 &proof,
             ),
             Err(ChainError::ZeroAddress {
-                field: "withdrawal processooor"
+                field: "withdrawal processor"
             })
         ));
     }
@@ -1801,7 +1801,7 @@ mod tests {
                 1,
                 entrypoint,
                 &Withdrawal {
-                    processooor: entrypoint,
+                    processor: entrypoint,
                     data: valid_relay_data_bytes(),
                 },
                 &proof,
@@ -1842,7 +1842,7 @@ mod tests {
                 1,
                 entrypoint,
                 &Withdrawal {
-                    processooor: address!("1111111111111111111111111111111111111111"),
+                    processor: address!("1111111111111111111111111111111111111111"),
                     data: bytes!("1234"),
                 },
                 &proof,
@@ -1884,7 +1884,7 @@ mod tests {
                 1,
                 Address::ZERO,
                 &Withdrawal {
-                    processooor: Address::ZERO,
+                    processor: Address::ZERO,
                     data: valid_relay_data_bytes(),
                 },
                 &proof,
@@ -1927,7 +1927,7 @@ mod tests {
                 1,
                 entrypoint,
                 &Withdrawal {
-                    processooor: entrypoint,
+                    processor: entrypoint,
                     data: bytes!("1234"),
                 },
                 &proof,
@@ -1960,7 +1960,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2043,7 +2043,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2137,7 +2137,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2227,7 +2227,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2310,7 +2310,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2374,7 +2374,7 @@ mod tests {
             1,
             pool,
             &Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             &proof,
@@ -2446,7 +2446,7 @@ mod tests {
             1,
             entrypoint,
             &Withdrawal {
-                processooor: entrypoint,
+                processor: entrypoint,
                 data: valid_relay_data_bytes(),
             },
             &proof,
@@ -2543,7 +2543,7 @@ mod tests {
             1,
             entrypoint,
             &Withdrawal {
-                processooor: entrypoint,
+                processor: entrypoint,
                 data: valid_relay_data_bytes(),
             },
             &proof,
@@ -2624,7 +2624,7 @@ mod tests {
             1,
             entrypoint,
             &Withdrawal {
-                processooor: entrypoint,
+                processor: entrypoint,
                 data: valid_relay_data_bytes(),
             },
             &proof,
@@ -2691,7 +2691,7 @@ mod tests {
             1,
             entrypoint,
             &Withdrawal {
-                processooor: entrypoint,
+                processor: entrypoint,
                 data: valid_relay_data_bytes(),
             },
             &proof,

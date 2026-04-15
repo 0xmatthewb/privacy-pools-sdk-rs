@@ -480,8 +480,8 @@ pub fn serialize_commitment_circuit_input(
 
     insert_field(&mut json, "value", input.value.to_string());
     insert_field(&mut json, "label", input.label.to_string());
-    insert_field(&mut json, "nullifier", input.nullifier.to_string());
-    insert_field(&mut json, "secret", input.secret.to_string());
+    insert_field(&mut json, "nullifier", input.nullifier.to_decimal_string());
+    insert_field(&mut json, "secret", input.secret.to_decimal_string());
 
     serde_json::to_string(&Value::Object(json))
         .map_err(|error| ProverError::InputSerialization(error.to_string()))
@@ -518,15 +518,19 @@ pub fn serialize_withdrawal_circuit_input(
     insert_field(
         &mut json,
         "existingNullifier",
-        input.existing_nullifier.to_string(),
+        input.existing_nullifier.to_decimal_string(),
     );
     insert_field(
         &mut json,
         "existingSecret",
-        input.existing_secret.to_string(),
+        input.existing_secret.to_decimal_string(),
     );
-    insert_field(&mut json, "newNullifier", input.new_nullifier.to_string());
-    insert_field(&mut json, "newSecret", input.new_secret.to_string());
+    insert_field(
+        &mut json,
+        "newNullifier",
+        input.new_nullifier.to_decimal_string(),
+    );
+    insert_field(&mut json, "newSecret", input.new_secret.to_decimal_string());
     insert_fields(
         &mut json,
         "stateSiblings",
@@ -995,11 +999,17 @@ mod tests {
             existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
                 .unwrap(),
             existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
-                .unwrap(),
+                .unwrap()
+                .into(),
             existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
-                .unwrap(),
-            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap()).unwrap(),
-            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap()).unwrap(),
+                .unwrap()
+                .into(),
+            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap())
+                .unwrap()
+                .into(),
+            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap())
+                .unwrap()
+                .into(),
             state_siblings: fixture["stateWitness"]["siblings"]
                 .as_array()
                 .unwrap()
@@ -1029,11 +1039,13 @@ mod tests {
             nullifier: parse_decimal_field(
                 "9878240014447325541744515257207865961484965884202615717842202674496027003398",
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
             secret: parse_decimal_field(
                 "13069389595930744619595476459130906967784496307970072089240474669876753189225",
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
         };
 
         let normalized: Value =
@@ -1063,11 +1075,13 @@ mod tests {
             nullifier: parse_decimal_field(
                 "9878240014447325541744515257207865961484965884202615717842202674496027003398",
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
             secret: parse_decimal_field(
                 "13069389595930744619595476459130906967784496307970072089240474669876753189225",
             )
-            .unwrap(),
+            .unwrap()
+            .into(),
         };
 
         let witness = generate_commitment_witness(&input).unwrap();
@@ -1102,11 +1116,17 @@ mod tests {
             existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
                 .unwrap(),
             existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
-                .unwrap(),
+                .unwrap()
+                .into(),
             existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
-                .unwrap(),
-            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap()).unwrap(),
-            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap()).unwrap(),
+                .unwrap()
+                .into(),
+            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap())
+                .unwrap()
+                .into(),
+            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap())
+                .unwrap()
+                .into(),
             state_siblings: fixture["stateWitness"]["siblings"]
                 .as_array()
                 .unwrap()

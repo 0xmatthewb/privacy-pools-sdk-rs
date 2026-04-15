@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, B256, U256};
-use privacy_pools_sdk_core::{FieldElement, MasterKeys, Scope};
+use privacy_pools_sdk_core::{FieldElement, MasterKeys, Scope, Secret};
 use privacy_pools_sdk_crypto::{
     CryptoError, generate_deposit_secrets, generate_legacy_master_keys, generate_master_keys,
     generate_withdrawal_secrets, get_commitment, hash_nullifier, hash_precommitment,
@@ -106,7 +106,7 @@ pub struct RecoveredCommitment {
     pub value: FieldElement,
     pub label: FieldElement,
     pub nullifier: FieldElement,
-    pub secret: FieldElement,
+    pub secret: Secret,
     pub block_number: u64,
     pub transaction_hash: B256,
     pub is_migration: bool,
@@ -447,7 +447,7 @@ fn process_deposit_events(
 
     while consecutive_misses < MAX_CONSECUTIVE_DEPOSIT_MISSES {
         let (nullifier, secret) = generate_deposit_secrets(keys, scope, U256::from(index))?;
-        let precommitment_hash = hash_precommitment(nullifier, secret)?;
+        let precommitment_hash = hash_precommitment(nullifier, secret.clone())?;
 
         if let Some(event) = deposit_events
             .iter()
@@ -515,7 +515,8 @@ fn process_withdrawal_events(
             let remaining_value = current_commitment.value - withdrawal.withdrawn_value;
             let (nullifier, secret) =
                 generate_withdrawal_secrets(keys, label, U256::from(child_index))?;
-            let computed_commitment = get_commitment(remaining_value, label, nullifier, secret)?;
+            let computed_commitment =
+                get_commitment(remaining_value, label, nullifier, secret.clone())?;
             let is_migration = computed_commitment.hash != withdrawal.new_commitment_hash;
 
             let next_commitment = book.add_child_commitment(
@@ -565,7 +566,7 @@ fn discover_migrated_commitments(
             migration_child.value,
             legacy_account.label,
             nullifier,
-            secret,
+            secret.clone(),
         )?;
         let Some(withdrawal_event) = withdrawal_events
             .iter()
@@ -579,7 +580,7 @@ fn discover_migrated_commitments(
             AccountInsertion {
                 value: migration_child.value,
                 nullifier,
-                secret,
+                secret: secret.clone(),
                 label: legacy_account.label,
                 block_number: withdrawal_event.block_number,
                 transaction_hash: withdrawal_event.transaction_hash,
@@ -621,11 +622,11 @@ struct RecoveryBook {
     scopes: Vec<RecoveredScope>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct AccountInsertion {
     value: FieldElement,
     nullifier: FieldElement,
-    secret: FieldElement,
+    secret: Secret,
     label: FieldElement,
     block_number: u64,
     transaction_hash: B256,
@@ -633,13 +634,13 @@ struct AccountInsertion {
     expected_hash: Option<FieldElement>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ChildInsertion {
     parent_hash: FieldElement,
     value: FieldElement,
     label: FieldElement,
     nullifier: FieldElement,
-    secret: FieldElement,
+    secret: Secret,
     block_number: u64,
     transaction_hash: B256,
     is_migration: bool,
@@ -674,7 +675,7 @@ impl RecoveryBook {
             insertion.value,
             insertion.label,
             insertion.nullifier,
-            insertion.secret,
+            insertion.secret.clone(),
         )?;
         if let Some(expected_hash) = insertion.expected_hash
             && commitment.hash != expected_hash
@@ -716,7 +717,7 @@ impl RecoveryBook {
             insertion.value,
             insertion.label,
             insertion.nullifier,
-            insertion.secret,
+            insertion.secret.clone(),
         )?;
         let account = self
             .accounts_mut(scope)

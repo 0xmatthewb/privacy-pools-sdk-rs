@@ -483,15 +483,15 @@ fn reference_withdrawal_request(sdk: &PrivacyPoolsSdk) -> Result<core::Withdrawa
             deposit_secret,
         )?,
         withdrawal: core::Withdrawal {
-            processooor: address!("1111111111111111111111111111111111111111"),
+            processor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
         },
         scope,
         withdrawal_amount: parse_u256(&withdrawal_fixture["withdrawalAmount"])?,
         state_witness: parse_circuit_witness(&withdrawal_fixture["stateWitness"])?,
         asp_witness: parse_circuit_witness(&withdrawal_fixture["aspWitness"])?,
-        new_nullifier: parse_u256(&withdrawal_fixture["newNullifier"])?,
-        new_secret: parse_u256(&withdrawal_fixture["newSecret"])?,
+        new_nullifier: parse_u256(&withdrawal_fixture["newNullifier"])?.into(),
+        new_secret: parse_u256(&withdrawal_fixture["newSecret"])?.into(),
     })
 }
 

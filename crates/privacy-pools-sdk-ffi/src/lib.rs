@@ -523,8 +523,8 @@ fn parse_backend_profile(value: &str) -> Result<BackendProfile, FfiError> {
 
 fn to_master_keys(master_nullifier: &str, master_secret: &str) -> Result<MasterKeys, FfiError> {
     Ok(MasterKeys {
-        master_nullifier: parse_field(master_nullifier)?,
-        master_secret: parse_field(master_secret)?,
+        master_nullifier: parse_field(master_nullifier)?.into(),
+        master_secret: parse_field(master_secret)?.into(),
     })
 }
 
@@ -974,7 +974,7 @@ fn to_ffi_secrets(
 ) -> FfiSecrets {
     FfiSecrets {
         nullifier: field_label(nullifier),
-        secret: field_label(secret),
+        secret: secret.to_decimal_string(),
     }
 }
 
@@ -995,7 +995,7 @@ fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiComm
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
         nullifier: field_label(commitment.preimage.precommitment.nullifier),
-        secret: field_label(commitment.preimage.precommitment.secret),
+        secret: commitment.preimage.precommitment.secret.to_decimal_string(),
     }
 }
 
@@ -1009,7 +1009,7 @@ fn from_ffi_commitment(commitment: FfiCommitment) -> Result<Commitment, FfiError
             precommitment: privacy_pools_sdk::core::Precommitment {
                 hash: parse_field(&commitment.precommitment_hash)?,
                 nullifier: parse_field(&commitment.nullifier)?,
-                secret: parse_field(&commitment.secret)?,
+                secret: parse_field(&commitment.secret)?.into(),
             },
         },
     })
@@ -1196,7 +1196,7 @@ fn to_ffi_submitted_execution(
 
 fn from_ffi_withdrawal(withdrawal: FfiWithdrawal) -> Result<Withdrawal, FfiError> {
     Ok(Withdrawal {
-        processooor: parse_address(&withdrawal.processooor)?,
+        processor: parse_address(&withdrawal.processooor)?,
         data: withdrawal.data.into(),
     })
 }
@@ -1490,10 +1490,10 @@ fn to_ffi_withdrawal_circuit_input(
         context: field_label(input.context),
         label: field_label(input.label),
         existing_value: field_label(input.existing_value),
-        existing_nullifier: field_label(input.existing_nullifier),
-        existing_secret: field_label(input.existing_secret),
-        new_nullifier: field_label(input.new_nullifier),
-        new_secret: field_label(input.new_secret),
+        existing_nullifier: input.existing_nullifier.to_decimal_string(),
+        existing_secret: input.existing_secret.to_decimal_string(),
+        new_nullifier: input.new_nullifier.to_decimal_string(),
+        new_secret: input.new_secret.to_decimal_string(),
         state_siblings: input.state_siblings.into_iter().map(field_label).collect(),
         state_index: u64::try_from(input.state_index)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
@@ -1507,8 +1507,8 @@ fn to_ffi_commitment_circuit_input(input: &CommitmentCircuitInput) -> FfiCommitm
     FfiCommitmentCircuitInput {
         value: field_label(input.value),
         label: field_label(input.label),
-        nullifier: field_label(input.nullifier),
-        secret: field_label(input.secret),
+        nullifier: input.nullifier.to_decimal_string(),
+        secret: input.secret.to_decimal_string(),
     }
 }
 
@@ -1558,8 +1558,8 @@ fn from_ffi_withdrawal_witness_request(
         withdrawal_amount: parse_field(&request.withdrawal_amount)?,
         state_witness: from_ffi_circuit_merkle_witness(request.state_witness)?,
         asp_witness: from_ffi_circuit_merkle_witness(request.asp_witness)?,
-        new_nullifier: parse_field(&request.new_nullifier)?,
-        new_secret: parse_field(&request.new_secret)?,
+        new_nullifier: parse_field(&request.new_nullifier)?.into(),
+        new_secret: parse_field(&request.new_secret)?.into(),
     })
 }
 
@@ -1801,8 +1801,8 @@ pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     Ok(FfiMasterKeys {
-        master_nullifier: keys.master_nullifier.to_string(),
-        master_secret: keys.master_secret.to_string(),
+        master_nullifier: keys.master_nullifier.to_decimal_string(),
+        master_secret: keys.master_secret.to_decimal_string(),
     })
 }
 

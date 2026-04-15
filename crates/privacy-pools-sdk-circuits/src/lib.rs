@@ -77,8 +77,8 @@ pub fn build_commitment_circuit_input(
     Ok(CommitmentCircuitInput {
         value: request.commitment.preimage.value,
         label: request.commitment.preimage.label,
-        nullifier: request.commitment.preimage.precommitment.nullifier,
-        secret: request.commitment.preimage.precommitment.secret,
+        nullifier: request.commitment.preimage.precommitment.nullifier.into(),
+        secret: request.commitment.preimage.precommitment.secret.clone(),
     })
 }
 
@@ -100,10 +100,10 @@ pub fn build_withdrawal_circuit_input(
         context: crypto::calculate_context_field(&request.withdrawal, request.scope)?,
         label: request.commitment.preimage.label,
         existing_value: request.commitment.preimage.value,
-        existing_nullifier: request.commitment.preimage.precommitment.nullifier,
-        existing_secret: request.commitment.preimage.precommitment.secret,
-        new_nullifier: request.new_nullifier,
-        new_secret: request.new_secret,
+        existing_nullifier: request.commitment.preimage.precommitment.nullifier.into(),
+        existing_secret: request.commitment.preimage.precommitment.secret.clone(),
+        new_nullifier: request.new_nullifier.clone(),
+        new_secret: request.new_secret.clone(),
         state_siblings: request.state_witness.siblings.clone(),
         state_index: request.state_witness.index,
         asp_siblings: request.asp_witness.siblings.clone(),
@@ -126,8 +126,8 @@ pub fn validate_withdrawal_request(request: &WithdrawalWitnessRequest) -> Result
 
     validate_contract_deposit_value("existingValue", request.commitment.preimage.value)?;
     validate_circuit_u128("withdrawnValue", request.withdrawal_amount)?;
-    validate_new_commitment_secret("newNullifier", request.new_nullifier)?;
-    validate_new_commitment_secret("newSecret", request.new_secret)?;
+    validate_new_commitment_secret("newNullifier", &request.new_nullifier)?;
+    validate_new_commitment_secret("newSecret", &request.new_secret)?;
 
     if request.new_nullifier == request.commitment.preimage.precommitment.nullifier {
         return Err(CircuitError::NewNullifierMatchesExisting);
@@ -240,7 +240,7 @@ fn validate_contract_deposit_value(
 
 fn validate_new_commitment_secret(
     field: &'static str,
-    value: FieldElement,
+    value: &privacy_pools_sdk_core::Secret,
 ) -> Result<(), CircuitError> {
     if value.is_zero() {
         return Err(CircuitError::NewCommitmentFieldZero { field });
@@ -253,7 +253,7 @@ fn recompute_commitment(commitment: &Commitment) -> Result<Commitment, CircuitEr
         commitment.preimage.value,
         commitment.preimage.label,
         commitment.preimage.precommitment.nullifier,
-        commitment.preimage.precommitment.secret,
+        commitment.preimage.precommitment.secret.clone(),
     )?)
 }
 
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn rejects_new_commitment_zero_secrets() {
         let mut request = valid_request();
-        request.new_nullifier = U256::ZERO;
+        request.new_nullifier = U256::ZERO.into();
 
         let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
         assert!(matches!(
@@ -350,7 +350,7 @@ mod tests {
         ));
 
         let mut request = valid_request();
-        request.new_secret = U256::ZERO;
+        request.new_secret = U256::ZERO.into();
 
         let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
         assert!(matches!(
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn rejects_reused_nullifiers_before_proving() {
         let mut request = valid_request();
-        request.new_nullifier = request.commitment.preimage.precommitment.nullifier;
+        request.new_nullifier = request.commitment.preimage.precommitment.nullifier.into();
 
         let error = build_withdrawal_circuit_input(&request).expect_err("request should fail");
         assert!(matches!(error, CircuitError::NewNullifierMatchesExisting));
@@ -415,13 +415,13 @@ mod tests {
             },
             commitment,
             withdrawal: privacy_pools_sdk_core::Withdrawal {
-                processooor: Address::repeat_byte(0x11),
+                processor: Address::repeat_byte(0x11),
                 data: Bytes::from_static(&[0x12, 0x34]),
             },
             scope: U256::from(789_u64),
             withdrawal_amount: U256::from(400_u64),
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         }
     }
 }

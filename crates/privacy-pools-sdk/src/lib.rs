@@ -1,3 +1,36 @@
+//! Rust SDK facade for Privacy Pools.
+//!
+//! This crate is published as `privacy-pools-sdk`; the repository is named
+//! `privacy-pools-sdk-rs` only to identify this as the Rust implementation.
+//! The SDK is still alpha software: APIs may change before a stable release,
+//! and applications should pin exact versions.
+//!
+//! The root crate gathers the protocol-focused crates behind one facade for
+//! key derivation, commitment construction, Merkle witnesses, local proving,
+//! verification, recovery, transaction planning, and execution preflight.
+//! Secret protocol material uses redacted Rust types and should only be
+//! exported through explicitly named serialization methods.
+//!
+//! ```
+//! use alloy_primitives::{address, bytes, U256};
+//! use privacy_pools_sdk::{PrivacyPoolsSdk, core};
+//!
+//! let sdk = PrivacyPoolsSdk::default();
+//! let secret = core::Secret::new(U256::from(7_u64));
+//! assert_eq!(format!("{secret:?}"), "Secret([redacted])");
+//!
+//! let withdrawal = core::Withdrawal::new(
+//!     address!("1111111111111111111111111111111111111111"),
+//!     bytes!("1234"),
+//! );
+//! let json = serde_json::to_value(&withdrawal)?;
+//! assert!(json.get("processooor").is_some());
+//! assert_eq!(withdrawal.processor(), address!("1111111111111111111111111111111111111111"));
+//! assert!(!PrivacyPoolsSdk::version().is_empty());
+//! drop(sdk);
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! ```
+
 pub use privacy_pools_sdk_artifacts as artifacts;
 pub use privacy_pools_sdk_chain as chain;
 pub use privacy_pools_sdk_circuits as circuits;
@@ -13,6 +46,7 @@ use privacy_pools_sdk_prover::{BackendPolicy, BackendProfile, NativeProofEngine,
 use std::{collections::VecDeque, path::Path};
 use thiserror::Error;
 
+/// Prepared proof, transaction calldata, and preflight report for a transaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreparedTransactionExecution {
     pub proving: prover::ProvingResult,
@@ -20,28 +54,120 @@ pub struct PreparedTransactionExecution {
     pub preflight: core::ExecutionPreflightReport,
 }
 
+/// A prepared transaction after nonce, gas, and fee finalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinalizedTransactionExecution {
     pub prepared: PreparedTransactionExecution,
     pub request: core::FinalizedTransactionRequest,
 }
 
+/// A prepared transaction plus its submitted-chain receipt summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubmittedTransactionExecution {
     pub prepared: PreparedTransactionExecution,
     pub receipt: core::TransactionReceiptSummary,
 }
 
+/// Prepared withdrawal circuit artifacts that can be reused across proofs.
 #[derive(Clone)]
 pub struct WithdrawalCircuitSession {
     bundle: artifacts::VerifiedArtifactBundle,
     prepared: prover::PreparedCircuitArtifacts,
 }
 
+/// Prepared commitment circuit artifacts that can be reused across proofs.
 #[derive(Clone)]
 pub struct CommitmentCircuitSession {
     bundle: artifacts::VerifiedArtifactBundle,
     prepared: prover::PreparedCircuitArtifacts,
+}
+
+/// Request object for deriving deposit nullifier and secret values.
+#[derive(Debug, Clone, Copy)]
+pub struct DepositSecretsRequest<'a> {
+    pub keys: &'a core::MasterKeys,
+    pub scope: U256,
+    pub index: U256,
+}
+
+/// Request object for deriving withdrawal nullifier and secret values.
+#[derive(Debug, Clone, Copy)]
+pub struct WithdrawalSecretsRequest<'a> {
+    pub keys: &'a core::MasterKeys,
+    pub label: U256,
+    pub index: U256,
+}
+
+/// Request object for commitment construction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitmentRequest {
+    pub value: U256,
+    pub label: U256,
+    pub nullifier: core::Nullifier,
+    pub secret: core::Secret,
+}
+
+impl CommitmentRequest {
+    /// Creates a commitment request while accepting raw field elements at the
+    /// explicit construction boundary.
+    pub fn new(
+        value: U256,
+        label: U256,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
+    ) -> Self {
+        Self {
+            value,
+            label,
+            nullifier: nullifier.into(),
+            secret: secret.into(),
+        }
+    }
+}
+
+/// Request object for withdrawal transaction planning.
+#[derive(Debug, Clone, Copy)]
+pub struct WithdrawalTransactionRequest<'a> {
+    pub chain_id: u64,
+    pub pool_address: Address,
+    pub withdrawal: &'a core::Withdrawal,
+    pub proof: &'a core::ProofBundle,
+}
+
+/// Request object for relay transaction planning.
+#[derive(Debug, Clone, Copy)]
+pub struct RelayTransactionRequest<'a> {
+    pub chain_id: u64,
+    pub entrypoint_address: Address,
+    pub withdrawal: &'a core::Withdrawal,
+    pub proof: &'a core::ProofBundle,
+    pub scope: U256,
+}
+
+/// Request object for ragequit transaction planning.
+#[derive(Debug, Clone, Copy)]
+pub struct RagequitTransactionRequest<'a> {
+    pub chain_id: u64,
+    pub pool_address: Address,
+    pub proof: &'a core::ProofBundle,
+}
+
+/// Config object for commitment proof generation.
+#[derive(Debug, Clone, Copy)]
+pub struct CommitmentProvingConfig<'a, P> {
+    pub profile: BackendProfile,
+    pub manifest: &'a artifacts::ArtifactManifest,
+    pub root: P,
+    pub request: &'a core::CommitmentWitnessRequest,
+}
+
+/// Config object for withdrawal proof generation.
+#[derive(Debug, Clone, Copy)]
+pub struct WithdrawalProvingConfig<'a, P> {
+    pub profile: BackendProfile,
+    pub manifest: &'a artifacts::ArtifactManifest,
+    pub root: P,
+    pub request: &'a core::WithdrawalWitnessRequest,
 }
 
 impl WithdrawalCircuitSession {
@@ -362,6 +488,105 @@ pub enum SdkError {
     },
 }
 
+/// Stable machine-readable SDK error code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SdkErrorCode {
+    Core,
+    Crypto,
+    Tree,
+    Artifact,
+    Prover,
+    Chain,
+    Signer,
+    ProofRejected,
+    WithdrawalAmountExceedsExistingValue,
+    ValueExceedsCircuitU128,
+    ValueExceedsContractDepositRange,
+    NewCommitmentFieldZero,
+    NewNullifierMatchesExisting,
+    StateWitnessLeafMismatch,
+    AspWitnessLeafMismatch,
+    CommitmentFieldMismatch,
+    WitnessDepthExceedsProtocolMaximum,
+    WitnessRootMismatch,
+    WithdrawProofSignalMismatch,
+    CommitmentProofSignalMismatch,
+}
+
+/// Broad error class suitable for UI, logging, and FFI boundaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SdkErrorCategory {
+    Input,
+    Secret,
+    Artifact,
+    Proving,
+    Chain,
+    Signing,
+}
+
+impl SdkError {
+    /// Returns a stable code for this error variant.
+    pub const fn code(&self) -> SdkErrorCode {
+        match self {
+            Self::Core(_) => SdkErrorCode::Core,
+            Self::Crypto(_) => SdkErrorCode::Crypto,
+            Self::Tree(_) => SdkErrorCode::Tree,
+            Self::Artifact(_) => SdkErrorCode::Artifact,
+            Self::Prover(_) => SdkErrorCode::Prover,
+            Self::Chain(_) => SdkErrorCode::Chain,
+            Self::Signer(_) => SdkErrorCode::Signer,
+            Self::ProofRejected => SdkErrorCode::ProofRejected,
+            Self::WithdrawalAmountExceedsExistingValue { .. } => {
+                SdkErrorCode::WithdrawalAmountExceedsExistingValue
+            }
+            Self::ValueExceedsCircuitU128 { .. } => SdkErrorCode::ValueExceedsCircuitU128,
+            Self::ValueExceedsContractDepositRange { .. } => {
+                SdkErrorCode::ValueExceedsContractDepositRange
+            }
+            Self::NewCommitmentFieldZero { .. } => SdkErrorCode::NewCommitmentFieldZero,
+            Self::NewNullifierMatchesExisting => SdkErrorCode::NewNullifierMatchesExisting,
+            Self::StateWitnessLeafMismatch { .. } => SdkErrorCode::StateWitnessLeafMismatch,
+            Self::AspWitnessLeafMismatch { .. } => SdkErrorCode::AspWitnessLeafMismatch,
+            Self::CommitmentFieldMismatch { .. } => SdkErrorCode::CommitmentFieldMismatch,
+            Self::WitnessDepthExceedsProtocolMaximum { .. } => {
+                SdkErrorCode::WitnessDepthExceedsProtocolMaximum
+            }
+            Self::WitnessRootMismatch { .. } => SdkErrorCode::WitnessRootMismatch,
+            Self::WithdrawProofSignalMismatch { .. } => SdkErrorCode::WithdrawProofSignalMismatch,
+            Self::CommitmentProofSignalMismatch { .. } => {
+                SdkErrorCode::CommitmentProofSignalMismatch
+            }
+        }
+    }
+
+    /// Returns the broad category for this error.
+    pub const fn category(&self) -> SdkErrorCategory {
+        match self {
+            Self::Artifact(_) => SdkErrorCategory::Artifact,
+            Self::Prover(_) | Self::ProofRejected => SdkErrorCategory::Proving,
+            Self::Chain(_) => SdkErrorCategory::Chain,
+            Self::Signer(_) => SdkErrorCategory::Signing,
+            Self::Crypto(_)
+            | Self::NewCommitmentFieldZero { .. }
+            | Self::NewNullifierMatchesExisting => SdkErrorCategory::Secret,
+            Self::Core(_)
+            | Self::Tree(_)
+            | Self::WithdrawalAmountExceedsExistingValue { .. }
+            | Self::ValueExceedsCircuitU128 { .. }
+            | Self::ValueExceedsContractDepositRange { .. }
+            | Self::StateWitnessLeafMismatch { .. }
+            | Self::AspWitnessLeafMismatch { .. }
+            | Self::CommitmentFieldMismatch { .. }
+            | Self::WitnessDepthExceedsProtocolMaximum { .. }
+            | Self::WitnessRootMismatch { .. }
+            | Self::WithdrawProofSignalMismatch { .. }
+            | Self::CommitmentProofSignalMismatch { .. } => SdkErrorCategory::Input,
+        }
+    }
+}
+
 impl From<circuits::CircuitError> for SdkError {
     fn from(error: circuits::CircuitError) -> Self {
         match error {
@@ -480,6 +705,13 @@ impl PrivacyPoolsSdk {
         crypto::generate_deposit_secrets(keys, scope, index)
     }
 
+    pub fn generate_deposit_secrets_with(
+        &self,
+        request: DepositSecretsRequest<'_>,
+    ) -> Result<(core::Nullifier, core::Secret), crypto::CryptoError> {
+        self.generate_deposit_secrets(request.keys, request.scope, request.index)
+    }
+
     pub fn generate_withdrawal_secrets(
         &self,
         keys: &core::MasterKeys,
@@ -489,14 +721,33 @@ impl PrivacyPoolsSdk {
         crypto::generate_withdrawal_secrets(keys, label, index)
     }
 
+    pub fn generate_withdrawal_secrets_with(
+        &self,
+        request: WithdrawalSecretsRequest<'_>,
+    ) -> Result<(core::Nullifier, core::Secret), crypto::CryptoError> {
+        self.generate_withdrawal_secrets(request.keys, request.label, request.index)
+    }
+
     pub fn get_commitment(
         &self,
         value: U256,
         label: U256,
-        nullifier: core::Nullifier,
-        secret: core::Secret,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
     ) -> Result<core::Commitment, crypto::CryptoError> {
         crypto::get_commitment(value, label, nullifier, secret)
+    }
+
+    pub fn get_commitment_with(
+        &self,
+        request: CommitmentRequest,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.get_commitment(
+            request.value,
+            request.label,
+            request.nullifier,
+            request.secret,
+        )
     }
 
     pub fn calculate_context(
@@ -626,6 +877,18 @@ impl PrivacyPoolsSdk {
         chain::plan_withdrawal_transaction(chain_id, pool_address, withdrawal, proof)
     }
 
+    pub fn plan_withdrawal_transaction_with(
+        &self,
+        request: WithdrawalTransactionRequest<'_>,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        self.plan_withdrawal_transaction(
+            request.chain_id,
+            request.pool_address,
+            request.withdrawal,
+            request.proof,
+        )
+    }
+
     pub fn plan_relay_transaction(
         &self,
         chain_id: u64,
@@ -637,6 +900,19 @@ impl PrivacyPoolsSdk {
         chain::plan_relay_transaction(chain_id, entrypoint_address, withdrawal, proof, scope)
     }
 
+    pub fn plan_relay_transaction_with(
+        &self,
+        request: RelayTransactionRequest<'_>,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        self.plan_relay_transaction(
+            request.chain_id,
+            request.entrypoint_address,
+            request.withdrawal,
+            request.proof,
+            request.scope,
+        )
+    }
+
     pub fn plan_ragequit_transaction(
         &self,
         chain_id: u64,
@@ -644,6 +920,13 @@ impl PrivacyPoolsSdk {
         proof: &core::ProofBundle,
     ) -> Result<core::TransactionPlan, chain::ChainError> {
         chain::plan_ragequit_transaction(chain_id, pool_address, proof)
+    }
+
+    pub fn plan_ragequit_transaction_with(
+        &self,
+        request: RagequitTransactionRequest<'_>,
+    ) -> Result<core::TransactionPlan, chain::ChainError> {
+        self.plan_ragequit_transaction(request.chain_id, request.pool_address, request.proof)
     }
 
     pub fn build_commitment_circuit_input(
@@ -723,6 +1006,13 @@ impl PrivacyPoolsSdk {
     ) -> Result<prover::ProvingResult, SdkError> {
         let session = self.prepare_commitment_circuit_session(manifest, root)?;
         self.prove_commitment_with_session(profile, &session, request)
+    }
+
+    pub fn prove_commitment_with_config<P: AsRef<Path>>(
+        &self,
+        config: CommitmentProvingConfig<'_, P>,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        self.prove_commitment(config.profile, config.manifest, config.root, config.request)
     }
 
     pub fn prove_commitment_with_session(
@@ -828,6 +1118,13 @@ impl PrivacyPoolsSdk {
         self.prove_withdrawal_with_session(profile, &session, request)
     }
 
+    pub fn prove_withdrawal_with_config<P: AsRef<Path>>(
+        &self,
+        config: WithdrawalProvingConfig<'_, P>,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        self.prove_withdrawal(config.profile, config.manifest, config.root, config.request)
+    }
+
     pub fn prove_withdrawal_with_session(
         &self,
         profile: BackendProfile,
@@ -875,8 +1172,8 @@ impl PrivacyPoolsSdk {
         let new_commitment = crypto::get_commitment(
             remaining_value,
             request.commitment.preimage.label,
-            request.new_nullifier,
-            request.new_secret,
+            request.new_nullifier.clone(),
+            request.new_secret.clone(),
         )?;
         let expected_context = crypto::calculate_context_field(&request.withdrawal, request.scope)?;
         let expected_signals = [
@@ -1197,7 +1494,7 @@ mod tests {
                 )
                 .unwrap(),
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from_str(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
@@ -1238,8 +1535,11 @@ mod tests {
                 depth: withdrawal_fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
             },
             new_nullifier: U256::from_str(withdrawal_fixture["newNullifier"].as_str().unwrap())
-                .unwrap(),
-            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap()).unwrap(),
+                .unwrap()
+                .into(),
+            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap())
+                .unwrap()
+                .into(),
         }
     }
 
@@ -1320,6 +1620,41 @@ mod tests {
     fn exposes_expected_default_backend() {
         let sdk = PrivacyPoolsSdk::default();
         assert_eq!(sdk.stable_backend_name().unwrap(), "Arkworks");
+    }
+
+    #[test]
+    fn request_object_api_builds_commitments_and_secrets() {
+        let sdk = PrivacyPoolsSdk::default();
+        let keys = sdk
+            .generate_master_keys("test test test test test test test test test test test junk")
+            .unwrap();
+
+        let (nullifier, secret) = sdk
+            .generate_deposit_secrets_with(DepositSecretsRequest {
+                keys: &keys,
+                scope: U256::from(123_u64),
+                index: U256::ZERO,
+            })
+            .unwrap();
+        let commitment = sdk
+            .get_commitment_with(CommitmentRequest::new(
+                U256::from(1_000_u64),
+                U256::from(456_u64),
+                nullifier,
+                secret,
+            ))
+            .unwrap();
+
+        assert_eq!(commitment.preimage.value, U256::from(1_000_u64));
+        assert_eq!(commitment.preimage.label, U256::from(456_u64));
+    }
+
+    #[test]
+    fn sdk_errors_expose_stable_codes_and_categories() {
+        let error = SdkError::NewNullifierMatchesExisting;
+
+        assert_eq!(error.code(), SdkErrorCode::NewNullifierMatchesExisting);
+        assert_eq!(error.category(), SdkErrorCategory::Secret);
     }
 
     #[test]
@@ -1540,7 +1875,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from_str(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
@@ -1551,8 +1886,11 @@ mod tests {
             state_witness,
             asp_witness,
             new_nullifier: U256::from_str(withdrawal_fixture["newNullifier"].as_str().unwrap())
-                .unwrap(),
-            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap()).unwrap(),
+                .unwrap()
+                .into(),
+            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap())
+                .unwrap()
+                .into(),
         };
 
         let input = sdk.build_withdrawal_circuit_input(&request).unwrap();
@@ -1652,7 +1990,7 @@ mod tests {
                 )
                 .unwrap(),
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from_str(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
@@ -1693,8 +2031,11 @@ mod tests {
                 depth: withdrawal_fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
             },
             new_nullifier: U256::from_str(withdrawal_fixture["newNullifier"].as_str().unwrap())
-                .unwrap(),
-            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap()).unwrap(),
+                .unwrap()
+                .into(),
+            new_secret: U256::from_str(withdrawal_fixture["newSecret"].as_str().unwrap())
+                .unwrap()
+                .into(),
         };
 
         let proving_request = sdk
@@ -1821,8 +2162,8 @@ mod tests {
         let new_commitment = crypto::get_commitment(
             remaining_value,
             request.commitment.preimage.label,
-            request.new_nullifier,
-            request.new_secret,
+            request.new_nullifier.clone(),
+            request.new_secret.clone(),
         )
         .unwrap();
         let public_signals = chain::withdraw_public_signals(&proving.proof).unwrap();
@@ -1984,7 +2325,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(123_u64),
@@ -2003,8 +2344,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
         let proof = core::ProofBundle {
             proof: core::SnarkJsProof {
@@ -2040,12 +2381,12 @@ mod tests {
                     precommitment: core::Precommitment {
                         hash: U256::from(55_u64),
                         nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
+                        secret: U256::from(77_u64).into(),
                     },
                 },
             },
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(123_u64),
@@ -2064,8 +2405,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 32,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         assert!(matches!(
@@ -2091,12 +2432,12 @@ mod tests {
                     precommitment: core::Precommitment {
                         hash: U256::from(55_u64),
                         nullifier: U256::from(66_u64),
-                        secret: U256::from(77_u64),
+                        secret: U256::from(77_u64).into(),
                     },
                 },
             },
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
@@ -2115,8 +2456,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 32,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         assert!(matches!(
@@ -2152,7 +2493,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
@@ -2165,8 +2506,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         let input = sdk
@@ -2190,7 +2531,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
@@ -2209,8 +2550,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         let error = sdk.build_withdrawal_circuit_input(&request).unwrap_err();
@@ -2242,7 +2583,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
@@ -2261,8 +2602,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         assert!(matches!(
@@ -2290,7 +2631,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment: inconsistent_commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(789_u64),
@@ -2309,8 +2650,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
 
         let error = sdk.build_withdrawal_circuit_input(&request).unwrap_err();
@@ -2342,7 +2683,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(123_u64),
@@ -2361,8 +2702,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
         let proof = core::ProofBundle {
             proof: core::SnarkJsProof {
@@ -2412,7 +2753,7 @@ mod tests {
         let request = core::WithdrawalWitnessRequest {
             commitment,
             withdrawal: core::Withdrawal {
-                processooor: address!("1111111111111111111111111111111111111111"),
+                processor: address!("1111111111111111111111111111111111111111"),
                 data: bytes!("1234"),
             },
             scope: U256::from(123_u64),
@@ -2431,8 +2772,8 @@ mod tests {
                 siblings: vec![U256::ZERO; 32],
                 depth: 0,
             },
-            new_nullifier: U256::from(222_u64),
-            new_secret: U256::from(333_u64),
+            new_nullifier: U256::from(222_u64).into(),
+            new_secret: U256::from(333_u64).into(),
         };
         let new_commitment = crypto::get_commitment(
             U256::from(750_u64),
@@ -2490,11 +2831,11 @@ mod tests {
         };
         let relay_entrypoint = address!("1234567890123456789012345678901234567890");
         let withdrawal = core::Withdrawal {
-            processooor: address!("1111111111111111111111111111111111111111"),
+            processor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
         };
         let relay_withdrawal = core::Withdrawal {
-            processooor: relay_entrypoint,
+            processor: relay_entrypoint,
             data: valid_relay_data_bytes(),
         };
 

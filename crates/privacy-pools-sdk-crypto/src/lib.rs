@@ -59,8 +59,12 @@ pub fn generate_deposit_secrets(
     index: FieldElement,
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
-        poseidon_hash(&[keys.master_nullifier, scope, index])?,
-        poseidon_hash(&[keys.master_secret, scope, index])?,
+        poseidon_hash(&[keys.master_nullifier.expose_secret(), scope, index])?,
+        Secret::new(poseidon_hash(&[
+            keys.master_secret.expose_secret(),
+            scope,
+            index,
+        ])?),
     ))
 }
 
@@ -70,16 +74,22 @@ pub fn generate_withdrawal_secrets(
     index: FieldElement,
 ) -> Result<(Nullifier, Secret), CryptoError> {
     Ok((
-        poseidon_hash(&[keys.master_nullifier, label, index])?,
-        poseidon_hash(&[keys.master_secret, label, index])?,
+        poseidon_hash(&[keys.master_nullifier.expose_secret(), label, index])?,
+        Secret::new(poseidon_hash(&[
+            keys.master_secret.expose_secret(),
+            label,
+            index,
+        ])?),
     ))
 }
 
 pub fn hash_precommitment(
-    nullifier: Nullifier,
-    secret: Secret,
+    nullifier: impl Into<Nullifier>,
+    secret: impl Into<Secret>,
 ) -> Result<FieldElement, CryptoError> {
-    poseidon_hash(&[nullifier, secret])
+    let nullifier = nullifier.into();
+    let secret = secret.into();
+    poseidon_hash(&[nullifier, secret.expose_secret()])
 }
 
 pub fn hash_nullifier(nullifier: Nullifier) -> Result<FieldElement, CryptoError> {
@@ -89,14 +99,16 @@ pub fn hash_nullifier(nullifier: Nullifier) -> Result<FieldElement, CryptoError>
 pub fn get_commitment(
     value: FieldElement,
     label: FieldElement,
-    nullifier: Nullifier,
-    secret: Secret,
+    nullifier: impl Into<Nullifier>,
+    secret: impl Into<Secret>,
 ) -> Result<Commitment, CryptoError> {
+    let nullifier = nullifier.into();
+    let secret = secret.into();
     validate_non_zero(nullifier, "nullifier")?;
     validate_non_zero(label, "label")?;
-    validate_non_zero(secret, "secret")?;
+    validate_non_zero(secret.expose_secret(), "secret")?;
 
-    let precommitment_hash = hash_precommitment(nullifier, secret)?;
+    let precommitment_hash = hash_precommitment(nullifier, secret.clone())?;
     let hash = poseidon_hash(&[value, label, precommitment_hash])?;
     Ok(Commitment {
         hash,
@@ -123,7 +135,7 @@ pub fn calculate_context_field(
 ) -> Result<FieldElement, CryptoError> {
     let encoded = (
         WithdrawalAbi {
-            processooor: withdrawal.processooor,
+            processooor: withdrawal.processor,
             data: withdrawal.data.clone(),
         },
         scope,
@@ -145,8 +157,8 @@ fn derive_account_private_key(mnemonic: &str, account_index: u32) -> Result<U256
 
 fn master_keys_from_seeds(key1: U256, key2: U256) -> Result<MasterKeys, CryptoError> {
     Ok(MasterKeys {
-        master_nullifier: poseidon_hash(&[key1])?,
-        master_secret: poseidon_hash(&[key2])?,
+        master_nullifier: Secret::new(poseidon_hash(&[key1])?),
+        master_secret: Secret::new(poseidon_hash(&[key2])?),
     })
 }
 
@@ -298,7 +310,7 @@ mod tests {
     fn matches_current_sdk_context_hashing() {
         let fixture = vector();
         let withdrawal = Withdrawal {
-            processooor: address!("1111111111111111111111111111111111111111"),
+            processor: address!("1111111111111111111111111111111111111111"),
             data: bytes!("1234"),
         };
 

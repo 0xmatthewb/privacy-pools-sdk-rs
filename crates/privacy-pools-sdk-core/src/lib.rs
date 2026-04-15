@@ -1,46 +1,173 @@
+//! Core protocol types shared by the Privacy Pools Rust SDK crates.
+//!
+//! The published Rust crate is named `privacy-pools-sdk`, while this repository
+//! is named `privacy-pools-sdk-rs` to distinguish the Rust implementation from
+//! other language packages. Protocol wire formats are preserved here even when
+//! Rust-facing names are cleaned up.
+
 use alloy_primitives::{Address, B256, Bytes, U256};
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 use thiserror::Error;
+use zeroize::Zeroize;
 
+/// A field element represented as a 256-bit integer.
 pub type FieldElement = U256;
+/// A protocol nullifier.
 pub type Nullifier = U256;
-pub type Secret = U256;
+/// A Privacy Pools scope.
 pub type Scope = U256;
 
+/// A redacted field element used for secret protocol material.
+///
+/// `Secret` deliberately does not expose its inner value through `Debug`.
+/// Use [`Secret::expose_secret`] or [`Secret::to_decimal_string`] only at
+/// explicit serialization, hashing, or signing boundaries.
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(U256);
+
+impl Secret {
+    /// Wraps a field element as secret material.
+    pub const fn new(value: U256) -> Self {
+        Self(value)
+    }
+
+    /// Explicitly exposes the raw field element.
+    pub const fn expose_secret(&self) -> U256 {
+        self.0
+    }
+
+    /// Returns true when the secret field element is zero.
+    pub fn is_zero(&self) -> bool {
+        self.0.is_zero()
+    }
+
+    /// Serializes the secret as a decimal string for circuit and FFI payloads.
+    pub fn to_decimal_string(&self) -> String {
+        self.0.to_string()
+    }
+
+    /// Serializes the secret as a fixed-width 32-byte hex string.
+    pub fn to_hex_32(&self) -> String {
+        field_to_hex_32(self.0)
+    }
+}
+
+impl From<U256> for Secret {
+    fn from(value: U256) -> Self {
+        Self::new(value)
+    }
+}
+
+impl From<Secret> for U256 {
+    fn from(value: Secret) -> Self {
+        value.0
+    }
+}
+
+impl PartialEq<U256> for Secret {
+    fn eq(&self, other: &U256) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<Secret> for U256 {
+    fn eq(&self, other: &Secret) -> bool {
+        *self == other.0
+    }
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Secret([redacted])")
+    }
+}
+
+impl Zeroize for Secret {
+    fn zeroize(&mut self) {
+        self.0 = U256::ZERO;
+    }
+}
+
+impl Drop for Secret {
+    fn drop(&mut self) {
+        self.zeroize();
+    }
+}
+
+/// Root Privacy Pools key material derived from a mnemonic.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MasterKeys {
+    /// Secret seed used to derive nullifiers.
     pub master_nullifier: Secret,
+    /// Secret seed used to derive commitment secrets.
     pub master_secret: Secret,
 }
 
+/// The nullifier and secret preimage used to build a commitment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Precommitment {
+    /// Poseidon hash of the nullifier and secret.
     pub hash: FieldElement,
+    /// Nullifier secret for this commitment.
     pub nullifier: Nullifier,
+    /// Commitment blinding secret.
     pub secret: Secret,
 }
 
+/// Full preimage for a Privacy Pools commitment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitmentPreimage {
+    /// Deposited value.
     pub value: FieldElement,
+    /// Association-set label.
     pub label: FieldElement,
+    /// Commitment precommitment material.
     pub precommitment: Precommitment,
 }
 
+/// A Privacy Pools commitment plus the preimage needed by client-side proving.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Commitment {
+    /// Commitment hash inserted into the pool tree.
     pub hash: FieldElement,
+    /// Hash of the commitment nullifier.
     pub nullifier_hash: FieldElement,
+    /// Client-side preimage for witness construction.
     pub preimage: CommitmentPreimage,
 }
 
+/// Withdrawal target data.
+///
+/// The Rust-facing field and constructor use `processor`. Serde keeps the
+/// protocol wire spelling `processooor` for compatibility with existing
+/// contracts, fixtures, and JS/mobile payloads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Withdrawal {
-    pub processooor: Address,
+    #[serde(rename = "processooor", alias = "processor")]
+    pub processor: Address,
     pub data: Bytes,
 }
 
+impl Withdrawal {
+    /// Creates a withdrawal using the preferred Rust-facing `processor` name.
+    pub fn new(processor: Address, data: Bytes) -> Self {
+        Self { processor, data }
+    }
+
+    /// Returns the processor address.
+    pub const fn processor(&self) -> Address {
+        self.processor
+    }
+
+    /// Compatibility accessor for the protocol wire spelling.
+    pub const fn processooor(&self) -> Address {
+        self.processor
+    }
+}
+
+/// Browser-compatible Groth16 proof shape emitted by snarkjs-compatible tools.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnarkJsProof {
     pub pi_a: [String; 2],
@@ -287,4 +414,47 @@ pub fn field_to_decimal(value: FieldElement) -> String {
 
 pub fn field_to_hex_32(value: FieldElement) -> String {
     format!("0x{}", hex::encode(value.to_be_bytes::<32>()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::{address, bytes};
+
+    #[test]
+    fn secret_debug_is_redacted_and_explicitly_exported() {
+        let secret = Secret::new(U256::from(42_u64));
+
+        assert_eq!(format!("{secret:?}"), "Secret([redacted])");
+        assert_eq!(secret.expose_secret(), U256::from(42_u64));
+        assert_eq!(secret.to_decimal_string(), "42");
+    }
+
+    #[test]
+    fn secret_zeroize_clears_observable_value() {
+        let mut secret = Secret::new(U256::from(42_u64));
+        secret.zeroize();
+
+        assert_eq!(secret.expose_secret(), U256::ZERO);
+    }
+
+    #[test]
+    fn withdrawal_prefers_processor_but_preserves_wire_name() {
+        let processor = address!("1111111111111111111111111111111111111111");
+        let withdrawal = Withdrawal::new(processor, bytes!("1234"));
+
+        assert_eq!(withdrawal.processor(), processor);
+        assert_eq!(withdrawal.processooor(), processor);
+
+        let json = serde_json::to_value(&withdrawal).expect("withdrawal serializes");
+        assert_eq!(json["processooor"], processor.to_string());
+        assert!(json.get("processor").is_none());
+
+        let decoded: Withdrawal = serde_json::from_value(serde_json::json!({
+            "processor": processor,
+            "data": "0x1234"
+        }))
+        .expect("processor alias decodes");
+        assert_eq!(decoded, withdrawal);
+    }
 }

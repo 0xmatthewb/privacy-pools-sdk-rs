@@ -414,7 +414,7 @@ pub fn derive_deposit_secrets(
         .map_err(to_napi_error)?;
     to_json_string(&JsSecrets {
         nullifier: field_label(secrets.0),
-        secret: field_label(secrets.1),
+        secret: secrets.1.to_decimal_string(),
     })
     .map_err(to_napi_error)
 }
@@ -437,7 +437,7 @@ pub fn derive_withdrawal_secrets(
         .map_err(to_napi_error)?;
     to_json_string(&JsSecrets {
         nullifier: field_label(secrets.0),
-        secret: field_label(secrets.1),
+        secret: secrets.1.to_decimal_string(),
     })
     .map_err(to_napi_error)
 }
@@ -1166,15 +1166,15 @@ fn to_napi_error(error: impl std::fmt::Display) -> Error {
 
 fn to_master_keys(keys: &JsMasterKeys) -> Result<MasterKeys> {
     Ok(MasterKeys {
-        master_nullifier: parse_field(&keys.master_nullifier)?,
-        master_secret: parse_field(&keys.master_secret)?,
+        master_nullifier: parse_field(&keys.master_nullifier)?.into(),
+        master_secret: parse_field(&keys.master_secret)?.into(),
     })
 }
 
 fn to_js_master_keys(keys: &MasterKeys) -> JsMasterKeys {
     JsMasterKeys {
-        master_nullifier: field_label(keys.master_nullifier),
-        master_secret: field_label(keys.master_secret),
+        master_nullifier: keys.master_nullifier.to_decimal_string(),
+        master_secret: keys.master_secret.to_decimal_string(),
     }
 }
 
@@ -1186,7 +1186,7 @@ fn to_js_commitment(commitment: Commitment) -> JsCommitment {
         value: field_label(commitment.preimage.value),
         label: field_label(commitment.preimage.label),
         nullifier: field_label(commitment.preimage.precommitment.nullifier),
-        secret: field_label(commitment.preimage.precommitment.secret),
+        secret: commitment.preimage.precommitment.secret.to_decimal_string(),
     }
 }
 
@@ -1200,7 +1200,7 @@ fn from_js_commitment(commitment: JsCommitment) -> Result<Commitment> {
             precommitment: Precommitment {
                 hash: parse_field(&commitment.precommitment_hash)?,
                 nullifier: parse_field(&commitment.nullifier)?,
-                secret: parse_field(&commitment.secret)?,
+                secret: parse_field(&commitment.secret)?.into(),
             },
         },
     })
@@ -1210,7 +1210,7 @@ fn from_js_withdrawal(withdrawal: JsWithdrawal) -> Result<Withdrawal> {
     let data = hex::decode(withdrawal.data.trim_start_matches("0x"))
         .with_context(|| format!("invalid hex withdrawal data `{}`", withdrawal.data))?;
     Ok(Withdrawal {
-        processooor: parse_address(&withdrawal.processooor)?,
+        processor: parse_address(&withdrawal.processooor)?,
         data: data.into(),
     })
 }
@@ -1285,8 +1285,8 @@ fn from_js_withdrawal_witness_request(
         withdrawal_amount: parse_field(&request.withdrawal_amount)?,
         state_witness: from_js_circuit_merkle_witness(request.state_witness)?,
         asp_witness: from_js_circuit_merkle_witness(request.asp_witness)?,
-        new_nullifier: parse_field(&request.new_nullifier)?,
-        new_secret: parse_field(&request.new_secret)?,
+        new_nullifier: parse_field(&request.new_nullifier)?.into(),
+        new_secret: parse_field(&request.new_secret)?.into(),
     })
 }
 
@@ -1312,10 +1312,10 @@ fn to_js_withdrawal_circuit_input(
         context: field_label(input.context),
         label: field_label(input.label),
         existing_value: field_label(input.existing_value),
-        existing_nullifier: field_label(input.existing_nullifier),
-        existing_secret: field_label(input.existing_secret),
-        new_nullifier: field_label(input.new_nullifier),
-        new_secret: field_label(input.new_secret),
+        existing_nullifier: input.existing_nullifier.to_decimal_string(),
+        existing_secret: input.existing_secret.to_decimal_string(),
+        new_nullifier: input.new_nullifier.to_decimal_string(),
+        new_secret: input.new_secret.to_decimal_string(),
         state_siblings: input.state_siblings.into_iter().map(field_label).collect(),
         state_index: u64::try_from(input.state_index)
             .context("state index does not fit into u64")?,
@@ -1328,8 +1328,8 @@ fn to_js_commitment_circuit_input(input: &CommitmentCircuitInput) -> JsCommitmen
     JsCommitmentCircuitInput {
         value: field_label(input.value),
         label: field_label(input.label),
-        nullifier: field_label(input.nullifier),
-        secret: field_label(input.secret),
+        nullifier: input.nullifier.to_decimal_string(),
+        secret: input.secret.to_decimal_string(),
     }
 }
 
@@ -1601,7 +1601,7 @@ fn to_js_recovered_commitment(commitment: &RecoveredCommitment) -> JsRecoveredCo
         value: field_label(commitment.value),
         label: field_label(commitment.label),
         nullifier: field_label(commitment.nullifier),
-        secret: field_label(commitment.secret),
+        secret: commitment.secret.to_decimal_string(),
         block_number: commitment.block_number,
         transaction_hash: commitment.transaction_hash.to_string(),
         is_migration: commitment.is_migration,
