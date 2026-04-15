@@ -1,6 +1,6 @@
 use alloy_primitives::{U256, address, bytes};
 use privacy_pools_sdk::{
-    CommitmentRequest, DepositSecretsRequest, PrivacyPoolsSdk, core::Withdrawal,
+    DepositCommitmentRequest, DepositSecretsRequest, PrivacyPoolsSdk, core::Withdrawal,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -14,7 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         index: U256::ZERO,
     })?;
 
-    let commitment = sdk.get_commitment_with(CommitmentRequest::new(
+    let commitment = sdk.create_deposit_commitment_with(DepositCommitmentRequest::new(
         U256::from(1_000_u64),
         U256::from(456_u64),
         nullifier,

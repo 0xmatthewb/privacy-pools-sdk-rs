@@ -217,6 +217,13 @@ pub struct CommitmentWitnessRequest {
     pub commitment: Commitment,
 }
 
+/// Request for proving the public ragequit path.
+///
+/// The deployed artifact is the `commitment` circuit, because the proof exposes
+/// commitment hash, nullifier hash, value, and label. The action-facing alias
+/// helps Rust application code describe the protocol operation it is preparing.
+pub type RagequitWitnessRequest = CommitmentWitnessRequest;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommitmentCircuitInput {
     pub value: FieldElement,

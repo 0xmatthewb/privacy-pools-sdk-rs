@@ -73,11 +73,18 @@ The Rust package is `privacy-pools-sdk`, imported as `privacy_pools_sdk`. The
 repository name includes `-rs` only to distinguish this implementation from the
 browser, Node, mobile, and React Native package surfaces.
 
-Rust-facing APIs should make the protocol legible. Domain objects keep protocol
-names such as `Withdrawal`, `Commitment`, `ProofBundle`, and recovery state. The
-SDK uses the preferred Rust spelling `processor` for the processor address
-inside a withdrawal, while serialization keeps the deployed protocol key
-`processooor`.
+Rust-facing APIs should make the protocol legible. Application workflows use
+protocol action names such as deposit, withdrawal, relay, and ragequit. The
+cryptographic state object remains `Commitment`, because that is the object
+inserted into the pool tree and carried through withdrawal/ragequit proofs.
+Prefer `DepositCommitmentRequest` and `create_deposit_commitment*` for the
+deposit happy path, and `prove_ragequit*` for the public exit path backed by the
+underlying `commitment` circuit. The SDK uses the preferred Rust spelling
+`processor` for the processor address inside a withdrawal, while serialization
+keeps the deployed protocol key `processooor`.
+See the
+[protocol legibility note](https://github.com/0xmatthewb/privacy-pools-sdk-rs/blob/main/docs/protocol-legibility.md)
+for the naming mapping against `@0xbow/privacy-pools-core-sdk@1.2.0`.
 
 ## Workspace Layout
 

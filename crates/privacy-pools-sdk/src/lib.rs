@@ -6,8 +6,9 @@
 //! and applications should pin exact versions.
 //!
 //! The root crate gathers the protocol-focused crates behind one facade for
-//! key derivation, commitment construction, Merkle witnesses, local proving,
-//! verification, recovery, transaction planning, and execution preflight.
+//! key derivation, deposit commitment construction, Merkle witnesses, local
+//! proving, verification, recovery, transaction planning, and execution
+//! preflight.
 //! Secret protocol material uses redacted Rust types and should only be
 //! exported through explicitly named serialization methods.
 //!
@@ -18,6 +19,13 @@
 //! let sdk = PrivacyPoolsSdk::default();
 //! let secret = core::Secret::new(U256::from(7_u64));
 //! assert_eq!(format!("{secret:?}"), "Secret([redacted])");
+//! let commitment = sdk.create_deposit_commitment(
+//!     U256::from(100_u64),
+//!     U256::from(456_u64),
+//!     U256::from(1_u64),
+//!     secret.clone(),
+//! )?;
+//! assert_eq!(commitment.preimage.value, U256::from(100_u64));
 //!
 //! let withdrawal = core::Withdrawal::new(
 //!     address!("1111111111111111111111111111111111111111"),
@@ -76,11 +84,22 @@ pub struct WithdrawalCircuitSession {
 }
 
 /// Prepared commitment circuit artifacts that can be reused across proofs.
+///
+/// Privacy Pools uses the `commitment` circuit when proving the public
+/// ragequit path. Prefer the ragequit-named facade methods when modeling the
+/// user-facing protocol action, and use this type when working directly with
+/// circuit artifacts.
 #[derive(Clone)]
 pub struct CommitmentCircuitSession {
     bundle: artifacts::VerifiedArtifactBundle,
     prepared: prover::PreparedCircuitArtifacts,
 }
+
+/// Prepared ragequit circuit artifacts.
+///
+/// This is an action-facing alias for [`CommitmentCircuitSession`], because the
+/// underlying artifact is still named `commitment` in the deployed circuit set.
+pub type RagequitCircuitSession = CommitmentCircuitSession;
 
 /// Request object for deriving deposit nullifier and secret values.
 #[derive(Debug, Clone, Copy)]
@@ -98,18 +117,23 @@ pub struct WithdrawalSecretsRequest<'a> {
     pub index: U256,
 }
 
-/// Request object for commitment construction.
+/// Request object for constructing the commitment created by a deposit.
+///
+/// The resulting [`core::Commitment`] is the cryptographic state object that
+/// enters the pool tree. The request is deposit-named so application code reads
+/// like the protocol workflow: derive deposit secrets, create a deposit
+/// commitment, then submit that commitment's precommitment onchain.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommitmentRequest {
+pub struct DepositCommitmentRequest {
     pub value: U256,
     pub label: U256,
     pub nullifier: core::Nullifier,
     pub secret: core::Secret,
 }
 
-impl CommitmentRequest {
-    /// Creates a commitment request while accepting raw field elements at the
-    /// explicit construction boundary.
+impl DepositCommitmentRequest {
+    /// Creates a deposit commitment request while accepting raw field elements
+    /// at the explicit construction boundary.
     pub fn new(
         value: U256,
         label: U256,
@@ -124,6 +148,11 @@ impl CommitmentRequest {
         }
     }
 }
+
+/// Compatibility alias for lower-level commitment construction.
+///
+/// Prefer [`DepositCommitmentRequest`] in new application code.
+pub type CommitmentRequest = DepositCommitmentRequest;
 
 /// Request object for withdrawal transaction planning.
 #[derive(Debug, Clone, Copy)]
@@ -153,12 +182,29 @@ pub struct RagequitTransactionRequest<'a> {
 }
 
 /// Config object for commitment proof generation.
+///
+/// The commitment circuit is the low-level artifact used for ragequit proofs.
+/// Prefer [`RagequitProvingConfig`] when modeling the user-facing protocol
+/// action.
 #[derive(Debug, Clone, Copy)]
 pub struct CommitmentProvingConfig<'a, P> {
     pub profile: BackendProfile,
     pub manifest: &'a artifacts::ArtifactManifest,
     pub root: P,
     pub request: &'a core::CommitmentWitnessRequest,
+}
+
+/// Config object for ragequit proof generation.
+///
+/// Privacy Pools ragequit uses the underlying `commitment` circuit. This
+/// action-facing config keeps application code legible while preserving the
+/// deployed artifact and wire names.
+#[derive(Debug, Clone, Copy)]
+pub struct RagequitProvingConfig<'a, P> {
+    pub profile: BackendProfile,
+    pub manifest: &'a artifacts::ArtifactManifest,
+    pub root: P,
+    pub request: &'a core::RagequitWitnessRequest,
 }
 
 /// Config object for withdrawal proof generation.
@@ -738,16 +784,33 @@ impl PrivacyPoolsSdk {
         crypto::get_commitment(value, label, nullifier, secret)
     }
 
-    pub fn get_commitment_with(
+    pub fn create_deposit_commitment(
         &self,
-        request: CommitmentRequest,
+        value: U256,
+        label: U256,
+        nullifier: impl Into<core::Nullifier>,
+        secret: impl Into<core::Secret>,
     ) -> Result<core::Commitment, crypto::CryptoError> {
-        self.get_commitment(
+        self.get_commitment(value, label, nullifier, secret)
+    }
+
+    pub fn create_deposit_commitment_with(
+        &self,
+        request: DepositCommitmentRequest,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.create_deposit_commitment(
             request.value,
             request.label,
             request.nullifier,
             request.secret,
         )
+    }
+
+    pub fn get_commitment_with(
+        &self,
+        request: CommitmentRequest,
+    ) -> Result<core::Commitment, crypto::CryptoError> {
+        self.create_deposit_commitment_with(request)
     }
 
     pub fn calculate_context(
@@ -846,6 +909,21 @@ impl PrivacyPoolsSdk {
     ) -> Result<CommitmentCircuitSession, SdkError> {
         let bundle = self.load_verified_artifact_bundle(manifest, root, "commitment")?;
         self.prepare_commitment_circuit_session_from_bundle(bundle)
+    }
+
+    pub fn prepare_ragequit_circuit_session_from_bundle(
+        &self,
+        bundle: artifacts::VerifiedArtifactBundle,
+    ) -> Result<RagequitCircuitSession, SdkError> {
+        self.prepare_commitment_circuit_session_from_bundle(bundle)
+    }
+
+    pub fn prepare_ragequit_circuit_session(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+    ) -> Result<RagequitCircuitSession, SdkError> {
+        self.prepare_commitment_circuit_session(manifest, root)
     }
 
     pub fn plan_asp_root_read(
@@ -997,6 +1075,15 @@ impl PrivacyPoolsSdk {
         })
     }
 
+    pub fn prepare_ragequit_proving_request(
+        &self,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::RagequitWitnessRequest,
+    ) -> Result<prover::ProvingRequest, SdkError> {
+        self.prepare_commitment_proving_request(manifest, root, request)
+    }
+
     pub fn prove_commitment(
         &self,
         profile: BackendProfile,
@@ -1015,6 +1102,23 @@ impl PrivacyPoolsSdk {
         self.prove_commitment(config.profile, config.manifest, config.root, config.request)
     }
 
+    pub fn prove_ragequit(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        request: &core::RagequitWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        self.prove_commitment(profile, manifest, root, request)
+    }
+
+    pub fn prove_ragequit_with_config<P: AsRef<Path>>(
+        &self,
+        config: RagequitProvingConfig<'_, P>,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        self.prove_ragequit(config.profile, config.manifest, config.root, config.request)
+    }
+
     pub fn prove_commitment_with_session(
         &self,
         profile: BackendProfile,
@@ -1028,6 +1132,15 @@ impl PrivacyPoolsSdk {
             .map_err(Into::into)
     }
 
+    pub fn prove_ragequit_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &RagequitCircuitSession,
+        request: &core::RagequitWitnessRequest,
+    ) -> Result<prover::ProvingResult, SdkError> {
+        self.prove_commitment_with_session(profile, session, request)
+    }
+
     pub fn verify_commitment_proof(
         &self,
         profile: BackendProfile,
@@ -1039,6 +1152,16 @@ impl PrivacyPoolsSdk {
         self.verify_commitment_proof_with_session(profile, &session, proof)
     }
 
+    pub fn verify_ragequit_proof(
+        &self,
+        profile: BackendProfile,
+        manifest: &artifacts::ArtifactManifest,
+        root: impl AsRef<Path>,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
+        self.verify_commitment_proof(profile, manifest, root, proof)
+    }
+
     pub fn verify_commitment_proof_with_session(
         &self,
         profile: BackendProfile,
@@ -1048,6 +1171,15 @@ impl PrivacyPoolsSdk {
         self.proving_engine(profile)?
             .verify_with_prepared_artifacts(&session.prepared, proof)
             .map_err(Into::into)
+    }
+
+    pub fn verify_ragequit_proof_with_session(
+        &self,
+        profile: BackendProfile,
+        session: &RagequitCircuitSession,
+        proof: &core::ProofBundle,
+    ) -> Result<bool, SdkError> {
+        self.verify_commitment_proof_with_session(profile, session, proof)
     }
 
     pub fn validate_commitment_proof_against_request(
@@ -1079,6 +1211,14 @@ impl PrivacyPoolsSdk {
         }
 
         Ok(())
+    }
+
+    pub fn validate_ragequit_proof_against_request(
+        &self,
+        request: &core::RagequitWitnessRequest,
+        proof: &core::ProofBundle,
+    ) -> Result<(), SdkError> {
+        self.validate_commitment_proof_against_request(request, proof)
     }
 
     pub fn prove_withdrawal_with_witness(
@@ -1623,7 +1763,7 @@ mod tests {
     }
 
     #[test]
-    fn request_object_api_builds_commitments_and_secrets() {
+    fn request_object_api_builds_deposit_commitments_and_secrets() {
         let sdk = PrivacyPoolsSdk::default();
         let keys = sdk
             .generate_master_keys("test test test test test test test test test test test junk")
@@ -1637,7 +1777,7 @@ mod tests {
             })
             .unwrap();
         let commitment = sdk
-            .get_commitment_with(CommitmentRequest::new(
+            .create_deposit_commitment_with(DepositCommitmentRequest::new(
                 U256::from(1_000_u64),
                 U256::from(456_u64),
                 nullifier,
@@ -1647,6 +1787,16 @@ mod tests {
 
         assert_eq!(commitment.preimage.value, U256::from(1_000_u64));
         assert_eq!(commitment.preimage.label, U256::from(456_u64));
+
+        let compatibility_commitment = sdk
+            .get_commitment_with(CommitmentRequest::new(
+                commitment.preimage.value,
+                commitment.preimage.label,
+                commitment.preimage.precommitment.nullifier,
+                commitment.preimage.precommitment.secret.clone(),
+            ))
+            .unwrap();
+        assert_eq!(compatibility_commitment, commitment);
     }
 
     #[test]
