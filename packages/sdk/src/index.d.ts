@@ -416,7 +416,7 @@ export type V1Secrets = {
   secret: bigint;
 };
 
-export type V1Commitment = Commitment & {
+export type V1Commitment = {
   hash: bigint;
   nullifierHash: bigint;
   preimage: {
@@ -424,6 +424,13 @@ export type V1Commitment = Commitment & {
     label: bigint;
     precommitment: V1Precommitment;
   };
+};
+
+export type V1MerkleProof = {
+  root: bigint;
+  leaf: bigint;
+  index: number;
+  siblings: bigint[];
 };
 
 export class Circuits {
@@ -783,12 +790,12 @@ export function getCommitment(
 export function generateMerkleProof(
   leaves: Array<string | bigint>,
   leaf: string | bigint,
-): Promise<MerkleProof>;
+): Promise<V1MerkleProof>;
 export function calculateContext(
   withdrawal: Withdrawal,
   scope: string | bigint,
 ): Promise<string>;
-export function bigintToHash(value: string | bigint): bigint;
+export function bigintToHash(value: string | bigint): string;
 export function bigintToHex(value?: string | bigint | null): string;
 export function checkpointRecovery(
   events: PoolEvent[],

@@ -342,6 +342,17 @@ test("browser runtime fails closed on artifact, proof, and session mismatches", 
       false,
     );
 
+    const v1ShapedProof = toV1SnarkJsShape(browserVerificationProof);
+    assert.equal(
+      await sdk.verifyWithdrawalProof(
+        "stable",
+        browserVerificationManifest,
+        server.rootUrl,
+        v1ShapedProof,
+      ),
+      true,
+    );
+
     const noncanonicalSignalProof = JSON.parse(
       JSON.stringify(browserVerificationProof),
     );
@@ -694,6 +705,19 @@ test("browser worker client proves and verifies through real wasm-backed session
 
 function addModulus(value, modulus) {
   return (BigInt(value) + modulus).toString();
+}
+
+function toV1SnarkJsShape(proof) {
+  return {
+    proof: {
+      pi_a: [...proof.proof.piA, "1"],
+      pi_b: [...proof.proof.piB, ["1", "0"]],
+      pi_c: [...proof.proof.piC, "1"],
+      protocol: proof.proof.protocol,
+      curve: proof.proof.curve,
+    },
+    publicSignals: proof.publicSignals,
+  };
 }
 
 async function buildWithdrawalRequest(sdk) {

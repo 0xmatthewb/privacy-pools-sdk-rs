@@ -124,7 +124,27 @@ test("v1 crypto helpers delegate to Rust-backed client methods", async () => {
     cryptoFixture.scope,
   );
   assert.equal(context, cryptoFixture.context);
-  assert.equal(nodeEntry.bigintToHex(255n), "0xff");
+  assert.equal(
+    nodeEntry.bigintToHash(255n),
+    "0x00000000000000000000000000000000000000000000000000000000000000ff",
+  );
+  assert.equal(
+    nodeEntry.bigintToHex(255n),
+    "0x00000000000000000000000000000000000000000000000000000000000000ff",
+  );
+
+  const merkleProof = await nodeEntry.generateMerkleProof(
+    [11n, 22n, 33n, 44n, 55n],
+    44n,
+  );
+  assert.equal(merkleProof.root, BigInt(cryptoFixture.merkleProof.root));
+  assert.equal(merkleProof.leaf, 44n);
+  assert.equal(merkleProof.index, 3);
+  assert.equal(merkleProof.siblings.length, 32);
+  assert.deepEqual(
+    merkleProof.siblings,
+    cryptoFixture.merkleProof.siblings.map(BigInt),
+  );
 });
 
 test("recovery facade exposes Rust-backed account-state DTOs", async () => {

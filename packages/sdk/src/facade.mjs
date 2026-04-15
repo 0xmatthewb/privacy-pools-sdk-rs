@@ -670,9 +670,11 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
     generateMasterKeys: async (mnemonic) =>
       toV1MasterKeys(await createClient().deriveMasterKeys(mnemonic)),
     generateMerkleProof: async (leaves, leaf) =>
-      createClient().generateMerkleProof(
-        leaves.map(decimalString),
-        decimalString(leaf),
+      toV1MerkleProof(
+        await createClient().generateMerkleProof(
+          leaves.map(decimalString),
+          decimalString(leaf),
+        ),
       ),
     generateWithdrawalSecrets: async (...args) => {
       const { masterKeys, label, index } = normalizeSecretArgs(args, "label");
@@ -816,7 +818,6 @@ function toV1Secrets(secrets) {
 
 function toV1Commitment(commitment) {
   return {
-    ...commitment,
     hash: BigInt(commitment.hash),
     nullifierHash: BigInt(commitment.nullifierHash),
     preimage: {
@@ -828,6 +829,20 @@ function toV1Commitment(commitment) {
         secret: BigInt(commitment.secret),
       },
     },
+  };
+}
+
+function toV1MerkleProof(proof) {
+  const siblings = (proof.siblings ?? []).map(BigInt);
+  while (siblings.length < 32) {
+    siblings.push(0n);
+  }
+
+  return {
+    root: BigInt(proof.root),
+    leaf: BigInt(proof.leaf),
+    index: Number(proof.index),
+    siblings,
   };
 }
 
@@ -1307,14 +1322,14 @@ async function callClient(client, methodName, ...args) {
 }
 
 function bigintToHash(value) {
-  return BigInt(value);
+  return `0x${BigInt(value).toString(16).padStart(64, "0")}`;
 }
 
 function bigintToHex(value) {
-  if (value === undefined || value === null) {
-    return "0x0";
+  if (value === undefined) {
+    throw new Error("Undefined bigint value!");
   }
-  return `0x${BigInt(value).toString(16)}`;
+  return `0x${BigInt(value).toString(16).padStart(64, "0")}`;
 }
 
 function decimalString(value) {

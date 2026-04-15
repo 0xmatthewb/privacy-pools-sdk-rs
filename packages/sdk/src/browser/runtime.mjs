@@ -896,19 +896,34 @@ function encodeProofBundle(bundle) {
 }
 
 function normalizePair(value, label) {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new TypeError(`${label} must contain exactly two coordinates`);
+  if (!Array.isArray(value) || value.length < 2) {
+    throw new TypeError(`${label} must contain at least two coordinates`);
+  }
+  for (const coordinate of value.slice(2)) {
+    if (String(coordinate) !== "1") {
+      throw new TypeError(`${label} projective coordinate must be 1`);
+    }
   }
 
-  return value.map((entry) => String(entry));
+  return value.slice(0, 2).map((entry) => String(entry));
 }
 
 function normalizePairRows(value, label) {
-  if (!Array.isArray(value) || value.length !== 2) {
-    throw new TypeError(`${label} must contain exactly two rows`);
+  if (!Array.isArray(value) || value.length < 2) {
+    throw new TypeError(`${label} must contain at least two rows`);
+  }
+  for (const row of value.slice(2)) {
+    if (
+      !Array.isArray(row) ||
+      row.length < 2 ||
+      String(row[0]) !== "1" ||
+      String(row[1]) !== "0"
+    ) {
+      throw new TypeError(`${label} projective row must be [1, 0]`);
+    }
   }
 
-  return value.map((row) => normalizePair(row, label));
+  return value.slice(0, 2).map((row) => normalizePair(row, label));
 }
 
 function normalizeStringArray(value, label) {
