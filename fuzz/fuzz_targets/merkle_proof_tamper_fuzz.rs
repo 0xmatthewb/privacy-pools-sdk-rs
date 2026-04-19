@@ -31,7 +31,7 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    if data.is_empty() {
+    if data.is_empty() || data.iter().all(|byte| *byte == 0) {
         assert!(
             verify_merkle_proof(&tampered),
             "untampered proof should verify"
