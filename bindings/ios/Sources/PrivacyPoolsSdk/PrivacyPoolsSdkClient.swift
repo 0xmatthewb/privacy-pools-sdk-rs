@@ -15,10 +15,6 @@ public enum PrivacyPoolsSdkClient {
         throw dangerousKeyExportUnavailable()
     }
 
-    public static func masterKeysHandle(forMnemonic mnemonic: String) throws -> String {
-        try deriveMasterKeysHandle(mnemonic: mnemonic)
-    }
-
     public static func masterKeysHandle(forMnemonicBytes mnemonicBytes: Data) throws -> String {
         try deriveMasterKeysHandleBytes(mnemonic: mnemonicBytes)
     }

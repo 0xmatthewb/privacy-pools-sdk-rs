@@ -173,7 +173,9 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
             )
         }
 
-        let masterKeysHandle = try PrivacyPoolsSdkClient.masterKeysHandle(forMnemonic: try string(crypto, "mnemonic"))
+        let masterKeysHandle = try PrivacyPoolsSdkClient.masterKeysHandle(
+            forMnemonicBytes: Data(try string(crypto, "mnemonic").utf8)
+        )
         let commitmentHandle = try PrivacyPoolsSdkClient.commitmentFromHandles(
             value: try string(withdrawalFixture, "existingValue"),
             label: try string(withdrawalFixture, "label"),
@@ -407,7 +409,7 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
             }
 
             let masterKeysHandle = try PrivacyPoolsSdkClient.masterKeysHandle(
-                forMnemonic: try string(fixture, "mnemonic")
+                forMnemonicBytes: Data(try string(fixture, "mnemonic").utf8)
             )
             checks.append(("\(fixtureName): masterKeysHandle", !masterKeysHandle.isEmpty))
 

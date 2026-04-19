@@ -9,7 +9,6 @@ import io.oxbow.privacypoolssdk.cancelJob as ffiCancelJob
 import io.oxbow.privacypoolssdk.checkpointRecovery as ffiCheckpointRecovery
 import io.oxbow.privacypoolssdk.clearSecretHandles as ffiClearSecretHandles
 import io.oxbow.privacypoolssdk.clearVerifiedProofHandles as ffiClearVerifiedProofHandles
-import io.oxbow.privacypoolssdk.deriveMasterKeysHandle as ffiDeriveMasterKeysHandle
 import io.oxbow.privacypoolssdk.deriveMasterKeysHandleBytes as ffiDeriveMasterKeysHandleBytes
 import io.oxbow.privacypoolssdk.finalizePreparedTransaction as ffiFinalizePreparedTransaction
 import io.oxbow.privacypoolssdk.finalizePreparedTransactionForSigner as ffiFinalizePreparedTransactionForSigner
@@ -85,9 +84,6 @@ object PrivacyPoolsSdk {
 
     @Throws(FfiException::class)
     fun masterKeys(mnemonic: String): FfiMasterKeys = dangerousKeyExportUnavailable()
-
-    @Throws(FfiException::class)
-    fun masterKeysHandle(mnemonic: String): String = ffiDeriveMasterKeysHandle(mnemonic)
 
     @Throws(FfiException::class)
     fun masterKeysHandle(mnemonicBytes: ByteArray): String = ffiDeriveMasterKeysHandleBytes(mnemonicBytes)

@@ -184,7 +184,9 @@ class NativeProveVerifyInstrumentedTest {
             },
         )
 
-        val masterKeysHandle = PrivacyPoolsSdk.masterKeysHandle(crypto.getString("mnemonic"))
+        val masterKeysHandle = PrivacyPoolsSdk.masterKeysHandle(
+            crypto.getString("mnemonic").toByteArray(Charsets.UTF_8),
+        )
         val depositSecretsHandle = PrivacyPoolsSdk.depositSecretsHandle(
             masterKeysHandle,
             crypto.getString("scope"),
@@ -391,7 +393,9 @@ class NativeProveVerifyInstrumentedTest {
                 continue
             }
 
-            val masterKeysHandle = PrivacyPoolsSdk.masterKeysHandle(fixture.getString("mnemonic"))
+            val masterKeysHandle = PrivacyPoolsSdk.masterKeysHandle(
+                fixture.getString("mnemonic").toByteArray(Charsets.UTF_8),
+            )
             checks += "${fixture.getString("name")}: masterKeysHandle" to masterKeysHandle.isNotEmpty()
 
             val depositSecretsHandle = PrivacyPoolsSdk.depositSecretsHandle(
