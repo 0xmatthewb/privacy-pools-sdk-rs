@@ -167,20 +167,10 @@ fn print_help() {
     println!("                   note: release assurance requires --external-evidence-dir");
 }
 
-include!("commands/native_build.rs");
-include!("shared/process.rs");
-include!("shared/git.rs");
-include!("shared/device.rs");
-include!("shared/wasm.rs");
-include!("commands/bindings.rs");
-include!("commands/checks.rs");
-include!("commands/release.rs");
-include!("commands/assurance_cli.rs");
-include!("assurance/merge.rs");
-include!("assurance/run.rs");
-include!("assurance/catalog.rs");
-include!("assurance/findings.rs");
-include!("evidence/external.rs");
+include!("shared/mod.rs");
+include!("commands/mod.rs");
+include!("assurance/mod.rs");
+include!("evidence/mod.rs");
 include!("opts/mod.rs");
 include!("policy/mod.rs");
 
