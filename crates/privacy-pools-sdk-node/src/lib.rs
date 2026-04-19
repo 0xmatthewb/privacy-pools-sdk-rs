@@ -4,15 +4,26 @@ use base64::Engine;
 use napi::{Error, Result as NapiResult};
 use napi_derive::napi;
 use privacy_pools_sdk::{
-    CommitmentCircuitSession, PrivacyPoolsSdk, WithdrawalCircuitSession,
-    artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
-    core::{
-        CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentPreimage,
-        CommitmentWitnessRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, Precommitment,
-        ProofBundle, RootRead, RootReadKind, SnarkJsProof, TransactionKind, TransactionPlan,
-        Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+    CommitmentCircuitSession, FinalizedPreflightedTransaction, PreflightedTransaction,
+    PrivacyPoolsSdk, SubmittedPreflightedTransaction, VerifiedCommitmentProof,
+    VerifiedRagequitProof, VerifiedWithdrawalProof, WithdrawalCircuitSession,
+    artifacts::{
+        ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle,
+        SignedManifestArtifactBytes,
     },
-    prover::{BackendPolicy, BackendProfile, ProverBackend, ProvingResult},
+    core::{
+        CircuitMerkleWitness, CodeHashCheck, Commitment, CommitmentPreimage,
+        CommitmentWitnessRequest, ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
+        FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, Precommitment,
+        ProofBundle, RagequitExecutionConfig, RelayExecutionConfig, RootCheck, RootRead,
+        RootReadKind, SnarkJsProof, TransactionKind, TransactionPlan, TransactionReceiptSummary,
+        Withdrawal, WithdrawalExecutionConfig, WithdrawalWitnessRequest,
+        wire::{
+            WireCommitment, WireCommitmentWitnessRequest, WireWithdrawal,
+            WireWithdrawalWitnessRequest,
+        },
+    },
+    prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{
         CompatibilityMode, DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent,
         RecoveredAccountState, RecoveredCommitment, RecoveredPoolAccount, RecoveredScope,
@@ -28,17 +39,46 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+use uuid::Uuid;
 
-static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(|| {
-    PrivacyPoolsSdk::new(BackendPolicy {
-        allow_fast_backend: true,
-    })
-});
+static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(PrivacyPoolsSdk::default);
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static WITHDRAWAL_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, WithdrawalCircuitSession>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 static COMMITMENT_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, CommitmentCircuitSession>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static SECRET_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, SecretHandleEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedProofHandleEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+#[derive(Debug, Clone)]
+enum SecretHandleEntry {
+    MasterKeys(MasterKeys),
+    Secrets {
+        nullifier: privacy_pools_sdk::core::Nullifier,
+        secret: privacy_pools_sdk::core::Secret,
+    },
+    CommitmentRequest(privacy_pools_sdk::core::CommitmentWitnessRequest),
+    WithdrawalRequest(Box<privacy_pools_sdk::core::WithdrawalWitnessRequest>),
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum VerifiedProofHandleEntry {
+    Commitment(VerifiedCommitmentProof),
+    Ragequit(VerifiedRagequitProof),
+    Withdrawal(VerifiedWithdrawalProof),
+}
+
+#[derive(Debug, Clone)]
+enum ExecutionHandleEntry {
+    Preflighted(PreflightedTransaction),
+    Finalized(FinalizedPreflightedTransaction),
+    Submitted(SubmittedPreflightedTransaction),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +155,7 @@ struct JsCircuitMerkleWitness {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct JsWithdrawalWitnessRequest {
     commitment: JsCommitment,
     withdrawal: JsWithdrawal,
@@ -128,37 +169,9 @@ struct JsWithdrawalWitnessRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct JsWithdrawalCircuitInput {
-    withdrawn_value: String,
-    state_root: String,
-    state_tree_depth: u64,
-    asp_root: String,
-    asp_tree_depth: u64,
-    context: String,
-    label: String,
-    existing_value: String,
-    existing_nullifier: String,
-    existing_secret: String,
-    new_nullifier: String,
-    new_secret: String,
-    state_siblings: Vec<String>,
-    state_index: u64,
-    asp_siblings: Vec<String>,
-    asp_index: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct JsCommitmentWitnessRequest {
     commitment: JsCommitment,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct JsCommitmentCircuitInput {
-    value: String,
-    label: String,
-    nullifier: String,
-    secret: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -166,6 +179,20 @@ struct JsCommitmentCircuitInput {
 struct JsArtifactBytes {
     kind: String,
     bytes_base64: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsSignedManifestArtifactBytes {
+    filename: String,
+    bytes_base64: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JsVerifiedSignedManifest {
+    payload: privacy_pools_sdk::artifacts::SignedArtifactManifestPayload,
+    artifact_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -344,6 +371,103 @@ struct JsTransactionPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct JsExecutionPolicy {
+    expected_chain_id: u64,
+    caller: String,
+    expected_pool_code_hash: Option<String>,
+    expected_entrypoint_code_hash: Option<String>,
+    mode: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsCodeHashCheck {
+    address: String,
+    expected_code_hash: Option<String>,
+    actual_code_hash: String,
+    matches_expected: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsRootCheck {
+    kind: String,
+    contract_address: String,
+    pool_address: String,
+    expected_root: String,
+    actual_root: String,
+    matches: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsExecutionPreflightReport {
+    kind: String,
+    caller: String,
+    target: String,
+    expected_chain_id: u64,
+    actual_chain_id: u64,
+    chain_id_matches: bool,
+    simulated: bool,
+    estimated_gas: u64,
+    mode: Option<String>,
+    code_hash_checks: Vec<JsCodeHashCheck>,
+    root_checks: Vec<JsRootCheck>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsPreflightedTransaction {
+    transaction: JsTransactionPlan,
+    preflight: JsExecutionPreflightReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsFinalizedTransactionRequest {
+    kind: String,
+    chain_id: u64,
+    from: String,
+    to: String,
+    nonce: u64,
+    gas_limit: u64,
+    value: String,
+    data: String,
+    gas_price: Option<String>,
+    max_fee_per_gas: Option<String>,
+    max_priority_fee_per_gas: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsFinalizedPreflightedTransaction {
+    preflighted: JsPreflightedTransaction,
+    request: JsFinalizedTransactionRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsTransactionReceiptSummary {
+    transaction_hash: String,
+    block_hash: Option<String>,
+    block_number: Option<u64>,
+    transaction_index: Option<u64>,
+    success: bool,
+    gas_used: u64,
+    effective_gas_price: String,
+    from: String,
+    to: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JsSubmittedPreflightedTransaction {
+    preflighted: JsPreflightedTransaction,
+    receipt: JsTransactionReceiptSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JsRootRead {
     kind: String,
     contract_address: String,
@@ -386,14 +510,35 @@ pub fn get_stable_backend_name() -> NapiResult<String> {
 }
 
 #[napi]
-pub fn fast_backend_supported_on_target() -> bool {
-    SDK.fast_backend_supported_on_target()
+pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
+    let keys = SDK.generate_master_keys(&mnemonic).map_err(to_napi_error)?;
+    to_json_string(&privacy_pools_sdk::core::wire::WireMasterKeys::from(&keys))
+        .map_err(to_napi_error)
 }
 
 #[napi]
-pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
+pub fn derive_master_keys_handle(mnemonic: String) -> NapiResult<String> {
     let keys = SDK.generate_master_keys(&mnemonic).map_err(to_napi_error)?;
-    to_json_string(&to_js_master_keys(&keys)).map_err(to_napi_error)
+    register_secret_handle(SecretHandleEntry::MasterKeys(keys)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_secret_handle(&handle).map_err(to_napi_error)? {
+        SecretHandleEntry::MasterKeys(keys) => {
+            to_json_string(&to_js_master_keys(&keys)).map_err(to_napi_error)
+        }
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "secret handle does not contain master keys"
+        ))),
+    }
 }
 
 #[napi]
@@ -402,9 +547,10 @@ pub fn derive_deposit_secrets(
     scope: String,
     index: String,
 ) -> NapiResult<String> {
-    let master_keys = parse_json::<JsMasterKeys>(&master_keys_json)
-        .and_then(|keys| to_master_keys(&keys))
-        .map_err(to_napi_error)?;
+    let master_keys =
+        parse_json::<privacy_pools_sdk::core::wire::WireMasterKeys>(&master_keys_json)
+            .and_then(|keys| MasterKeys::try_from(keys).map_err(Into::into))
+            .map_err(to_napi_error)?;
     let secrets = SDK
         .generate_deposit_secrets(
             &master_keys,
@@ -420,14 +566,43 @@ pub fn derive_deposit_secrets(
 }
 
 #[napi]
+pub fn generate_deposit_secrets_handle(
+    master_keys_handle: String,
+    scope: String,
+    index: String,
+) -> NapiResult<String> {
+    let master_keys = match get_secret_handle(&master_keys_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::MasterKeys(keys) => keys,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain master keys"
+            )));
+        }
+    };
+    let secrets = SDK
+        .generate_deposit_secrets(
+            &master_keys,
+            parse_field(&scope).map_err(to_napi_error)?,
+            parse_field(&index).map_err(to_napi_error)?,
+        )
+        .map_err(to_napi_error)?;
+    register_secret_handle(SecretHandleEntry::Secrets {
+        nullifier: secrets.0,
+        secret: secrets.1,
+    })
+    .map_err(to_napi_error)
+}
+
+#[napi]
 pub fn derive_withdrawal_secrets(
     master_keys_json: String,
     label: String,
     index: String,
 ) -> NapiResult<String> {
-    let master_keys = parse_json::<JsMasterKeys>(&master_keys_json)
-        .and_then(|keys| to_master_keys(&keys))
-        .map_err(to_napi_error)?;
+    let master_keys =
+        parse_json::<privacy_pools_sdk::core::wire::WireMasterKeys>(&master_keys_json)
+            .and_then(|keys| MasterKeys::try_from(keys).map_err(Into::into))
+            .map_err(to_napi_error)?;
     let secrets = SDK
         .generate_withdrawal_secrets(
             &master_keys,
@@ -438,6 +613,34 @@ pub fn derive_withdrawal_secrets(
     to_json_string(&JsSecrets {
         nullifier: secrets.0.to_decimal_string(),
         secret: secrets.1.to_decimal_string(),
+    })
+    .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn generate_withdrawal_secrets_handle(
+    master_keys_handle: String,
+    label: String,
+    index: String,
+) -> NapiResult<String> {
+    let master_keys = match get_secret_handle(&master_keys_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::MasterKeys(keys) => keys,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain master keys"
+            )));
+        }
+    };
+    let secrets = SDK
+        .generate_withdrawal_secrets(
+            &master_keys,
+            parse_field(&label).map_err(to_napi_error)?,
+            parse_field(&index).map_err(to_napi_error)?,
+        )
+        .map_err(to_napi_error)?;
+    register_secret_handle(SecretHandleEntry::Secrets {
+        nullifier: secrets.0,
+        secret: secrets.1,
     })
     .map_err(to_napi_error)
 }
@@ -457,7 +660,132 @@ pub fn get_commitment(
             parse_field(&secret).map_err(to_napi_error)?,
         )
         .map_err(to_napi_error)?;
-    to_json_string(&to_js_commitment(commitment)).map_err(to_napi_error)
+    to_json_string(&privacy_pools_sdk::core::wire::WireCommitment::from(
+        &commitment,
+    ))
+    .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn get_commitment_from_handles(
+    value: String,
+    label: String,
+    secrets_handle: String,
+) -> NapiResult<String> {
+    let (nullifier, secret) = match get_secret_handle(&secrets_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::Secrets { nullifier, secret } => (nullifier, secret),
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain deposit or withdrawal secrets"
+            )));
+        }
+    };
+    let commitment = SDK
+        .build_commitment(
+            parse_field(&value).map_err(to_napi_error)?,
+            parse_field(&label).map_err(to_napi_error)?,
+            nullifier,
+            secret,
+        )
+        .map_err(to_napi_error)?;
+    register_secret_handle(SecretHandleEntry::CommitmentRequest(
+        privacy_pools_sdk::core::CommitmentWitnessRequest { commitment },
+    ))
+    .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn dangerously_export_commitment_preimage(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_secret_handle(&handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => {
+            to_json_string(&to_js_commitment(request.commitment)).map_err(to_napi_error)
+        }
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "secret handle does not contain a commitment witness request"
+        ))),
+    }
+}
+
+#[napi]
+pub fn dangerously_export_secret(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_secret_handle(&handle).map_err(to_napi_error)? {
+        SecretHandleEntry::Secrets { nullifier, secret } => to_json_string(&JsSecrets {
+            nullifier: nullifier.to_decimal_string(),
+            secret: secret.to_decimal_string(),
+        })
+        .map_err(to_napi_error),
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "secret handle does not contain secret pair material"
+        ))),
+    }
+}
+
+#[napi]
+pub fn build_withdrawal_witness_request_handle(request_json: String) -> NapiResult<String> {
+    let request =
+        parse_wire_withdrawal_witness_request_json(&request_json).map_err(to_napi_error)?;
+    register_secret_handle(SecretHandleEntry::WithdrawalRequest(Box::new(request)))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+#[allow(clippy::too_many_arguments)]
+pub fn build_withdrawal_witness_request_handle_from_handles(
+    commitment_handle: String,
+    withdrawal_json: String,
+    scope: String,
+    withdrawal_amount: String,
+    state_witness_json: String,
+    asp_witness_json: String,
+    new_secrets_handle: String,
+) -> NapiResult<String> {
+    let commitment = match get_secret_handle(&commitment_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => request.commitment,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a commitment witness request"
+            )));
+        }
+    };
+    let (new_nullifier, new_secret) =
+        match get_secret_handle(&new_secrets_handle).map_err(to_napi_error)? {
+            SecretHandleEntry::Secrets { nullifier, secret } => (nullifier, secret),
+            _ => {
+                return Err(to_napi_error(anyhow::anyhow!(
+                    "secret handle does not contain withdrawal secret material"
+                )));
+            }
+        };
+    let withdrawal = parse_json::<WireWithdrawal>(&withdrawal_json).map_err(to_napi_error)?;
+    let state_witness = parse_json(&state_witness_json).map_err(to_napi_error)?;
+    let asp_witness = parse_json(&asp_witness_json).map_err(to_napi_error)?;
+    let request = WireWithdrawalWitnessRequest {
+        commitment: WireCommitment::from(&commitment),
+        withdrawal,
+        scope,
+        withdrawal_amount,
+        state_witness,
+        asp_witness,
+        new_nullifier: new_nullifier.to_decimal_string(),
+        new_secret: new_secret.to_decimal_string(),
+    };
+    let request = WithdrawalWitnessRequest::try_from(request).map_err(to_napi_error)?;
+    register_secret_handle(SecretHandleEntry::WithdrawalRequest(Box::new(request)))
+        .map_err(to_napi_error)
 }
 
 #[napi]
@@ -503,25 +831,28 @@ pub fn build_circuit_merkle_witness(proof_json: String, depth: u32) -> NapiResul
 
 #[napi]
 pub fn build_withdrawal_circuit_input(request_json: String) -> NapiResult<String> {
-    let request = parse_json::<JsWithdrawalWitnessRequest>(&request_json)
-        .and_then(from_js_withdrawal_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_json::<privacy_pools_sdk::core::wire::WireWithdrawalWitnessRequest>(&request_json)
+            .and_then(|request| WithdrawalWitnessRequest::try_from(request).map_err(Into::into))
+            .map_err(to_napi_error)?;
     let input = SDK
         .build_withdrawal_circuit_input(&request)
         .map_err(to_napi_error)?;
-    let input = to_js_withdrawal_circuit_input(input).map_err(to_napi_error)?;
+    let input = privacy_pools_sdk::core::wire::WireWithdrawalCircuitInput::from(&input);
     to_json_string(&input).map_err(to_napi_error)
 }
 
 #[napi]
 pub fn build_commitment_circuit_input(request_json: String) -> NapiResult<String> {
-    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
-        .and_then(from_js_commitment_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_json::<privacy_pools_sdk::core::wire::WireCommitmentWitnessRequest>(&request_json)
+            .and_then(|request| CommitmentWitnessRequest::try_from(request).map_err(Into::into))
+            .map_err(to_napi_error)?;
     let input = SDK
         .build_commitment_circuit_input(&request)
         .map_err(to_napi_error)?;
-    to_json_string(&to_js_commitment_circuit_input(&input)).map_err(to_napi_error)
+    let input = privacy_pools_sdk::core::wire::WireCommitmentCircuitInput::from(&input);
+    to_json_string(&input).map_err(to_napi_error)
 }
 
 #[napi]
@@ -593,6 +924,49 @@ pub fn verify_artifact_bytes(
         .verify_artifact_bundle_bytes(&manifest, &circuit, artifacts)
         .map_err(to_napi_error)?;
     to_json_string(&to_js_verified_artifact_bundle(bundle)).map_err(to_napi_error)
+}
+
+#[napi(js_name = "verifySignedManifest")]
+pub fn verify_signed_manifest(
+    payload_json: String,
+    signature_hex: String,
+    public_key_hex: String,
+) -> NapiResult<String> {
+    let payload = privacy_pools_sdk::artifacts::verify_signed_manifest_bytes(
+        payload_json.as_bytes(),
+        &signature_hex,
+        &public_key_hex,
+    )
+    .map_err(to_napi_error)?;
+    to_json_string(&JsVerifiedSignedManifest {
+        payload,
+        artifact_count: 0,
+    })
+    .map_err(to_napi_error)
+}
+
+#[napi(js_name = "verifySignedManifestArtifacts")]
+pub fn verify_signed_manifest_artifacts(
+    payload_json: String,
+    signature_hex: String,
+    public_key_hex: String,
+    artifacts_json: String,
+) -> NapiResult<String> {
+    let artifacts = parse_json::<Vec<JsSignedManifestArtifactBytes>>(&artifacts_json)
+        .and_then(from_js_signed_manifest_artifact_bytes)
+        .map_err(to_napi_error)?;
+    let verified = privacy_pools_sdk::artifacts::verify_signed_manifest_artifact_bytes(
+        payload_json.as_bytes(),
+        &signature_hex,
+        &public_key_hex,
+        artifacts,
+    )
+    .map_err(to_napi_error)?;
+    to_json_string(&JsVerifiedSignedManifest {
+        payload: verified.payload().clone(),
+        artifact_count: verified.artifact_count(),
+    })
+    .map_err(to_napi_error)
 }
 
 #[napi]
@@ -720,6 +1094,17 @@ pub fn remove_commitment_circuit_session(session_handle: String) -> NapiResult<b
 }
 
 #[napi]
+pub fn remove_secret_handle(handle: String) -> NapiResult<bool> {
+    remove_secret_handle_entry(&handle).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn clear_secret_handles() -> NapiResult<bool> {
+    clear_secret_handle_registry().map_err(to_napi_error)?;
+    Ok(true)
+}
+
+#[napi]
 pub fn prove_withdrawal(
     backend_profile: String,
     manifest_json: String,
@@ -727,9 +1112,34 @@ pub fn prove_withdrawal(
     request_json: String,
 ) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
-    let request = parse_json::<JsWithdrawalWitnessRequest>(&request_json)
-        .and_then(from_js_withdrawal_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_wire_withdrawal_witness_request_json(&request_json).map_err(to_napi_error)?;
+    SDK.prove_withdrawal(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &manifest,
+        &artifacts_root,
+        &request,
+    )
+    .map_err(to_napi_error)
+    .and_then(|result| to_json_string(&to_js_proving_result(result)).map_err(to_napi_error))
+}
+
+#[napi]
+pub fn prove_withdrawal_with_handles(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a withdrawal witness request"
+            )));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
     SDK.prove_withdrawal(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
         &manifest,
@@ -746,9 +1156,8 @@ pub fn prove_withdrawal_with_session(
     session_handle: String,
     request_json: String,
 ) -> NapiResult<String> {
-    let request = parse_json::<JsWithdrawalWitnessRequest>(&request_json)
-        .and_then(from_js_withdrawal_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_wire_withdrawal_witness_request_json(&request_json).map_err(to_napi_error)?;
     let session = get_withdrawal_session(&session_handle).map_err(to_napi_error)?;
     SDK.prove_withdrawal_with_session(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
@@ -805,9 +1214,34 @@ pub fn prove_commitment(
     request_json: String,
 ) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
-    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
-        .and_then(from_js_commitment_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_wire_commitment_witness_request_json(&request_json).map_err(to_napi_error)?;
+    SDK.prove_commitment(
+        parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+        &manifest,
+        &artifacts_root,
+        &request,
+    )
+    .map_err(to_napi_error)
+    .and_then(|result| to_json_string(&to_js_proving_result(result)).map_err(to_napi_error))
+}
+
+#[napi]
+pub fn prove_commitment_with_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a commitment witness request"
+            )));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
     SDK.prove_commitment(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
         &manifest,
@@ -824,9 +1258,8 @@ pub fn prove_commitment_with_session(
     session_handle: String,
     request_json: String,
 ) -> NapiResult<String> {
-    let request = parse_json::<JsCommitmentWitnessRequest>(&request_json)
-        .and_then(from_js_commitment_witness_request)
-        .map_err(to_napi_error)?;
+    let request =
+        parse_wire_commitment_witness_request_json(&request_json).map_err(to_napi_error)?;
     let session = get_commitment_session(&session_handle).map_err(to_napi_error)?;
     SDK.prove_commitment_with_session(
         parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
@@ -873,6 +1306,172 @@ pub fn verify_commitment_proof_with_session(
         &proof,
     )
     .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn prove_and_verify_commitment_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a commitment witness request"
+            )));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let verified = SDK
+        .prove_and_verify_commitment(
+            parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+            &manifest,
+            &artifacts_root,
+            &request,
+        )
+        .map_err(to_napi_error)?;
+    register_verified_proof_handle(VerifiedProofHandleEntry::Commitment(verified))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn prove_and_verify_withdrawal_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a withdrawal witness request"
+            )));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let verified = SDK
+        .prove_and_verify_withdrawal(
+            parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+            &manifest,
+            &artifacts_root,
+            &request,
+        )
+        .map_err(to_napi_error)?;
+    register_verified_proof_handle(VerifiedProofHandleEntry::Withdrawal(verified))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn verify_commitment_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof_json: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a commitment witness request"
+            )));
+        }
+    };
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let verified = SDK
+        .verify_commitment_proof_for_request(
+            parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+            &manifest,
+            &artifacts_root,
+            &request,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    register_verified_proof_handle(VerifiedProofHandleEntry::Commitment(verified))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn verify_ragequit_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof_json: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a commitment witness request"
+            )));
+        }
+    };
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let verified = SDK
+        .verify_ragequit_proof_for_request(
+            parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+            &manifest,
+            &artifacts_root,
+            &request,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    register_verified_proof_handle(VerifiedProofHandleEntry::Ragequit(verified))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn verify_withdrawal_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof_json: String,
+) -> NapiResult<String> {
+    let request = match get_secret_handle(&request_handle).map_err(to_napi_error)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "secret handle does not contain a withdrawal witness request"
+            )));
+        }
+    };
+    let proof = parse_json::<JsProofBundle>(&proof_json)
+        .and_then(from_js_proof_bundle)
+        .map_err(to_napi_error)?;
+    let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
+    let verified = SDK
+        .verify_withdrawal_proof_for_request(
+            parse_backend_profile(&backend_profile).map_err(to_napi_error)?,
+            &manifest,
+            &artifacts_root,
+            &request,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    register_verified_proof_handle(VerifiedProofHandleEntry::Withdrawal(verified))
+        .map_err(to_napi_error)
+}
+
+#[napi]
+pub fn remove_verified_proof_handle(handle: String) -> NapiResult<bool> {
+    remove_verified_proof_handle_entry(&handle).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn clear_verified_proof_handles() -> NapiResult<bool> {
+    clear_verified_proof_handle_registry().map_err(to_napi_error)?;
+    Ok(true)
 }
 
 #[napi]
@@ -951,6 +1550,307 @@ pub fn plan_ragequit_transaction(
         )
         .map_err(to_napi_error)?;
     to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_verified_withdrawal_transaction_with_handle(
+    chain_id: String,
+    pool_address: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a withdrawal proof"
+            )));
+        }
+    };
+    let plan = SDK
+        .plan_verified_withdrawal_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&pool_address).map_err(to_napi_error)?,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_verified_relay_transaction_with_handle(
+    chain_id: String,
+    entrypoint_address: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a withdrawal proof"
+            )));
+        }
+    };
+    let plan = SDK
+        .plan_verified_relay_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&entrypoint_address).map_err(to_napi_error)?,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn plan_verified_ragequit_transaction_with_handle(
+    chain_id: String,
+    pool_address: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Ragequit(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a ragequit proof"
+            )));
+        }
+    };
+    let plan = SDK
+        .plan_verified_ragequit_transaction(
+            parse_u64(&chain_id).map_err(to_napi_error)?,
+            parse_address(&pool_address).map_err(to_napi_error)?,
+            &proof,
+        )
+        .map_err(to_napi_error)?;
+    to_json_string(&to_js_transaction_plan(plan)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn preflight_verified_withdrawal_transaction_with_handle(
+    chain_id: String,
+    pool_address: String,
+    rpc_url: String,
+    policy_json: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a withdrawal proof"
+            )));
+        }
+    };
+    let policy = parse_json::<JsExecutionPolicy>(&policy_json)
+        .and_then(from_js_execution_policy)
+        .map_err(to_napi_error)?;
+    let client =
+        privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
+    let config = WithdrawalExecutionConfig {
+        chain_id: parse_u64(&chain_id).map_err(to_napi_error)?,
+        pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
+        policy,
+    };
+    let preflighted = block_on_sdk(
+        SDK.preflight_verified_withdrawal_transaction_with_client(&config, &proof, &client),
+    )
+    .map_err(to_napi_error)?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn preflight_verified_relay_transaction_with_handle(
+    chain_id: String,
+    entrypoint_address: String,
+    pool_address: String,
+    rpc_url: String,
+    policy_json: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a withdrawal proof"
+            )));
+        }
+    };
+    let policy = parse_json::<JsExecutionPolicy>(&policy_json)
+        .and_then(from_js_execution_policy)
+        .map_err(to_napi_error)?;
+    let client =
+        privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
+    let config = RelayExecutionConfig {
+        chain_id: parse_u64(&chain_id).map_err(to_napi_error)?,
+        entrypoint_address: parse_address(&entrypoint_address).map_err(to_napi_error)?,
+        pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
+        policy,
+    };
+    let preflighted = block_on_sdk(
+        SDK.preflight_verified_relay_transaction_with_client(&config, &proof, &client),
+    )
+    .map_err(to_napi_error)?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn preflight_verified_ragequit_transaction_with_handle(
+    chain_id: String,
+    pool_address: String,
+    rpc_url: String,
+    policy_json: String,
+    proof_handle: String,
+) -> NapiResult<String> {
+    let proof = match get_verified_proof_handle(&proof_handle).map_err(to_napi_error)? {
+        VerifiedProofHandleEntry::Ragequit(proof) => proof,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "verified proof handle does not contain a ragequit proof"
+            )));
+        }
+    };
+    let policy = parse_json::<JsExecutionPolicy>(&policy_json)
+        .and_then(from_js_execution_policy)
+        .map_err(to_napi_error)?;
+    let client =
+        privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
+    let config = RagequitExecutionConfig {
+        chain_id: parse_u64(&chain_id).map_err(to_napi_error)?,
+        pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
+        policy,
+    };
+    let preflighted = block_on_sdk(
+        SDK.preflight_verified_ragequit_transaction_with_client(&config, &proof, &client),
+    )
+    .map_err(to_napi_error)?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn finalize_preflighted_transaction_handle(
+    rpc_url: String,
+    preflighted_handle: String,
+) -> NapiResult<String> {
+    let preflighted = match get_execution_handle(&preflighted_handle).map_err(to_napi_error)? {
+        ExecutionHandleEntry::Preflighted(preflighted) => preflighted,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "execution handle does not contain a preflighted transaction"
+            )));
+        }
+    };
+    let client =
+        privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
+    let finalized =
+        block_on_sdk(SDK.finalize_preflighted_transaction_with_client(preflighted, &client))
+            .map_err(to_napi_error)?;
+    register_execution_handle(ExecutionHandleEntry::Finalized(finalized)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn submit_preflighted_transaction_handle(
+    _rpc_url: String,
+    _preflighted_handle: String,
+) -> NapiResult<String> {
+    Err(to_napi_error(anyhow::anyhow!(
+        "submitPreflightedTransactionHandle requires an in-process signer; default Node builds support finalizePreflightedTransactionHandle plus submitFinalizedPreflightedTransactionHandle with an externally signed transaction"
+    )))
+}
+
+#[napi]
+pub fn submit_finalized_preflighted_transaction_handle(
+    rpc_url: String,
+    finalized_handle: String,
+    signed_transaction: String,
+) -> NapiResult<String> {
+    let finalized = match get_execution_handle(&finalized_handle).map_err(to_napi_error)? {
+        ExecutionHandleEntry::Finalized(finalized) => finalized,
+        _ => {
+            return Err(to_napi_error(anyhow::anyhow!(
+                "execution handle does not contain a finalized preflighted transaction"
+            )));
+        }
+    };
+    let encoded_tx =
+        hex::decode(signed_transaction.trim_start_matches("0x")).map_err(to_napi_error)?;
+    let client =
+        privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
+    let submitted = block_on_sdk(SDK.submit_finalized_preflighted_transaction_with_client(
+        finalized,
+        &encoded_tx,
+        &client,
+    ))
+    .map_err(to_napi_error)?;
+    register_execution_handle(ExecutionHandleEntry::Submitted(submitted)).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn dangerously_export_preflighted_transaction(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_execution_handle(&handle).map_err(to_napi_error)? {
+        ExecutionHandleEntry::Preflighted(preflighted) => {
+            to_json_string(&to_js_preflighted_transaction(&preflighted)).map_err(to_napi_error)
+        }
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "execution handle does not contain a preflighted transaction"
+        ))),
+    }
+}
+
+#[napi]
+pub fn dangerously_export_finalized_preflighted_transaction(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_execution_handle(&handle).map_err(to_napi_error)? {
+        ExecutionHandleEntry::Finalized(finalized) => {
+            to_json_string(&to_js_finalized_preflighted_transaction(&finalized))
+                .map_err(to_napi_error)
+        }
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "execution handle does not contain a finalized preflighted transaction"
+        ))),
+    }
+}
+
+#[napi]
+pub fn dangerously_export_submitted_preflighted_transaction(handle: String) -> NapiResult<String> {
+    #[cfg(not(feature = "dangerous-exports"))]
+    {
+        let _ = handle;
+        return Err(dangerous_exports_disabled_error());
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    match get_execution_handle(&handle).map_err(to_napi_error)? {
+        ExecutionHandleEntry::Submitted(submitted) => {
+            to_json_string(&to_js_submitted_preflighted_transaction(&submitted))
+                .map_err(to_napi_error)
+        }
+        _ => Err(to_napi_error(anyhow::anyhow!(
+            "execution handle does not contain a submitted preflighted transaction"
+        ))),
+    }
+}
+
+#[napi]
+pub fn remove_execution_handle(handle: String) -> NapiResult<bool> {
+    remove_execution_handle_entry(&handle).map_err(to_napi_error)
+}
+
+#[napi]
+pub fn clear_execution_handles() -> NapiResult<bool> {
+    clear_execution_handle_registry().map_err(to_napi_error)?;
+    Ok(true)
 }
 
 #[napi]
@@ -1085,7 +1985,6 @@ fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
 fn parse_backend_profile(value: &str) -> Result<BackendProfile> {
     match value {
         "stable" => Ok(BackendProfile::Stable),
-        "fast" => Ok(BackendProfile::Fast),
         _ => bail!("invalid backend profile: {value}"),
     }
 }
@@ -1101,7 +2000,6 @@ fn artifact_kind_label(kind: ArtifactKind) -> String {
 fn prover_backend_label(kind: ProverBackend) -> String {
     match kind {
         ProverBackend::Arkworks => "arkworks".to_owned(),
-        ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
     }
 }
 
@@ -1124,6 +2022,17 @@ fn field_label(value: U256) -> String {
     value.to_string()
 }
 
+fn hash_label(value: B256) -> String {
+    value.to_string()
+}
+
+fn execution_policy_mode_label(mode: ExecutionPolicyMode) -> String {
+    match mode {
+        ExecutionPolicyMode::Strict => "strict".to_owned(),
+        ExecutionPolicyMode::InsecureDev => "insecure_dev".to_owned(),
+    }
+}
+
 fn next_withdrawal_session_handle() -> String {
     format!(
         "withdraw-session-{}",
@@ -1136,6 +2045,109 @@ fn next_commitment_session_handle() -> String {
         "commitment-session-{}",
         SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+fn next_secret_handle() -> String {
+    Uuid::new_v4().to_string()
+}
+
+fn register_secret_handle(entry: SecretHandleEntry) -> Result<String> {
+    let handle = next_secret_handle();
+    SECRET_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .insert(handle.clone(), entry);
+    Ok(handle)
+}
+
+fn get_secret_handle(handle: &str) -> Result<SecretHandleEntry> {
+    SECRET_HANDLE_REGISTRY
+        .read()
+        .map_err(lock_error)?
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("secret handle not found: {handle}"))
+}
+
+fn remove_secret_handle_entry(handle: &str) -> Result<bool> {
+    Ok(SECRET_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .remove(handle)
+        .is_some())
+}
+
+fn clear_secret_handle_registry() -> Result<()> {
+    SECRET_HANDLE_REGISTRY.write().map_err(lock_error)?.clear();
+    Ok(())
+}
+
+fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
+    let handle = Uuid::new_v4().to_string();
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .insert(handle.clone(), entry);
+    Ok(handle)
+}
+
+fn get_verified_proof_handle(handle: &str) -> Result<VerifiedProofHandleEntry> {
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .read()
+        .map_err(lock_error)?
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("verified proof handle not found: {handle}"))
+}
+
+fn remove_verified_proof_handle_entry(handle: &str) -> Result<bool> {
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .remove(handle)
+        .is_some())
+}
+
+fn clear_verified_proof_handle_registry() -> Result<()> {
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .clear();
+    Ok(())
+}
+
+fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String> {
+    let handle = Uuid::new_v4().to_string();
+    EXECUTION_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .insert(handle.clone(), entry);
+    Ok(handle)
+}
+
+fn get_execution_handle(handle: &str) -> Result<ExecutionHandleEntry> {
+    EXECUTION_HANDLE_REGISTRY
+        .read()
+        .map_err(lock_error)?
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("execution handle not found: {handle}"))
+}
+
+fn remove_execution_handle_entry(handle: &str) -> Result<bool> {
+    Ok(EXECUTION_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .remove(handle)
+        .is_some())
+}
+
+fn clear_execution_handle_registry() -> Result<()> {
+    EXECUTION_HANDLE_REGISTRY
+        .write()
+        .map_err(lock_error)?
+        .clear();
+    Ok(())
 }
 
 fn get_withdrawal_session(handle: &str) -> Result<WithdrawalCircuitSession> {
@@ -1162,6 +2174,27 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> anyhow::Error {
 
 fn to_napi_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(error.to_string())
+}
+
+#[cfg(not(feature = "dangerous-exports"))]
+fn dangerous_exports_disabled_error() -> Error {
+    to_napi_error(
+        "dangerous export helpers are disabled in this build; rebuild with feature `dangerous-exports` to use the debug surface",
+    )
+}
+
+fn block_on_sdk<T, E>(
+    future: impl std::future::Future<Output = std::result::Result<T, E>>,
+) -> Result<T>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("failed to build SDK runtime")?
+        .block_on(future)
+        .map_err(Into::into)
 }
 
 fn to_master_keys(keys: &JsMasterKeys) -> Result<MasterKeys> {
@@ -1285,6 +2318,7 @@ fn from_js_circuit_merkle_witness(witness: JsCircuitMerkleWitness) -> Result<Cir
     })
 }
 
+#[allow(dead_code)]
 fn from_js_withdrawal_witness_request(
     request: JsWithdrawalWitnessRequest,
 ) -> Result<WithdrawalWitnessRequest> {
@@ -1300,6 +2334,7 @@ fn from_js_withdrawal_witness_request(
     })
 }
 
+#[allow(dead_code)]
 fn from_js_commitment_witness_request(
     request: JsCommitmentWitnessRequest,
 ) -> Result<CommitmentWitnessRequest> {
@@ -1308,39 +2343,18 @@ fn from_js_commitment_witness_request(
     })
 }
 
-fn to_js_withdrawal_circuit_input(
-    input: WithdrawalCircuitInput,
-) -> Result<JsWithdrawalCircuitInput> {
-    Ok(JsWithdrawalCircuitInput {
-        withdrawn_value: field_label(input.withdrawn_value),
-        state_root: field_label(input.state_root),
-        state_tree_depth: u64::try_from(input.state_tree_depth)
-            .context("state tree depth does not fit into u64")?,
-        asp_root: field_label(input.asp_root),
-        asp_tree_depth: u64::try_from(input.asp_tree_depth)
-            .context("asp tree depth does not fit into u64")?,
-        context: field_label(input.context),
-        label: field_label(input.label),
-        existing_value: field_label(input.existing_value),
-        existing_nullifier: input.existing_nullifier.to_decimal_string(),
-        existing_secret: input.existing_secret.to_decimal_string(),
-        new_nullifier: input.new_nullifier.to_decimal_string(),
-        new_secret: input.new_secret.to_decimal_string(),
-        state_siblings: input.state_siblings.into_iter().map(field_label).collect(),
-        state_index: u64::try_from(input.state_index)
-            .context("state index does not fit into u64")?,
-        asp_siblings: input.asp_siblings.into_iter().map(field_label).collect(),
-        asp_index: u64::try_from(input.asp_index).context("asp index does not fit into u64")?,
-    })
+fn parse_wire_withdrawal_witness_request_json(
+    request_json: &str,
+) -> Result<WithdrawalWitnessRequest> {
+    parse_json::<WireWithdrawalWitnessRequest>(request_json)
+        .and_then(|request| WithdrawalWitnessRequest::try_from(request).map_err(Into::into))
 }
 
-fn to_js_commitment_circuit_input(input: &CommitmentCircuitInput) -> JsCommitmentCircuitInput {
-    JsCommitmentCircuitInput {
-        value: field_label(input.value),
-        label: field_label(input.label),
-        nullifier: input.nullifier.to_decimal_string(),
-        secret: input.secret.to_decimal_string(),
-    }
+fn parse_wire_commitment_witness_request_json(
+    request_json: &str,
+) -> Result<CommitmentWitnessRequest> {
+    parse_json::<WireCommitmentWitnessRequest>(request_json)
+        .and_then(|request| CommitmentWitnessRequest::try_from(request).map_err(Into::into))
 }
 
 fn from_js_proof_bundle(bundle: JsProofBundle) -> Result<ProofBundle> {
@@ -1405,6 +2419,107 @@ fn to_js_transaction_plan(plan: TransactionPlan) -> JsTransactionPlan {
     }
 }
 
+fn to_js_code_hash_check(check: CodeHashCheck) -> JsCodeHashCheck {
+    JsCodeHashCheck {
+        address: check.address.to_string(),
+        expected_code_hash: check.expected_code_hash.map(hash_label),
+        actual_code_hash: hash_label(check.actual_code_hash),
+        matches_expected: check.matches_expected,
+    }
+}
+
+fn to_js_root_check(check: RootCheck) -> JsRootCheck {
+    JsRootCheck {
+        kind: root_read_kind_label(check.kind),
+        contract_address: check.contract_address.to_string(),
+        pool_address: check.pool_address.to_string(),
+        expected_root: field_label(check.expected_root),
+        actual_root: field_label(check.actual_root),
+        matches: check.matches,
+    }
+}
+
+fn to_js_execution_preflight(report: ExecutionPreflightReport) -> JsExecutionPreflightReport {
+    JsExecutionPreflightReport {
+        kind: transaction_kind_label(report.kind),
+        caller: report.caller.to_string(),
+        target: report.target.to_string(),
+        expected_chain_id: report.expected_chain_id,
+        actual_chain_id: report.actual_chain_id,
+        chain_id_matches: report.chain_id_matches,
+        simulated: report.simulated,
+        estimated_gas: report.estimated_gas,
+        mode: Some(execution_policy_mode_label(report.mode)),
+        code_hash_checks: report
+            .code_hash_checks
+            .into_iter()
+            .map(to_js_code_hash_check)
+            .collect(),
+        root_checks: report
+            .root_checks
+            .into_iter()
+            .map(to_js_root_check)
+            .collect(),
+    }
+}
+
+fn to_js_preflighted_transaction(preflighted: &PreflightedTransaction) -> JsPreflightedTransaction {
+    JsPreflightedTransaction {
+        transaction: to_js_transaction_plan(preflighted.plan().clone()),
+        preflight: to_js_execution_preflight(preflighted.preflight().clone()),
+    }
+}
+
+fn to_js_finalized_request(request: &FinalizedTransactionRequest) -> JsFinalizedTransactionRequest {
+    JsFinalizedTransactionRequest {
+        kind: transaction_kind_label(request.kind),
+        chain_id: request.chain_id,
+        from: request.from.to_string(),
+        to: request.to.to_string(),
+        nonce: request.nonce,
+        gas_limit: request.gas_limit,
+        value: field_label(request.value),
+        data: format!("0x{}", hex::encode(&request.data)),
+        gas_price: request.gas_price.map(|value| value.to_string()),
+        max_fee_per_gas: request.max_fee_per_gas.map(|value| value.to_string()),
+        max_priority_fee_per_gas: request
+            .max_priority_fee_per_gas
+            .map(|value| value.to_string()),
+    }
+}
+
+fn to_js_finalized_preflighted_transaction(
+    finalized: &FinalizedPreflightedTransaction,
+) -> JsFinalizedPreflightedTransaction {
+    JsFinalizedPreflightedTransaction {
+        preflighted: to_js_preflighted_transaction(finalized.transaction()),
+        request: to_js_finalized_request(finalized.request()),
+    }
+}
+
+fn to_js_receipt_summary(receipt: &TransactionReceiptSummary) -> JsTransactionReceiptSummary {
+    JsTransactionReceiptSummary {
+        transaction_hash: hash_label(receipt.transaction_hash),
+        block_hash: receipt.block_hash.map(hash_label),
+        block_number: receipt.block_number,
+        transaction_index: receipt.transaction_index,
+        success: receipt.success,
+        gas_used: receipt.gas_used,
+        effective_gas_price: receipt.effective_gas_price.clone(),
+        from: receipt.from.to_string(),
+        to: receipt.to.map(|address| address.to_string()),
+    }
+}
+
+fn to_js_submitted_preflighted_transaction(
+    submitted: &SubmittedPreflightedTransaction,
+) -> JsSubmittedPreflightedTransaction {
+    JsSubmittedPreflightedTransaction {
+        preflighted: to_js_preflighted_transaction(submitted.transaction()),
+        receipt: to_js_receipt_summary(submitted.receipt()),
+    }
+}
+
 fn validate_pair(values: Vec<String>, label: &str) -> Result<[String; 2]> {
     values.try_into().map_err(|values: Vec<String>| {
         anyhow!("{label} must have exactly 2 elements, got {}", values.len())
@@ -1433,6 +2548,23 @@ fn from_js_artifact_bytes(
                 bytes: engine
                     .decode(artifact.bytes_base64)
                     .context("failed to decode base64 artifact bytes")?,
+            })
+        })
+        .collect()
+}
+
+fn from_js_signed_manifest_artifact_bytes(
+    artifacts: Vec<JsSignedManifestArtifactBytes>,
+) -> Result<Vec<SignedManifestArtifactBytes>> {
+    let engine = base64::engine::general_purpose::STANDARD;
+    artifacts
+        .into_iter()
+        .map(|artifact| {
+            Ok(SignedManifestArtifactBytes {
+                filename: artifact.filename,
+                bytes: engine
+                    .decode(artifact.bytes_base64)
+                    .context("failed to decode base64 signed manifest artifact bytes")?,
             })
         })
         .collect()
@@ -1510,6 +2642,29 @@ fn from_js_recovery_policy(policy: &JsRecoveryPolicy) -> Result<RecoveryPolicy> 
     Ok(RecoveryPolicy {
         compatibility_mode,
         fail_closed: policy.fail_closed,
+    })
+}
+
+fn from_js_execution_policy(policy: JsExecutionPolicy) -> Result<ExecutionPolicy> {
+    let mode = match policy.mode.as_deref().unwrap_or("strict") {
+        "strict" => ExecutionPolicyMode::Strict,
+        "insecure_dev" => ExecutionPolicyMode::InsecureDev,
+        other => bail!("invalid execution policy mode: {other}"),
+    };
+    Ok(ExecutionPolicy {
+        expected_chain_id: policy.expected_chain_id,
+        caller: parse_address(&policy.caller)?,
+        expected_pool_code_hash: policy
+            .expected_pool_code_hash
+            .as_deref()
+            .map(parse_b256)
+            .transpose()?,
+        expected_entrypoint_code_hash: policy
+            .expected_entrypoint_code_hash
+            .as_deref()
+            .map(parse_b256)
+            .transpose()?,
+        mode,
     })
 }
 

@@ -14,6 +14,58 @@ export function createWorkerClient() {
   throw new Error("worker clients are only available in the browser runtime");
 }
 
+function buildWithdrawalWitnessRequestHandle(
+  commitmentHandle,
+  withdrawal,
+  scope,
+  withdrawalAmount,
+  stateWitness,
+  aspWitness,
+  newSecretsHandle,
+) {
+  return unwrapNativeValue(
+    native.buildWithdrawalWitnessRequestHandleFromHandles(
+      commitmentHandle,
+      JSON.stringify(withdrawal),
+      String(scope),
+      String(withdrawalAmount),
+      JSON.stringify(stateWitness),
+      JSON.stringify(aspWitness),
+      newSecretsHandle,
+    ),
+  );
+}
+
+async function withWithdrawalWitnessRequestHandle(
+  commitmentHandle,
+  withdrawal,
+  scope,
+  withdrawalAmount,
+  stateWitness,
+  aspWitness,
+  newSecretsHandle,
+  callback,
+) {
+  const requestHandle = buildWithdrawalWitnessRequestHandle(
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+  );
+  try {
+    return await callback(requestHandle);
+  } finally {
+    try {
+      unwrapNativeValue(native.removeSecretHandle(requestHandle));
+    } catch {
+      // Best-effort cleanup for temporary internal request handles.
+    }
+  }
+}
+
 export class PrivacyPoolsSdkClient {
   async getRuntimeCapabilities() {
     return getRuntimeCapabilities();
@@ -27,17 +79,28 @@ export class PrivacyPoolsSdkClient {
     return unwrapNativeValue(native.getStableBackendName());
   }
 
-  async fastBackendSupportedOnTarget() {
-    return unwrapNativeValue(native.fastBackendSupportedOnTarget());
-  }
-
   async deriveMasterKeys(mnemonic) {
     return parseNativeJson(native.deriveMasterKeys(mnemonic));
+  }
+
+  async deriveMasterKeysHandle(mnemonic) {
+    return unwrapNativeValue(native.deriveMasterKeysHandle(mnemonic));
   }
 
   async deriveDepositSecrets(masterKeys, scope, index) {
     return parseNativeJson(
       native.deriveDepositSecrets(JSON.stringify(masterKeys), scope, index),
+    );
+  }
+
+  async generateDepositSecretsHandle(masterKeys, scope, index) {
+    if (typeof masterKeys !== "string") {
+      throw new Error(
+        "Node handle APIs require a master key handle; exporting raw master keys into the handle registry is intentionally unsupported",
+      );
+    }
+    return unwrapNativeValue(
+      native.generateDepositSecretsHandle(masterKeys, String(scope), String(index)),
     );
   }
 
@@ -47,8 +110,58 @@ export class PrivacyPoolsSdkClient {
     );
   }
 
+  async generateWithdrawalSecretsHandle(masterKeys, label, index) {
+    if (typeof masterKeys !== "string") {
+      throw new Error(
+        "Node handle APIs require a master key handle; exporting raw master keys into the handle registry is intentionally unsupported",
+      );
+    }
+    return unwrapNativeValue(
+      native.generateWithdrawalSecretsHandle(masterKeys, String(label), String(index)),
+    );
+  }
+
   async getCommitment(value, label, nullifier, secret) {
     return parseNativeJson(native.getCommitment(value, label, nullifier, secret));
+  }
+
+  async getCommitmentFromHandles(value, label, secretsHandle) {
+    return unwrapNativeValue(
+      native.getCommitmentFromHandles(String(value), String(label), secretsHandle),
+    );
+  }
+
+  async removeSecretHandle(handle) {
+    return unwrapNativeValue(native.removeSecretHandle(handle));
+  }
+
+  async clearSecretHandles() {
+    return unwrapNativeValue(native.clearSecretHandles());
+  }
+
+  async removeVerifiedProofHandle(handle) {
+    return unwrapNativeValue(native.removeVerifiedProofHandle(handle));
+  }
+
+  async clearVerifiedProofHandles() {
+    return unwrapNativeValue(native.clearVerifiedProofHandles());
+  }
+
+  async removeExecutionHandle(handle) {
+    return unwrapNativeValue(native.removeExecutionHandle(handle));
+  }
+
+  async clearExecutionHandles() {
+    return unwrapNativeValue(native.clearExecutionHandles());
+  }
+
+  async dispose() {
+    await Promise.allSettled([
+      this.clearSecretHandles(),
+      this.clearVerifiedProofHandles(),
+      this.clearExecutionHandles(),
+    ]);
+    return undefined;
   }
 
   async calculateWithdrawalContext(withdrawal, scope) {
@@ -121,6 +234,28 @@ export class PrivacyPoolsSdkClient {
     );
   }
 
+  async verifySignedManifest(payloadJson, signatureHex, publicKeyHex) {
+    return parseNativeJson(
+      native.verifySignedManifest(payloadJson, signatureHex, publicKeyHex),
+    );
+  }
+
+  async verifySignedManifestArtifacts(
+    payloadJson,
+    signatureHex,
+    publicKeyHex,
+    artifacts,
+  ) {
+    return parseNativeJson(
+      native.verifySignedManifestArtifacts(
+        payloadJson,
+        signatureHex,
+        publicKeyHex,
+        JSON.stringify(encodeSignedManifestArtifactBytes(artifacts)),
+      ),
+    );
+  }
+
   async prepareWithdrawalCircuitSession(manifestJson, artifactsRoot) {
     return parseNativeJson(
       native.prepareWithdrawalCircuitSession(manifestJson, artifactsRoot),
@@ -185,6 +320,38 @@ export class PrivacyPoolsSdkClient {
     );
   }
 
+  async proveWithdrawalWithHandles(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+  ) {
+    return withWithdrawalWitnessRequestHandle(
+      commitmentHandle,
+      withdrawal,
+      scope,
+      withdrawalAmount,
+      stateWitness,
+      aspWitness,
+      newSecretsHandle,
+      async (requestHandle) =>
+        parseNativeJson(
+          native.proveWithdrawalWithHandles(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            requestHandle,
+          ),
+        ),
+    );
+  }
+
   async verifyWithdrawalProof(
     backendProfile,
     manifestJson,
@@ -241,6 +408,22 @@ export class PrivacyPoolsSdkClient {
     );
   }
 
+  async proveCommitmentWithHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+  ) {
+    return parseNativeJson(
+      native.proveCommitmentWithHandle(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        commitmentHandle,
+      ),
+    );
+  }
+
   async verifyCommitmentProof(
     backendProfile,
     manifestJson,
@@ -268,6 +451,124 @@ export class PrivacyPoolsSdkClient {
         sessionHandle,
         JSON.stringify(proof),
       ),
+    );
+  }
+
+  async proveAndVerifyCommitmentHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+  ) {
+    return unwrapNativeValue(
+      native.proveAndVerifyCommitmentHandle(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        commitmentHandle,
+      ),
+    );
+  }
+
+  async proveAndVerifyWithdrawalHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+  ) {
+    return withWithdrawalWitnessRequestHandle(
+      commitmentHandle,
+      withdrawal,
+      scope,
+      withdrawalAmount,
+      stateWitness,
+      aspWitness,
+      newSecretsHandle,
+      async (requestHandle) =>
+        unwrapNativeValue(
+          native.proveAndVerifyWithdrawalHandle(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            requestHandle,
+          ),
+        ),
+    );
+  }
+
+  async verifyCommitmentProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    proof,
+  ) {
+    return unwrapNativeValue(
+      native.verifyCommitmentProofForRequestHandle(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        commitmentHandle,
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async verifyRagequitProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    proof,
+  ) {
+    return unwrapNativeValue(
+      native.verifyRagequitProofForRequestHandle(
+        backendProfile,
+        manifestJson,
+        artifactsRoot,
+        commitmentHandle,
+        JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async verifyWithdrawalProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+    proof,
+  ) {
+    return withWithdrawalWitnessRequestHandle(
+      commitmentHandle,
+      withdrawal,
+      scope,
+      withdrawalAmount,
+      stateWitness,
+      aspWitness,
+      newSecretsHandle,
+      async (requestHandle) =>
+        unwrapNativeValue(
+          native.verifyWithdrawalProofForRequestHandle(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            requestHandle,
+            JSON.stringify(proof),
+          ),
+        ),
     );
   }
 
@@ -304,6 +605,118 @@ export class PrivacyPoolsSdkClient {
         String(chainId),
         poolAddress,
         JSON.stringify(proof),
+      ),
+    );
+  }
+
+  async planVerifiedWithdrawalTransactionWithHandle(chainId, poolAddress, proofHandle) {
+    return parseNativeJson(
+      native.planVerifiedWithdrawalTransactionWithHandle(
+        String(chainId),
+        poolAddress,
+        proofHandle,
+      ),
+    );
+  }
+
+  async planVerifiedRelayTransactionWithHandle(chainId, entrypointAddress, proofHandle) {
+    return parseNativeJson(
+      native.planVerifiedRelayTransactionWithHandle(
+        String(chainId),
+        entrypointAddress,
+        proofHandle,
+      ),
+    );
+  }
+
+  async planVerifiedRagequitTransactionWithHandle(chainId, poolAddress, proofHandle) {
+    return parseNativeJson(
+      native.planVerifiedRagequitTransactionWithHandle(
+        String(chainId),
+        poolAddress,
+        proofHandle,
+      ),
+    );
+  }
+
+  async preflightVerifiedWithdrawalTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  ) {
+    return unwrapNativeValue(
+      native.preflightVerifiedWithdrawalTransactionWithHandle(
+        String(chainId),
+        poolAddress,
+        rpcUrl,
+        JSON.stringify(normalizeExecutionPolicy(policy, chainId)),
+        proofHandle,
+      ),
+    );
+  }
+
+  async preflightVerifiedRelayTransactionWithHandle(
+    chainId,
+    entrypointAddress,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  ) {
+    return unwrapNativeValue(
+      native.preflightVerifiedRelayTransactionWithHandle(
+        String(chainId),
+        entrypointAddress,
+        poolAddress,
+        rpcUrl,
+        JSON.stringify(normalizeExecutionPolicy(policy, chainId)),
+        proofHandle,
+      ),
+    );
+  }
+
+  async preflightVerifiedRagequitTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  ) {
+    return unwrapNativeValue(
+      native.preflightVerifiedRagequitTransactionWithHandle(
+        String(chainId),
+        poolAddress,
+        rpcUrl,
+        JSON.stringify(normalizeExecutionPolicy(policy, chainId)),
+        proofHandle,
+      ),
+    );
+  }
+
+  async finalizePreflightedTransactionHandle(rpcUrl, preflightedHandle) {
+    return unwrapNativeValue(
+      native.finalizePreflightedTransactionHandle(rpcUrl, preflightedHandle),
+    );
+  }
+
+  async submitPreflightedTransactionHandle(rpcUrl, preflightedHandle) {
+    return unwrapNativeValue(
+      native.submitPreflightedTransactionHandle(rpcUrl, preflightedHandle),
+    );
+  }
+
+  async submitFinalizedPreflightedTransactionHandle(
+    rpcUrl,
+    finalizedHandle,
+    signedTransaction,
+  ) {
+    return unwrapNativeValue(
+      native.submitFinalizedPreflightedTransactionHandle(
+        rpcUrl,
+        finalizedHandle,
+        signedTransaction,
       ),
     );
   }
@@ -359,6 +772,267 @@ export function createPrivacyPoolsSdkClient() {
   return new PrivacyPoolsSdkClient();
 }
 
+const defaultClient = createPrivacyPoolsSdkClient();
+
+export const deriveMasterKeysHandle = (mnemonic) =>
+  defaultClient.deriveMasterKeysHandle(mnemonic);
+export const generateDepositSecretsHandle = (masterKeys, scope, index) =>
+  defaultClient.generateDepositSecretsHandle(masterKeys, scope, index);
+export const generateWithdrawalSecretsHandle = (masterKeys, label, index) =>
+  defaultClient.generateWithdrawalSecretsHandle(masterKeys, label, index);
+export const getCommitmentFromHandles = (value, label, secretsHandle) =>
+  defaultClient.getCommitmentFromHandles(value, label, secretsHandle);
+export const proveCommitmentWithHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+) =>
+  defaultClient.proveCommitmentWithHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+  );
+export const proveWithdrawalWithHandles = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+  withdrawal,
+  scope,
+  withdrawalAmount,
+  stateWitness,
+  aspWitness,
+  newSecretsHandle,
+) =>
+  defaultClient.proveWithdrawalWithHandles(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+  );
+export const removeSecretHandle = (handle) => defaultClient.removeSecretHandle(handle);
+export const clearSecretHandles = () => defaultClient.clearSecretHandles();
+export const verifySignedManifest = (payloadJson, signatureHex, publicKeyHex) =>
+  defaultClient.verifySignedManifest(payloadJson, signatureHex, publicKeyHex);
+export const verifySignedManifestArtifacts = (
+  payloadJson,
+  signatureHex,
+  publicKeyHex,
+  artifacts,
+) =>
+  defaultClient.verifySignedManifestArtifacts(
+    payloadJson,
+    signatureHex,
+    publicKeyHex,
+    artifacts,
+  );
+export const proveAndVerifyCommitmentHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+) =>
+  defaultClient.proveAndVerifyCommitmentHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+  );
+export const proveAndVerifyWithdrawalHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+  withdrawal,
+  scope,
+  withdrawalAmount,
+  stateWitness,
+  aspWitness,
+  newSecretsHandle,
+) =>
+  defaultClient.proveAndVerifyWithdrawalHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+  );
+export const verifyCommitmentProofForRequestHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+  proof,
+) =>
+  defaultClient.verifyCommitmentProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    proof,
+  );
+export const verifyRagequitProofForRequestHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+  proof,
+) =>
+  defaultClient.verifyRagequitProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    proof,
+  );
+export const verifyWithdrawalProofForRequestHandle = (
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  commitmentHandle,
+  withdrawal,
+  scope,
+  withdrawalAmount,
+  stateWitness,
+  aspWitness,
+  newSecretsHandle,
+  proof,
+) =>
+  defaultClient.verifyWithdrawalProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    commitmentHandle,
+    withdrawal,
+    scope,
+    withdrawalAmount,
+    stateWitness,
+    aspWitness,
+    newSecretsHandle,
+    proof,
+  );
+export const planVerifiedWithdrawalTransactionWithHandle = (
+  chainId,
+  poolAddress,
+  proofHandle,
+) =>
+  defaultClient.planVerifiedWithdrawalTransactionWithHandle(
+    chainId,
+    poolAddress,
+    proofHandle,
+  );
+export const planVerifiedRelayTransactionWithHandle = (
+  chainId,
+  entrypointAddress,
+  proofHandle,
+) =>
+  defaultClient.planVerifiedRelayTransactionWithHandle(
+    chainId,
+    entrypointAddress,
+    proofHandle,
+  );
+export const planVerifiedRagequitTransactionWithHandle = (
+  chainId,
+  poolAddress,
+  proofHandle,
+) =>
+  defaultClient.planVerifiedRagequitTransactionWithHandle(
+    chainId,
+    poolAddress,
+    proofHandle,
+  );
+export const preflightVerifiedWithdrawalTransactionWithHandle = (
+  chainId,
+  poolAddress,
+  rpcUrl,
+  policy,
+  proofHandle,
+) =>
+  defaultClient.preflightVerifiedWithdrawalTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+export const preflightVerifiedRelayTransactionWithHandle = (
+  chainId,
+  entrypointAddress,
+  poolAddress,
+  rpcUrl,
+  policy,
+  proofHandle,
+) =>
+  defaultClient.preflightVerifiedRelayTransactionWithHandle(
+    chainId,
+    entrypointAddress,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+export const preflightVerifiedRagequitTransactionWithHandle = (
+  chainId,
+  poolAddress,
+  rpcUrl,
+  policy,
+  proofHandle,
+) =>
+  defaultClient.preflightVerifiedRagequitTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+export const finalizePreflightedTransactionHandle = (
+  rpcUrl,
+  preflightedHandle,
+) =>
+  defaultClient.finalizePreflightedTransactionHandle(
+    rpcUrl,
+    preflightedHandle,
+  );
+export const submitPreflightedTransactionHandle = (
+  rpcUrl,
+  preflightedHandle,
+) =>
+  defaultClient.submitPreflightedTransactionHandle(
+    rpcUrl,
+    preflightedHandle,
+  );
+export const submitFinalizedPreflightedTransactionHandle = (
+  rpcUrl,
+  finalizedHandle,
+  signedTransaction,
+) =>
+  defaultClient.submitFinalizedPreflightedTransactionHandle(
+    rpcUrl,
+    finalizedHandle,
+    signedTransaction,
+  );
+export const removeExecutionHandle = (handle) =>
+  defaultClient.removeExecutionHandle(handle);
+export const clearExecutionHandles = () =>
+  defaultClient.clearExecutionHandles();
+export const removeVerifiedProofHandle = (handle) =>
+  defaultClient.removeVerifiedProofHandle(handle);
+export const clearVerifiedProofHandles = () =>
+  defaultClient.clearVerifiedProofHandles();
+
 const facade = createRuntimeFacade(PrivacyPoolsSdkClient);
 
 export const {
@@ -411,6 +1085,25 @@ function encodeArtifactBytes(artifacts) {
     kind: artifact.kind,
     bytesBase64: Buffer.from(artifact.bytes).toString("base64"),
   }));
+}
+
+function encodeSignedManifestArtifactBytes(artifacts) {
+  return artifacts.map((artifact) => ({
+    filename: artifact.filename,
+    bytesBase64: Buffer.from(artifact.bytes).toString("base64"),
+  }));
+}
+
+function normalizeExecutionPolicy(policy = {}, chainId) {
+  return {
+    expectedChainId: Number(policy.expectedChainId ?? policy.expected_chain_id ?? chainId),
+    caller: String(policy.caller ?? ""),
+    expectedPoolCodeHash:
+      policy.expectedPoolCodeHash ?? policy.expected_pool_code_hash ?? null,
+    expectedEntrypointCodeHash:
+      policy.expectedEntrypointCodeHash ?? policy.expected_entrypoint_code_hash ?? null,
+    mode: policy.mode ?? "strict",
+  };
 }
 
 function parseNativeJson(payload) {

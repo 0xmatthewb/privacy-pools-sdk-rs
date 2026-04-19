@@ -24,5 +24,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 zk-kit-lean-imt.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+
 [lints]
 workspace = true

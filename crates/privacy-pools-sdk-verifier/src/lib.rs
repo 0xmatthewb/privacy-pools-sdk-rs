@@ -620,6 +620,7 @@ mod tests {
         rand::{SeedableRng, rngs::StdRng},
     };
     use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof};
+    use proptest::prelude::*;
     use serde_json::json;
 
     #[derive(Clone)]
@@ -746,6 +747,36 @@ mod tests {
 
         assert!(first_vkey.matches(&first_vkey_again));
         assert!(!first_vkey.matches(&second_vkey));
+    }
+
+    proptest! {
+        #[test]
+        fn malformed_public_signal_strings_fail_closed(value in "[a-zA-Z][a-zA-Z0-9]{0,16}") {
+            prop_assert!(parse_bn254_fr(&value, "public signal").is_err());
+        }
+
+        #[test]
+        fn noncanonical_proof_coordinates_fail_closed(value in 0_u64..u64::MAX) {
+            let noncanonical = add_field_modulus::<Bn254Fq>(&value.to_string());
+            let proof = ProofBundle {
+                proof: SnarkJsProof {
+                    pi_a: [noncanonical, "1".to_owned()],
+                    pi_b: [
+                        ["1".to_owned(), "2".to_owned()],
+                        ["3".to_owned(), "4".to_owned()],
+                    ],
+                    pi_c: ["5".to_owned(), "6".to_owned()],
+                    protocol: "groth16".to_owned(),
+                    curve: "bn128".to_owned(),
+                },
+                public_signals: vec!["1".to_owned()],
+            };
+
+            prop_assert!(matches!(
+                parse_bn254_proof(&proof),
+                Err(VerifierError::InvalidProof(_))
+            ));
+        }
     }
 
     #[test]

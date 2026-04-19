@@ -11,6 +11,13 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+dangerous-exports = []
+local-mnemonic = ["privacy-pools-sdk/local-mnemonic"]
+dangerous-key-export = ["privacy-pools-sdk/dangerous-key-export"]
+local-signer-client = ["privacy-pools-sdk/local-signer-client"]
+
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 anyhow.workspace = true
@@ -21,6 +28,8 @@ napi-derive = "3.5.3"
 privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]
 napi-build = "2.3.1"

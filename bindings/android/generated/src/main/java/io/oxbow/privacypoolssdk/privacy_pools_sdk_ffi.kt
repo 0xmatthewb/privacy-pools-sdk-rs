@@ -641,19 +641,41 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_witness_request_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_cancel_job(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_clear_execution_handles(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_clear_secret_handles(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets(
     ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target(
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction(
     ): Short
@@ -661,11 +683,17 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_deposit_secrets_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_generate_withdrawal_secrets_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment_from_handles(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_get_prepare_relay_execution_job_result(
     ): Short
@@ -687,9 +715,21 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_ragequit_transaction_with_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_relay_transaction_with_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_withdrawal_transaction_with_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_poll_job_status(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_ragequit_transaction_with_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_relay_transaction_with_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_withdrawal_transaction_with_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_commitment_circuit_session(
     ): Short
@@ -703,23 +743,35 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_commitment_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_withdrawal_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_session(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_handles(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_session(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_commitment_circuit_session(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_execution_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_job(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_secret_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_verified_proof_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_remove_withdrawal_circuit_session(
     ): Short
@@ -733,6 +785,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_start_prove_withdrawal_job_with_session(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_finalized_preflighted_transaction_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_preflighted_transaction_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_submit_signed_transaction(
@@ -743,9 +799,19 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_for_request_handle(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_with_session(
     ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_ragequit_proof_for_request_handle(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest_artifacts(
+    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof(
+    ): Short
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_for_request_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_with_session(
     ): Short
@@ -768,31 +834,59 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_commitment_circuit_input
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_circuit_input(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_witness_request_handle(`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(`withdrawal`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_cancel_job(`jobId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_checkpoint_recovery(`events`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_execution_handles(uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_secret_handles(uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles(uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(uniffi_out_err: UniffiRustCallStatus,
-): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_preflighted_transaction_handle(`rpcUrl`: RustBuffer.ByValue,`preflightedHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_prepared_transaction_for_signer(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_format_groth16_proof_bundle(`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_deposit_secrets_handle(`masterKeysHandle`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(`leaves`: RustBuffer.ByValue,`leaf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_generate_withdrawal_secrets_handle(`masterKeysHandle`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_artifact_statuses(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`circuit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`nullifier`: RustBuffer.ByValue,`secret`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment_from_handles(`value`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`secretsHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_get_prepare_relay_execution_job_result(`jobId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -814,9 +908,21 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_ragequit_transaction(`cha
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_relay_transaction(`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_ragequit_transaction_with_handle(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_relay_transaction_with_handle(`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_withdrawal_transaction_with_handle(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`withdrawal`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_poll_job_status(`jobId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_ragequit_transaction_with_handle(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_relay_transaction_with_handle(`chainId`: Long,`entrypointAddress`: RustBuffer.ByValue,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_withdrawal_transaction_with_handle(`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,`proofHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_commitment_circuit_session(`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -830,23 +936,35 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_circuit_ses
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prepare_withdrawal_execution(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,`chainId`: Long,`poolAddress`: RustBuffer.ByValue,`rpcUrl`: RustBuffer.ByValue,`policy`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_commitment_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_withdrawal_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment_with_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment_with_session(`backendProfile`: RustBuffer.ByValue,`sessionHandle`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal_with_handles(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal_with_session(`backendProfile`: RustBuffer.ByValue,`sessionHandle`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(`handle`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(`handle`: RustBuffer.ByValue,`mnemonic`: RustBuffer.ByValue,`index`: Int,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_register_mobile_secure_storage_signer(`handle`: RustBuffer.ByValue,`address`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_commitment_circuit_session(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_execution_handle(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_job(`jobId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_secret_handle(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_verified_proof_handle(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_remove_withdrawal_circuit_session(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
@@ -860,6 +978,10 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_start_prove_withdrawal_job(`ba
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_start_prove_withdrawal_job_with_session(`backendProfile`: RustBuffer.ByValue,`sessionHandle`: RustBuffer.ByValue,`request`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_finalized_preflighted_transaction_handle(`rpcUrl`: RustBuffer.ByValue,`finalizedHandle`: RustBuffer.ByValue,`signedTransaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_preflighted_transaction_handle(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`preflightedHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(`rpcUrl`: RustBuffer.ByValue,`signerHandle`: RustBuffer.ByValue,`prepared`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_submit_signed_transaction(`rpcUrl`: RustBuffer.ByValue,`finalized`: RustBuffer.ByValue,`signedTransaction`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -870,10 +992,20 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_artifact_bytes(`manifes
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_for_request_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_with_session(`backendProfile`: RustBuffer.ByValue,`sessionHandle`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_ragequit_proof_for_request_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest(`payloadJson`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest_artifacts(`payloadJson`: RustBuffer.ByValue,`signatureHex`: RustBuffer.ByValue,`publicKeyHex`: RustBuffer.ByValue,`artifacts`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof_for_request_handle(`backendProfile`: RustBuffer.ByValue,`manifestJson`: RustBuffer.ByValue,`artifactsRoot`: RustBuffer.ByValue,`requestHandle`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof_with_session(`backendProfile`: RustBuffer.ByValue,`sessionHandle`: RustBuffer.ByValue,`proof`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): Byte
 external fun ffi_privacy_pools_sdk_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus,
@@ -1004,6 +1136,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input() != 47570.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_witness_request_handle() != 38183.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1013,16 +1148,46 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_clear_execution_handles() != 22666.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_clear_secret_handles() != 35552.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage() != 10373.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction() != 19222.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys() != 61984.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction() != 33607.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret() != 41510.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction() != 18160.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086.toShort()) {
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle() != 15730.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121.toShort()) {
@@ -1034,13 +1199,22 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_deposit_secrets_handle() != 3349.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_generate_withdrawal_secrets_handle() != 37792.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses() != 39702.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment_from_handles() != 17138.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_get_prepare_relay_execution_job_result() != 62627.toShort()) {
@@ -1073,10 +1247,28 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction() != 11025.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_ragequit_transaction_with_handle() != 42395.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_relay_transaction_with_handle() != 9727.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_withdrawal_transaction_with_handle() != 27303.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_poll_job_status() != 4651.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_ragequit_transaction_with_handle() != 57575.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_relay_transaction_with_handle() != 3125.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_withdrawal_transaction_with_handle() != 56891.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_commitment_circuit_session() != 5850.toShort()) {
@@ -1097,7 +1289,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution() != 63214.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_commitment_handle() != 52032.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_withdrawal_handle() != 18336.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment() != 47751.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_handle() != 32971.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_session() != 65330.toShort()) {
@@ -1106,13 +1307,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_handles() != 22928.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_session() != 21445.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer() != 61118.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498.toShort()) {
@@ -1121,7 +1322,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_commitment_circuit_session() != 27781.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_execution_handle() != 50864.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_job() != 24803.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_secret_handle() != 42325.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_verified_proof_handle() != 13305.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_remove_withdrawal_circuit_session() != 15248.toShort()) {
@@ -1142,6 +1352,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_start_prove_withdrawal_job_with_session() != 32133.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_finalized_preflighted_transaction_handle() != 9363.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_preflighted_transaction_handle() != 376.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1157,10 +1373,25 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof() != 54157.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_for_request_handle() != 57644.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_with_session() != 29352.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_ragequit_proof_for_request_handle() != 39789.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest() != 65127.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest_artifacts() != 65315.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof() != 13425.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_for_request_handle() != 48794.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_with_session() != 12932.toShort()) {
@@ -1258,29 +1489,6 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
-
-/**
- * @suppress
- */
-public object FfiConverterUInt: FfiConverter<UInt, Int> {
-    override fun lift(value: Int): UInt {
-        return value.toUInt()
-    }
-
-    override fun read(buf: ByteBuffer): UInt {
-        return lift(buf.getInt())
-    }
-
-    override fun lower(value: UInt): Int {
-        return value.toInt()
-    }
-
-    override fun allocationSize(value: UInt) = 4UL
-
-    override fun write(value: UInt, buf: ByteBuffer) {
-        buf.putInt(value.toInt())
-    }
-}
 
 /**
  * @suppress
@@ -2009,6 +2217,8 @@ data class FfiExecutionPreflightReport (
     ,
     var `estimatedGas`: kotlin.ULong
     ,
+    var `mode`: kotlin.String?
+    ,
     var `codeHashChecks`: List<FfiCodeHashCheck>
     ,
     var `rootChecks`: List<FfiRootCheck>
@@ -2036,6 +2246,7 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterULong.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterSequenceTypeFfiCodeHashCheck.read(buf),
             FfiConverterSequenceTypeFfiRootCheck.read(buf),
         )
@@ -2050,6 +2261,7 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.allocationSize(value.`chainIdMatches`) +
             FfiConverterBoolean.allocationSize(value.`simulated`) +
             FfiConverterULong.allocationSize(value.`estimatedGas`) +
+            FfiConverterOptionalString.allocationSize(value.`mode`) +
             FfiConverterSequenceTypeFfiCodeHashCheck.allocationSize(value.`codeHashChecks`) +
             FfiConverterSequenceTypeFfiRootCheck.allocationSize(value.`rootChecks`)
     )
@@ -2063,8 +2275,47 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.write(value.`chainIdMatches`, buf)
             FfiConverterBoolean.write(value.`simulated`, buf)
             FfiConverterULong.write(value.`estimatedGas`, buf)
+            FfiConverterOptionalString.write(value.`mode`, buf)
             FfiConverterSequenceTypeFfiCodeHashCheck.write(value.`codeHashChecks`, buf)
             FfiConverterSequenceTypeFfiRootCheck.write(value.`rootChecks`, buf)
+    }
+}
+
+
+
+data class FfiFinalizedPreflightedTransaction (
+    var `preflighted`: FfiPreflightedTransaction
+    ,
+    var `request`: FfiFinalizedTransactionRequest
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiFinalizedPreflightedTransaction: FfiConverterRustBuffer<FfiFinalizedPreflightedTransaction> {
+    override fun read(buf: ByteBuffer): FfiFinalizedPreflightedTransaction {
+        return FfiFinalizedPreflightedTransaction(
+            FfiConverterTypeFfiPreflightedTransaction.read(buf),
+            FfiConverterTypeFfiFinalizedTransactionRequest.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiFinalizedPreflightedTransaction) = (
+            FfiConverterTypeFfiPreflightedTransaction.allocationSize(value.`preflighted`) +
+            FfiConverterTypeFfiFinalizedTransactionRequest.allocationSize(value.`request`)
+    )
+
+    override fun write(value: FfiFinalizedPreflightedTransaction, buf: ByteBuffer) {
+            FfiConverterTypeFfiPreflightedTransaction.write(value.`preflighted`, buf)
+            FfiConverterTypeFfiFinalizedTransactionRequest.write(value.`request`, buf)
     }
 }
 
@@ -2373,6 +2624,44 @@ public object FfiConverterTypeFfiPoolEvent: FfiConverterRustBuffer<FfiPoolEvent>
             FfiConverterULong.write(value.`logIndex`, buf)
             FfiConverterString.write(value.`poolAddress`, buf)
             FfiConverterString.write(value.`commitmentHash`, buf)
+    }
+}
+
+
+
+data class FfiPreflightedTransaction (
+    var `transaction`: FfiTransactionPlan
+    ,
+    var `preflight`: FfiExecutionPreflightReport
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiPreflightedTransaction: FfiConverterRustBuffer<FfiPreflightedTransaction> {
+    override fun read(buf: ByteBuffer): FfiPreflightedTransaction {
+        return FfiPreflightedTransaction(
+            FfiConverterTypeFfiTransactionPlan.read(buf),
+            FfiConverterTypeFfiExecutionPreflightReport.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiPreflightedTransaction) = (
+            FfiConverterTypeFfiTransactionPlan.allocationSize(value.`transaction`) +
+            FfiConverterTypeFfiExecutionPreflightReport.allocationSize(value.`preflight`)
+    )
+
+    override fun write(value: FfiPreflightedTransaction, buf: ByteBuffer) {
+            FfiConverterTypeFfiTransactionPlan.write(value.`transaction`, buf)
+            FfiConverterTypeFfiExecutionPreflightReport.write(value.`preflight`, buf)
     }
 }
 
@@ -2808,6 +3097,44 @@ public object FfiConverterTypeFfiSecrets: FfiConverterRustBuffer<FfiSecrets> {
 
 
 
+data class FfiSignedManifestArtifactBytes (
+    var `filename`: kotlin.String
+    ,
+    var `bytes`: kotlin.ByteArray
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSignedManifestArtifactBytes: FfiConverterRustBuffer<FfiSignedManifestArtifactBytes> {
+    override fun read(buf: ByteBuffer): FfiSignedManifestArtifactBytes {
+        return FfiSignedManifestArtifactBytes(
+            FfiConverterString.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSignedManifestArtifactBytes) = (
+            FfiConverterString.allocationSize(value.`filename`) +
+            FfiConverterByteArray.allocationSize(value.`bytes`)
+    )
+
+    override fun write(value: FfiSignedManifestArtifactBytes, buf: ByteBuffer) {
+            FfiConverterString.write(value.`filename`, buf)
+            FfiConverterByteArray.write(value.`bytes`, buf)
+    }
+}
+
+
+
 data class FfiSignerHandle (
     var `handle`: kotlin.String
     ,
@@ -2899,6 +3226,44 @@ public object FfiConverterTypeFfiSnarkJsProof: FfiConverterRustBuffer<FfiSnarkJs
             FfiConverterSequenceString.write(value.`piC`, buf)
             FfiConverterString.write(value.`protocol`, buf)
             FfiConverterString.write(value.`curve`, buf)
+    }
+}
+
+
+
+data class FfiSubmittedPreflightedTransaction (
+    var `preflighted`: FfiPreflightedTransaction
+    ,
+    var `receipt`: FfiTransactionReceiptSummary
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiSubmittedPreflightedTransaction: FfiConverterRustBuffer<FfiSubmittedPreflightedTransaction> {
+    override fun read(buf: ByteBuffer): FfiSubmittedPreflightedTransaction {
+        return FfiSubmittedPreflightedTransaction(
+            FfiConverterTypeFfiPreflightedTransaction.read(buf),
+            FfiConverterTypeFfiTransactionReceiptSummary.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiSubmittedPreflightedTransaction) = (
+            FfiConverterTypeFfiPreflightedTransaction.allocationSize(value.`preflighted`) +
+            FfiConverterTypeFfiTransactionReceiptSummary.allocationSize(value.`receipt`)
+    )
+
+    override fun write(value: FfiSubmittedPreflightedTransaction, buf: ByteBuffer) {
+            FfiConverterTypeFfiPreflightedTransaction.write(value.`preflighted`, buf)
+            FfiConverterTypeFfiTransactionReceiptSummary.write(value.`receipt`, buf)
     }
 }
 
@@ -3068,6 +3433,64 @@ public object FfiConverterTypeFfiTransactionReceiptSummary: FfiConverterRustBuff
             FfiConverterString.write(value.`effectiveGasPrice`, buf)
             FfiConverterString.write(value.`from`, buf)
             FfiConverterOptionalString.write(value.`to`, buf)
+    }
+}
+
+
+
+data class FfiVerifiedSignedManifest (
+    var `version`: kotlin.String
+    ,
+    var `artifactCount`: kotlin.ULong
+    ,
+    var `ceremony`: kotlin.String?
+    ,
+    var `build`: kotlin.String?
+    ,
+    var `repository`: kotlin.String?
+    ,
+    var `commit`: kotlin.String?
+
+){
+
+
+
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiVerifiedSignedManifest: FfiConverterRustBuffer<FfiVerifiedSignedManifest> {
+    override fun read(buf: ByteBuffer): FfiVerifiedSignedManifest {
+        return FfiVerifiedSignedManifest(
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: FfiVerifiedSignedManifest) = (
+            FfiConverterString.allocationSize(value.`version`) +
+            FfiConverterULong.allocationSize(value.`artifactCount`) +
+            FfiConverterOptionalString.allocationSize(value.`ceremony`) +
+            FfiConverterOptionalString.allocationSize(value.`build`) +
+            FfiConverterOptionalString.allocationSize(value.`repository`) +
+            FfiConverterOptionalString.allocationSize(value.`commit`)
+    )
+
+    override fun write(value: FfiVerifiedSignedManifest, buf: ByteBuffer) {
+            FfiConverterString.write(value.`version`, buf)
+            FfiConverterULong.write(value.`artifactCount`, buf)
+            FfiConverterOptionalString.write(value.`ceremony`, buf)
+            FfiConverterOptionalString.write(value.`build`, buf)
+            FfiConverterOptionalString.write(value.`repository`, buf)
+            FfiConverterOptionalString.write(value.`commit`, buf)
     }
 }
 
@@ -3406,6 +3829,30 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class SecretHandleNotFound(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class VerifiedProofHandleNotFound(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class ExecutionHandleNotFound(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class JobNotFound(
 
         val v1: kotlin.String
@@ -3484,16 +3931,25 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             9 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            10 -> FfiException.JobNotFound(
+            10 -> FfiException.SecretHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            11 -> FfiException.SignerRequiresExternalSigning(
+            11 -> FfiException.VerifiedProofHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            12 -> FfiException.InvalidManifest(
+            12 -> FfiException.ExecutionHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            13 -> FfiException.OperationFailed(
+            13 -> FfiException.JobNotFound(
+                FfiConverterString.read(buf),
+                )
+            14 -> FfiException.SignerRequiresExternalSigning(
+                FfiConverterString.read(buf),
+                )
+            15 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            16 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -3543,6 +3999,21 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.SignerNotFound -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.SecretHandleNotFound -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.VerifiedProofHandleNotFound -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.ExecutionHandleNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -3617,23 +4088,38 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.JobNotFound -> {
+            is FfiException.SecretHandleNotFound -> {
                 buf.putInt(10)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerRequiresExternalSigning -> {
+            is FfiException.VerifiedProofHandleNotFound -> {
                 buf.putInt(11)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.ExecutionHandleNotFound -> {
                 buf.putInt(12)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.JobNotFound -> {
                 buf.putInt(13)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.SignerRequiresExternalSigning -> {
+                buf.putInt(14)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.InvalidManifest -> {
+                buf.putInt(15)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(16)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
@@ -4004,6 +4490,34 @@ public object FfiConverterSequenceTypeFfiRootCheck: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeFfiSignedManifestArtifactBytes: FfiConverterRustBuffer<List<FfiSignedManifestArtifactBytes>> {
+    override fun read(buf: ByteBuffer): List<FfiSignedManifestArtifactBytes> {
+        val len = buf.getInt()
+        return List<FfiSignedManifestArtifactBytes>(len) {
+            FfiConverterTypeFfiSignedManifestArtifactBytes.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<FfiSignedManifestArtifactBytes>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeFfiSignedManifestArtifactBytes.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<FfiSignedManifestArtifactBytes>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeFfiSignedManifestArtifactBytes.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<List<kotlin.String>>> {
     override fun read(buf: ByteBuffer): List<List<kotlin.String>> {
         val len = buf.getInt()
@@ -4058,6 +4572,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `buildWithdrawalWitnessRequestHandle`(`request`: FfiWithdrawalWitnessRequest): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_witness_request_handle(
+
+        FfiConverterTypeFfiWithdrawalWitnessRequest.lower(`request`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `calculateWithdrawalContext`(`withdrawal`: FfiWithdrawal, `scope`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4091,6 +4616,105 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `clearExecutionHandles`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_clear_execution_handles(
+
+        _status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `clearSecretHandles`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_clear_secret_handles(
+
+        _status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `clearVerifiedProofHandles`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles(
+
+        _status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportCommitmentPreimage`(`handle`: kotlin.String): FfiCommitment {
+            return FfiConverterTypeFfiCommitment.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportFinalizedPreflightedTransaction`(`handle`: kotlin.String): FfiFinalizedPreflightedTransaction {
+            return FfiConverterTypeFfiFinalizedPreflightedTransaction.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportMasterKeys`(`handle`: kotlin.String): FfiMasterKeys {
+            return FfiConverterTypeFfiMasterKeys.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportPreflightedTransaction`(`handle`: kotlin.String): FfiPreflightedTransaction {
+            return FfiConverterTypeFfiPreflightedTransaction.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportSecret`(`handle`: kotlin.String): FfiSecrets {
+            return FfiConverterTypeFfiSecrets.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `dangerouslyExportSubmittedPreflightedTransaction`(`handle`: kotlin.String): FfiSubmittedPreflightedTransaction {
+            return FfiConverterTypeFfiSubmittedPreflightedTransaction.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `deriveDepositSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `scope`: kotlin.String, `index`: kotlin.String): FfiSecrets {
             return FfiConverterTypeFfiSecrets.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4113,6 +4737,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `deriveMasterKeysHandle`(`mnemonic`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(
+
+        FfiConverterString.lower(`mnemonic`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `deriveWithdrawalSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `label`: kotlin.String, `index`: kotlin.String): FfiSecrets {
             return FfiConverterTypeFfiSecrets.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4123,12 +4758,13 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     )
     }
 
- fun `fastBackendSupportedOnTarget`(): kotlin.Boolean {
-            return FfiConverterBoolean.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target(
 
-        _status)
+    @Throws(FfiException::class) fun `finalizePreflightedTransactionHandle`(`rpcUrl`: kotlin.String, `preflightedHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_finalize_preflighted_transaction_handle(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`preflightedHandle`),_status)
 }
     )
     }
@@ -4167,12 +4803,34 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `generateDepositSecretsHandle`(`masterKeysHandle`: kotlin.String, `scope`: kotlin.String, `index`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_deposit_secrets_handle(
+
+        FfiConverterString.lower(`masterKeysHandle`),FfiConverterString.lower(`scope`),FfiConverterString.lower(`index`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `generateMerkleProof`(`leaves`: List<kotlin.String>, `leaf`: kotlin.String): FfiMerkleProof {
             return FfiConverterTypeFfiMerkleProof.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
 
         FfiConverterSequenceString.lower(`leaves`),FfiConverterString.lower(`leaf`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `generateWithdrawalSecretsHandle`(`masterKeysHandle`: kotlin.String, `label`: kotlin.String, `index`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_generate_withdrawal_secrets_handle(
+
+        FfiConverterString.lower(`masterKeysHandle`),FfiConverterString.lower(`label`),FfiConverterString.lower(`index`),_status)
 }
     )
     }
@@ -4195,6 +4853,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment(
 
         FfiConverterString.lower(`value`),FfiConverterString.lower(`label`),FfiConverterString.lower(`nullifier`),FfiConverterString.lower(`secret`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `getCommitmentFromHandles`(`value`: kotlin.String, `label`: kotlin.String, `secretsHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment_from_handles(
+
+        FfiConverterString.lower(`value`),FfiConverterString.lower(`label`),FfiConverterString.lower(`secretsHandle`),_status)
 }
     )
     }
@@ -4309,6 +4978,39 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `planVerifiedRagequitTransactionWithHandle`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `proofHandle`: kotlin.String): FfiTransactionPlan {
+            return FfiConverterTypeFfiTransactionPlan.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_ragequit_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`proofHandle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `planVerifiedRelayTransactionWithHandle`(`chainId`: kotlin.ULong, `entrypointAddress`: kotlin.String, `proofHandle`: kotlin.String): FfiTransactionPlan {
+            return FfiConverterTypeFfiTransactionPlan.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_relay_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`entrypointAddress`),FfiConverterString.lower(`proofHandle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `planVerifiedWithdrawalTransactionWithHandle`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `proofHandle`: kotlin.String): FfiTransactionPlan {
+            return FfiConverterTypeFfiTransactionPlan.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_withdrawal_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`proofHandle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `planWithdrawalTransaction`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `withdrawal`: FfiWithdrawal, `proof`: FfiProofBundle): FfiTransactionPlan {
             return FfiConverterTypeFfiTransactionPlan.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4326,6 +5028,39 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_poll_job_status(
 
         FfiConverterString.lower(`jobId`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `preflightVerifiedRagequitTransactionWithHandle`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `rpcUrl`: kotlin.String, `policy`: FfiExecutionPolicy, `proofHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_ragequit_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiExecutionPolicy.lower(`policy`),FfiConverterString.lower(`proofHandle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `preflightVerifiedRelayTransactionWithHandle`(`chainId`: kotlin.ULong, `entrypointAddress`: kotlin.String, `poolAddress`: kotlin.String, `rpcUrl`: kotlin.String, `policy`: FfiExecutionPolicy, `proofHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_relay_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`entrypointAddress`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiExecutionPolicy.lower(`policy`),FfiConverterString.lower(`proofHandle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `preflightVerifiedWithdrawalTransactionWithHandle`(`chainId`: kotlin.ULong, `poolAddress`: kotlin.String, `rpcUrl`: kotlin.String, `policy`: FfiExecutionPolicy, `proofHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_withdrawal_transaction_with_handle(
+
+        FfiConverterULong.lower(`chainId`),FfiConverterString.lower(`poolAddress`),FfiConverterString.lower(`rpcUrl`),FfiConverterTypeFfiExecutionPolicy.lower(`policy`),FfiConverterString.lower(`proofHandle`),_status)
 }
     )
     }
@@ -4397,12 +5132,45 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `proveAndVerifyCommitmentHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_commitment_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `proveAndVerifyWithdrawalHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_withdrawal_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `proveCommitment`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `request`: FfiCommitmentWitnessRequest): FfiProvingResult {
             return FfiConverterTypeFfiProvingResult.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment(
 
         FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiCommitmentWitnessRequest.lower(`request`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `proveCommitmentWithHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String): FfiProvingResult {
+            return FfiConverterTypeFfiProvingResult.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment_with_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),_status)
 }
     )
     }
@@ -4430,6 +5198,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `proveWithdrawalWithHandles`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String): FfiProvingResult {
+            return FfiConverterTypeFfiProvingResult.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal_with_handles(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `proveWithdrawalWithSession`(`backendProfile`: kotlin.String, `sessionHandle`: kotlin.String, `request`: FfiWithdrawalWitnessRequest): FfiProvingResult {
             return FfiConverterTypeFfiProvingResult.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4447,17 +5226,6 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(
 
         FfiConverterString.lower(`handle`),FfiConverterString.lower(`address`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `registerLocalMnemonicSigner`(`handle`: kotlin.String, `mnemonic`: kotlin.String, `index`: kotlin.UInt): FfiSignerHandle {
-            return FfiConverterTypeFfiSignerHandle.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
-
-        FfiConverterString.lower(`handle`),FfiConverterString.lower(`mnemonic`),FfiConverterUInt.lower(`index`),_status)
 }
     )
     }
@@ -4485,12 +5253,45 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `removeExecutionHandle`(`handle`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_remove_execution_handle(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `removeJob`(`jobId`: kotlin.String): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_remove_job(
 
         FfiConverterString.lower(`jobId`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `removeSecretHandle`(`handle`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_remove_secret_handle(
+
+        FfiConverterString.lower(`handle`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `removeVerifiedProofHandle`(`handle`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_remove_verified_proof_handle(
+
+        FfiConverterString.lower(`handle`),_status)
 }
     )
     }
@@ -4562,6 +5363,28 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `submitFinalizedPreflightedTransactionHandle`(`rpcUrl`: kotlin.String, `finalizedHandle`: kotlin.String, `signedTransaction`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_submit_finalized_preflighted_transaction_handle(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`finalizedHandle`),FfiConverterString.lower(`signedTransaction`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `submitPreflightedTransactionHandle`(`rpcUrl`: kotlin.String, `signerHandle`: kotlin.String, `preflightedHandle`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_submit_preflighted_transaction_handle(
+
+        FfiConverterString.lower(`rpcUrl`),FfiConverterString.lower(`signerHandle`),FfiConverterString.lower(`preflightedHandle`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `submitPreparedTransaction`(`rpcUrl`: kotlin.String, `signerHandle`: kotlin.String, `prepared`: FfiPreparedTransactionExecution): FfiSubmittedTransactionExecution {
             return FfiConverterTypeFfiSubmittedTransactionExecution.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4617,6 +5440,17 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `verifyCommitmentProofForRequestHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String, `proof`: FfiProofBundle): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_for_request_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `verifyCommitmentProofWithSession`(`backendProfile`: kotlin.String, `sessionHandle`: kotlin.String, `proof`: FfiProofBundle): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4628,12 +5462,56 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
+    @Throws(FfiException::class) fun `verifyRagequitProofForRequestHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String, `proof`: FfiProofBundle): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_ragequit_proof_for_request_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `verifySignedManifest`(`payloadJson`: kotlin.String, `signatureHex`: kotlin.String, `publicKeyHex`: kotlin.String): FfiVerifiedSignedManifest {
+            return FfiConverterTypeFfiVerifiedSignedManifest.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest(
+
+        FfiConverterString.lower(`payloadJson`),FfiConverterString.lower(`signatureHex`),FfiConverterString.lower(`publicKeyHex`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `verifySignedManifestArtifacts`(`payloadJson`: kotlin.String, `signatureHex`: kotlin.String, `publicKeyHex`: kotlin.String, `artifacts`: List<FfiSignedManifestArtifactBytes>): FfiVerifiedSignedManifest {
+            return FfiConverterTypeFfiVerifiedSignedManifest.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest_artifacts(
+
+        FfiConverterString.lower(`payloadJson`),FfiConverterString.lower(`signatureHex`),FfiConverterString.lower(`publicKeyHex`),FfiConverterSequenceTypeFfiSignedManifestArtifactBytes.lower(`artifacts`),_status)
+}
+    )
+    }
+
+
     @Throws(FfiException::class) fun `verifyWithdrawalProof`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `proof`: FfiProofBundle): kotlin.Boolean {
             return FfiConverterBoolean.lift(
     uniffiRustCallWithError(FfiException) { _status ->
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(
 
         FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
+}
+    )
+    }
+
+
+    @Throws(FfiException::class) fun `verifyWithdrawalProofForRequestHandle`(`backendProfile`: kotlin.String, `manifestJson`: kotlin.String, `artifactsRoot`: kotlin.String, `requestHandle`: kotlin.String, `proof`: FfiProofBundle): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(FfiException) { _status ->
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof_for_request_handle(
+
+        FfiConverterString.lower(`backendProfile`),FfiConverterString.lower(`manifestJson`),FfiConverterString.lower(`artifactsRoot`),FfiConverterString.lower(`requestHandle`),FfiConverterTypeFfiProofBundle.lower(`proof`),_status)
 }
     )
     }

@@ -13,6 +13,7 @@ use privacy_pools_sdk_core::{
     FormattedGroth16Proof, ProofBundle, RootCheck, RootRead, RootReadKind, TransactionKind,
     TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32, parse_decimal_field,
 };
+#[cfg(feature = "local-signer-client")]
 use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
 use thiserror::Error;
 use url::Url;
@@ -188,6 +189,7 @@ pub struct HttpExecutionClient {
     provider: DynProvider<Ethereum>,
 }
 
+#[cfg(feature = "local-signer-client")]
 pub struct LocalSignerExecutionClient {
     provider: DynProvider<Ethereum>,
     caller: Address,
@@ -202,6 +204,7 @@ impl HttpExecutionClient {
     }
 }
 
+#[cfg(feature = "local-signer-client")]
 impl LocalSignerExecutionClient {
     pub fn new(rpc_url: &str, signer: &LocalMnemonicSigner) -> Result<Self, ChainError> {
         let url = Url::parse(rpc_url).map_err(|_| ChainError::InvalidRpcUrl(rpc_url.to_owned()))?;
@@ -209,7 +212,7 @@ impl LocalSignerExecutionClient {
 
         Ok(Self {
             provider: ProviderBuilder::new()
-                .wallet(signer.dangerously_clone_private_key_signer())
+                .wallet(signer.clone_private_key_signer_for_local_client())
                 .connect_http(url)
                 .erased(),
             caller,
@@ -314,6 +317,7 @@ impl FinalizationClient for HttpExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl ExecutionClient for LocalSignerExecutionClient {
     async fn chain_id(&self) -> Result<u64, ChainError> {
         self.provider
@@ -358,6 +362,7 @@ impl ExecutionClient for LocalSignerExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl FinalizationClient for LocalSignerExecutionClient {
     async fn next_nonce(&self, caller: Address) -> Result<u64, ChainError> {
         self.provider
@@ -410,6 +415,7 @@ impl FinalizationClient for LocalSignerExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl SubmissionClient for LocalSignerExecutionClient {
     fn caller(&self) -> Address {
         self.caller
@@ -794,6 +800,26 @@ pub async fn preflight_relay<C: ExecutionClient>(
     .await
 }
 
+pub async fn preflight_ragequit<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    pool_address: Address,
+    policy: &ExecutionPolicy,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    ensure_non_zero_address(pool_address, "pool address")?;
+
+    preflight_transaction(
+        client,
+        plan,
+        TransactionKind::Ragequit,
+        pool_address,
+        policy,
+        vec![],
+        vec![(pool_address, policy.expected_pool_code_hash)],
+    )
+    .await
+}
+
 pub async fn reconfirm_preflight<C: ExecutionClient>(
     client: &C,
     plan: &TransactionPlan,
@@ -811,6 +837,11 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
 
     let mut code_hash_checks = Vec::with_capacity(report.code_hash_checks.len());
     for check in &report.code_hash_checks {
+        if report.mode.is_strict() && check.expected_code_hash.is_none() {
+            return Err(ChainError::MissingCodeHashExpectation {
+                address: check.address,
+            });
+        }
         let actual_code_hash = client.code_hash(check.address).await?;
         let matches_expected = if let Some(expected_code_hash) = check.expected_code_hash {
             if expected_code_hash != actual_code_hash {
@@ -904,6 +935,7 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        mode: report.mode,
         code_hash_checks,
         root_checks,
     })
@@ -1048,6 +1080,7 @@ async fn preflight_transaction<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        mode: policy.mode,
         code_hash_checks,
         root_checks,
     })
@@ -1418,6 +1451,7 @@ mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
     use privacy_pools_sdk_core::ExecutionPolicyMode;
+    #[cfg(feature = "local-signer-client")]
     use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
     use serde_json::Value;
 
@@ -1598,6 +1632,32 @@ mod tests {
         assert!(matches!(
             error,
             ChainError::NonCanonicalProofField { field, .. } if field == "piA[0]"
+        ));
+    }
+
+    #[test]
+    fn rejects_withdrawal_proof_when_planning_ragequit_transaction() {
+        let withdrawal_proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+
+        assert!(matches!(
+            plan_ragequit_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &withdrawal_proof,
+            ),
+            Err(ChainError::InvalidRagequitPublicSignals(8))
         ));
     }
 
@@ -2116,6 +2176,166 @@ mod tests {
                 .iter()
                 .all(|check| check.matches_expected.is_none())
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_wrong_chain_id_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 2,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            mode: ExecutionPolicyMode::Strict,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy).await,
+            Err(ChainError::ChainIdMismatch { expected, actual })
+                if expected == 1 && actual == 2
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_pool_code_hash_mismatch_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "1111111111111111111111111111111111111111111111111111111111111111"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            mode: ExecutionPolicyMode::Strict,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy).await,
+            Err(ChainError::CodeHashMismatch { address, expected, actual })
+                if address == pool
+                    && expected
+                        == b256!("1111111111111111111111111111111111111111111111111111111111111111")
+                    && actual
+                        == b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        ));
     }
 
     #[tokio::test]
@@ -2888,6 +3108,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_trailing_bytes() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2918,6 +3139,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_fee_model() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2953,6 +3175,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_chain_id() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2986,6 +3209,42 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
+    #[test]
+    fn rejects_signed_transactions_with_wrong_signer() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let wrong_signer = LocalMnemonicSigner::from_phrase_nth(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = wrong_signer.sign_transaction_request(&request).unwrap();
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &request),
+            Err(ChainError::SignedTransactionSignerMismatch { expected, actual })
+                if expected == signer.address() && actual == wrong_signer.address()
+        ));
+    }
+
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_target() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -3021,6 +3280,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_nonce() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -3054,6 +3314,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_gas_limit() {
         let signer = LocalMnemonicSigner::from_phrase_nth(

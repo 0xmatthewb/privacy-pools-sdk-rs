@@ -1,0 +1,11 @@
+error[E0599]: no method named `preflighted_transaction` found for struct `PreparedTransactionExecution` in the current scope
+ --> tests/ui/verified_proof_prepared_conversion.rs:9:22
+  |
+9 |     let _ = prepared.preflighted_transaction();
+  |                      ^^^^^^^^^^^^^^^^^^^^^^^ method not found in `PreparedTransactionExecution`
+
+error[E0599]: no method named `into_preflighted_transaction` found for struct `PreparedTransactionExecution` in the current scope
+  --> tests/ui/verified_proof_prepared_conversion.rs:10:22
+   |
+10 |     let _ = prepared.into_preflighted_transaction();
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method not found in `PreparedTransactionExecution`

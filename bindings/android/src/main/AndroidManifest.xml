@@ -1,1 +1,3 @@
-<manifest package="io.oxbow.privacypoolssdk" />
+<manifest package="io.oxbow.privacypoolssdk" xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

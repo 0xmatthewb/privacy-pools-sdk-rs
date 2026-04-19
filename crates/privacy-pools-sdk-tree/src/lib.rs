@@ -151,6 +151,7 @@ fn field_to_bytes(value: U256) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::{collection::vec, prelude::*};
     use serde_json::Value;
     use std::str::FromStr;
 
@@ -370,5 +371,64 @@ mod tests {
                 if index == 1usize << DEFAULT_CIRCUIT_DEPTH
                     && depth == DEFAULT_CIRCUIT_DEPTH
         ));
+    }
+
+    fn reference_circuit_root(leaf: U256, index: usize, siblings: &[U256]) -> U256 {
+        let mut node = leaf;
+        for (level, sibling) in siblings.iter().copied().enumerate() {
+            if sibling.is_zero() {
+                continue;
+            }
+
+            let is_right = ((index >> level) & 1) == 1;
+            node = if is_right {
+                poseidon_hash(&[sibling, node]).expect("poseidon pair hash should succeed")
+            } else {
+                poseidon_hash(&[node, sibling]).expect("poseidon pair hash should succeed")
+            };
+        }
+        node
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig {
+            cases: 64,
+            .. ProptestConfig::default()
+        })]
+
+        #[test]
+        fn generated_proofs_match_reference_root(
+            seeds in vec(1_u64..10_000, 1..10),
+            requested_index in 0_usize..10,
+        ) {
+            let leaves = seeds
+                .iter()
+                .copied()
+                .map(|seed| U256::from(seed.saturating_add(1)))
+                .collect::<Vec<_>>();
+            let unique = leaves.iter().copied().collect::<std::collections::BTreeSet<_>>();
+            prop_assume!(unique.len() == leaves.len());
+            prop_assume!(requested_index < leaves.len());
+
+            let leaf = leaves[requested_index];
+            let proof = generate_merkle_proof(&leaves, leaf).expect("proof generates");
+
+            prop_assert_eq!(proof.leaf, leaf);
+            prop_assert!(proof.index < leaves.len());
+            prop_assert!(verify_merkle_proof(&proof).expect("proof verifies"));
+            prop_assert_eq!(
+                reference_circuit_root(proof.leaf, proof.index, &proof.siblings),
+                proof.root
+            );
+
+            let witness = to_circuit_witness(&proof, proof.siblings.len()).expect("witness builds");
+            prop_assert_eq!(witness.depth, proof.siblings.len());
+            prop_assert_eq!(witness.siblings.len(), DEFAULT_CIRCUIT_DEPTH);
+            prop_assert_eq!(
+                compute_circuit_root(&witness).expect("circuit root computes"),
+                proof.root
+            );
+            prop_assert!(verify_circuit_witness(&witness).expect("circuit witness verifies"));
+        }
     }
 }

@@ -521,6 +521,8 @@ pub struct ExecutionPreflightReport {
     pub chain_id_matches: bool,
     pub simulated: bool,
     pub estimated_gas: u64,
+    #[serde(default)]
+    pub mode: ExecutionPolicyMode,
     pub code_hash_checks: Vec<CodeHashCheck>,
     pub root_checks: Vec<RootCheck>,
 }
@@ -549,6 +551,13 @@ pub struct WithdrawalExecutionConfig {
 pub struct RelayExecutionConfig {
     pub chain_id: u64,
     pub entrypoint_address: Address,
+    pub pool_address: Address,
+    pub policy: ExecutionPolicy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RagequitExecutionConfig {
+    pub chain_id: u64,
     pub pool_address: Address,
     pub policy: ExecutionPolicy,
 }
@@ -714,6 +723,25 @@ mod tests {
             .try_into()
             .expect("legacy wire commitment converts");
         assert_eq!(decoded, commitment);
+    }
+
+    #[test]
+    fn execution_preflight_report_defaults_missing_mode_to_strict() {
+        let report: ExecutionPreflightReport = serde_json::from_value(serde_json::json!({
+            "kind": "withdraw",
+            "caller": "0x1111111111111111111111111111111111111111",
+            "target": "0x2222222222222222222222222222222222222222",
+            "expected_chain_id": 1,
+            "actual_chain_id": 1,
+            "chain_id_matches": true,
+            "simulated": true,
+            "estimated_gas": 1234,
+            "code_hash_checks": [],
+            "root_checks": []
+        }))
+        .expect("legacy report decodes");
+
+        assert_eq!(report.mode, ExecutionPolicyMode::Strict);
     }
 
     #[test]

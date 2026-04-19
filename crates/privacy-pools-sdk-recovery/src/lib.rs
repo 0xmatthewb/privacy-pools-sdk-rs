@@ -788,8 +788,7 @@ impl RecoveryBook {
     }
 
     fn into_scopes(mut self) -> Vec<RecoveredScope> {
-        self.scopes
-            .sort_by(|left, right| left.scope.cmp(&right.scope));
+        self.scopes.sort_by_key(|left| left.scope);
         self.scopes
     }
 }

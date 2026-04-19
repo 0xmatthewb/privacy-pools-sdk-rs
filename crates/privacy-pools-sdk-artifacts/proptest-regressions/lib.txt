@@ -1,0 +1,3 @@
+# Seeds for signed-manifest and artifact-binding regressions.
+cc 9fd91c3e0e75f2f20f502c1e576ebdf7364ebfe3194205109ed4cc15a56d1b92 # artifact_hash_validation_accepts_only_matching_bytes seed A
+cc 0f6bdf9719dc3be79c2be130f6312f3c27a464217ec2d2b2c60f4b5dbe6380d6 # signed_manifest_artifact_validation_rejects_unexpected_artifacts seed B

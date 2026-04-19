@@ -1,8 +1,17 @@
+#[cfg(feature = "local-mnemonic")]
 use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope, TxLegacy};
+#[cfg(feature = "local-mnemonic")]
 use alloy_eips::Encodable2718;
+#[cfg(feature = "local-mnemonic")]
 use alloy_network::TxSignerSync;
-use alloy_primitives::{Address, B256, Bytes};
+use alloy_primitives::Address;
+#[cfg(feature = "dangerous-key-export")]
+use alloy_primitives::B256;
+#[cfg(feature = "local-mnemonic")]
+use alloy_primitives::Bytes;
+#[cfg(feature = "local-mnemonic")]
 use alloy_signer_local::{LocalSignerError, MnemonicBuilder, PrivateKeySigner};
+#[cfg(feature = "local-mnemonic")]
 use privacy_pools_sdk_core::FinalizedTransactionRequest;
 use thiserror::Error;
 
@@ -24,6 +33,7 @@ pub struct ExternalSigner {
     kind: SignerKind,
 }
 
+#[cfg(feature = "local-mnemonic")]
 #[derive(Clone)]
 pub struct LocalMnemonicSigner {
     signer: PrivateKeySigner,
@@ -32,6 +42,7 @@ pub struct LocalMnemonicSigner {
 #[derive(Debug, Error)]
 pub enum SignerError {
     #[error(transparent)]
+    #[cfg(feature = "local-mnemonic")]
     Local(#[from] LocalSignerError),
     #[error("invalid finalized transaction fee model")]
     InvalidFeeModel,
@@ -39,6 +50,7 @@ pub enum SignerError {
     Transaction(String),
 }
 
+#[cfg(feature = "local-mnemonic")]
 impl LocalMnemonicSigner {
     pub fn from_phrase_nth(phrase: &str, index: u32) -> Result<Self, SignerError> {
         Ok(Self {
@@ -46,11 +58,19 @@ impl LocalMnemonicSigner {
         })
     }
 
+    #[cfg(feature = "dangerous-key-export")]
     pub fn dangerously_export_private_key_bytes(&self) -> B256 {
         self.signer.to_bytes()
     }
 
+    #[cfg(feature = "dangerous-key-export")]
     pub fn dangerously_clone_private_key_signer(&self) -> PrivateKeySigner {
+        self.signer.clone()
+    }
+
+    #[cfg(feature = "local-signer-client")]
+    #[doc(hidden)]
+    pub fn clone_private_key_signer_for_local_client(&self) -> PrivateKeySigner {
         self.signer.clone()
     }
 
@@ -103,6 +123,7 @@ impl LocalMnemonicSigner {
     }
 }
 
+#[cfg(feature = "local-mnemonic")]
 impl std::fmt::Debug for LocalMnemonicSigner {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -113,6 +134,7 @@ impl std::fmt::Debug for LocalMnemonicSigner {
     }
 }
 
+#[cfg(feature = "local-mnemonic")]
 impl SignerAdapter for LocalMnemonicSigner {
     fn address(&self) -> Address {
         self.signer.address()

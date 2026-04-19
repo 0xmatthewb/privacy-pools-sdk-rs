@@ -1,0 +1,3 @@
+# Seeds for proof/public-signal canonicalization regressions.
+cc 7c985ff7f3cb257e4232cb74e7605fa740dd56e5ebf1d7f1af2cd7b5ebafab77 # malformed_public_signal_strings_fail_closed seed A
+cc 4c61f64e4358ad4d816ce3331b88ffaf72c85b4a9ffb2b8fd91c21e83c65f7d3 # noncanonical_proof_coordinates_fail_closed seed B

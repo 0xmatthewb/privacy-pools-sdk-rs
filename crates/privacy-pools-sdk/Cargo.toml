@@ -16,6 +16,12 @@ categories = ["cryptography::cryptocurrencies", "api-bindings"]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = []
+local-mnemonic = ["privacy-pools-sdk-signer/local-mnemonic"]
+dangerous-key-export = ["privacy-pools-sdk-signer/dangerous-key-export"]
+local-signer-client = ["privacy-pools-sdk-chain/local-signer-client"]
+
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../privacy-pools-sdk-artifacts" }
@@ -33,6 +39,12 @@ thiserror.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
+hex.workspace = true
+proptest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+trybuild.workspace = true
 tokio.workspace = true
 
 [lints]

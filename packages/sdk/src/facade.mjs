@@ -156,12 +156,26 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
     constructor(options = {}) {
       this.client = options.client ?? new PrivacyPoolsSdkClient();
       this.artifactsRoot = options.artifactsRoot ?? options.baseUrl;
-      this.manifests = {
-        [CircuitName.Withdraw]:
-          options.withdrawalManifestJson ?? options.withdrawManifestJson ?? options.manifestJson,
-        [CircuitName.Commitment]:
-          options.commitmentManifestJson ?? options.manifestJson,
+      this.allowUnsignedArtifactsForTesting =
+        options.allowUnsignedArtifactsForTesting === true;
+      this.signedManifestPublicKey = options.signedManifestPublicKey ?? null;
+      this.manifestSources = {
+        [CircuitName.Withdraw]: Object.freeze({
+          manifestJson:
+            options.withdrawalManifestJson ??
+            options.withdrawManifestJson ??
+            options.manifestJson ??
+            null,
+          signedManifestJson:
+            options.withdrawalSignedManifestJson ?? options.signedManifestJson ?? null,
+        }),
+        [CircuitName.Commitment]: Object.freeze({
+          manifestJson: options.commitmentManifestJson ?? options.manifestJson ?? null,
+          signedManifestJson:
+            options.commitmentSignedManifestJson ?? options.signedManifestJson ?? null,
+        }),
       };
+      this.resolvedManifests = new Map();
       this.initialized = false;
       this.version = Version.Latest;
       this.binaries = undefined;
@@ -202,15 +216,8 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
       return Object.entries(artifacts).map(([kind, bytes]) => ({ kind, bytes }));
     }
 
-    manifestFor(circuitName) {
-      const manifestJson = this.manifests[circuitName];
-      if (!manifestJson) {
-        throw new CircuitInitialization(
-          `manifestJson is required for circuit ${circuitName}`,
-          { circuitName },
-        );
-      }
-      return manifestJson;
+    async manifestFor(circuitName) {
+      return (await this.#resolveManifest(circuitName)).manifestJson;
     }
 
     rootFor(circuitName) {
@@ -239,9 +246,8 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         throw new CircuitInitialization("merkleTree artifacts are not shipped by this SDK yet");
       }
 
-      const manifestJson = this.manifestFor(circuitName);
-      const manifest = JSON.parse(manifestJson);
-      const descriptors = manifest.artifacts?.filter(
+      const manifestResolution = await this.#resolveManifest(circuitName);
+      const descriptors = manifestResolution.manifest.artifacts?.filter(
         (artifact) => artifact.circuit === circuitName,
       );
       if (!descriptors?.length) {
@@ -258,16 +264,95 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
           }
           return {
             kind: descriptor.kind,
+            filename: descriptor.filename,
             bytes: new Uint8Array(await response.arrayBuffer()),
           };
         }),
       );
 
-      await this.client.verifyArtifactBytes(manifestJson, circuitName, artifacts);
+      if (manifestResolution.signedManifest) {
+        await this.client.verifySignedManifestArtifacts(
+          manifestResolution.signedManifest.payloadJson,
+          manifestResolution.signedManifest.signatureHex,
+          this.#signedManifestPublicKey(circuitName),
+          artifacts.map((artifact) => ({
+            filename: artifact.filename,
+            bytes: artifact.bytes,
+          })),
+        );
+      } else {
+        await this.client.verifyArtifactBytes(
+          manifestResolution.manifestJson,
+          circuitName,
+          artifacts.map((artifact) => ({
+            kind: artifact.kind,
+            bytes: artifact.bytes,
+          })),
+        );
+      }
       return artifacts.reduce((result, artifact) => {
         result[artifact.kind] = artifact.bytes;
         return result;
       }, {});
+    }
+
+    #signedManifestPublicKey(circuitName) {
+      if (this.signedManifestPublicKey) {
+        return this.signedManifestPublicKey;
+      }
+      throw new CircuitInitialization(
+        `signedManifestPublicKey is required for circuit ${circuitName}`,
+        { circuitName },
+      );
+    }
+
+    async #resolveManifest(circuitName) {
+      const cached = this.resolvedManifests.get(circuitName);
+      if (cached) {
+        return cached;
+      }
+
+      const source = this.manifestSources[circuitName];
+      if (!source?.signedManifestJson && !source?.manifestJson) {
+        throw new CircuitInitialization(
+          `manifestJson or signedManifestJson is required for circuit ${circuitName}`,
+          { circuitName },
+        );
+      }
+
+      let resolved;
+      if (source.signedManifestJson) {
+        const signedManifest = parseSignedManifestEnvelope(
+          source.signedManifestJson,
+          circuitName,
+        );
+        const verified = await this.client.verifySignedManifest(
+          signedManifest.payloadJson,
+          signedManifest.signatureHex,
+          this.#signedManifestPublicKey(circuitName),
+        );
+        const manifest = verified?.payload?.manifest ?? signedManifest.payload.manifest;
+        resolved = {
+          manifest,
+          manifestJson: JSON.stringify(manifest),
+          signedManifest,
+        };
+      } else {
+        if (!this.allowUnsignedArtifactsForTesting) {
+          throw new CircuitInitialization(
+            `unsigned manifestJson is disabled for circuit ${circuitName}; set allowUnsignedArtifactsForTesting: true to opt into the test-only path`,
+            { circuitName },
+          );
+        }
+        resolved = {
+          manifest: JSON.parse(source.manifestJson),
+          manifestJson: source.manifestJson,
+          signedManifest: null,
+        };
+      }
+
+      this.resolvedManifests.set(circuitName, resolved);
+      return resolved;
     }
   }
 
@@ -285,7 +370,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         decimalString(secret),
       );
       const session = await this.client.prepareCommitmentCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Commitment),
+        await this.circuits.manifestFor(CircuitName.Commitment),
         await this.circuits.artifactInputsFor(CircuitName.Commitment),
       );
       try {
@@ -302,7 +387,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
 
     async verifyCommitment(proof) {
       const session = await this.client.prepareCommitmentCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Commitment),
+        await this.circuits.manifestFor(CircuitName.Commitment),
         await this.circuits.artifactInputsFor(CircuitName.Commitment),
       );
       try {
@@ -326,7 +411,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
     async proveWithdrawal(commitment, input) {
       const request = toWithdrawalRequest(commitment, input);
       const session = await this.client.prepareWithdrawalCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Withdraw),
+        await this.circuits.manifestFor(CircuitName.Withdraw),
         await this.circuits.artifactInputsFor(CircuitName.Withdraw),
       );
       try {
@@ -343,7 +428,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
 
     async verifyWithdrawal(proof) {
       const session = await this.client.prepareWithdrawalCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Withdraw),
+        await this.circuits.manifestFor(CircuitName.Withdraw),
         await this.circuits.artifactInputsFor(CircuitName.Withdraw),
       );
       try {
@@ -772,6 +857,58 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
 function normalizeArtifactsRoot(root) {
   const value = String(root);
   return value.endsWith("/") ? value : `${value}/`;
+}
+
+function parseSignedManifestEnvelope(signedManifestJson, circuitName) {
+  let envelope;
+  try {
+    envelope = JSON.parse(signedManifestJson);
+  } catch (error) {
+    throw new CircuitInitialization(
+      `signed manifest JSON is invalid for circuit ${circuitName}`,
+      errorDetails(error),
+    );
+  }
+
+  let payload = envelope?.payload;
+  if (typeof envelope?.payloadJson === "string") {
+    try {
+      payload = JSON.parse(envelope.payloadJson);
+    } catch (error) {
+      throw new CircuitInitialization(
+        `signed manifest payload JSON is invalid for circuit ${circuitName}`,
+        errorDetails(error),
+      );
+    }
+  }
+  const payloadJson =
+    typeof envelope?.payloadJson === "string"
+      ? envelope.payloadJson
+      : payload
+        ? JSON.stringify(payload)
+        : null;
+  const signatureHex =
+    envelope?.signatureHex ?? envelope?.signature ?? envelope?.signature_hex ?? null;
+
+  if (!payload || !payloadJson || typeof signatureHex !== "string" || !signatureHex) {
+    throw new CircuitInitialization(
+      `signed manifest JSON must include payload and signature for circuit ${circuitName}`,
+      { circuitName },
+    );
+  }
+
+  if (!payload?.manifest?.artifacts?.length) {
+    throw new CircuitInitialization(
+      `signed manifest JSON does not declare artifacts for circuit ${circuitName}`,
+      { circuitName },
+    );
+  }
+
+  return Object.freeze({
+    payload,
+    payloadJson,
+    signatureHex,
+  });
 }
 
 function normalizeSecretArgs(args, scopeName) {

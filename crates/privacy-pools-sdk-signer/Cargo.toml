@@ -16,12 +16,18 @@ categories = ["cryptography::cryptocurrencies", "api-bindings"]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[features]
+default = []
+local-mnemonic = ["dep:alloy-signer-local"]
+local-signer-client = ["local-mnemonic"]
+dangerous-key-export = ["local-mnemonic"]
+
 [dependencies]
 alloy-consensus.workspace = true
 alloy-eips.workspace = true
 alloy-network.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
-alloy-signer-local.workspace = true
+alloy-signer-local = { workspace = true, optional = true }
 privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
 thiserror.workspace = true
 

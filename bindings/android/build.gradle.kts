@@ -21,6 +21,9 @@ android {
 
     sourceSets.getByName("androidTest") {
         assets.srcDir("../../fixtures")
+        System.getenv("PRIVACY_POOLS_ANDROID_TEST_ASSETS_DIR")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { assets.srcDir(it) }
     }
 
     compileOptions {
@@ -34,7 +37,8 @@ android {
 }
 
 dependencies {
-    api("net.java.dev.jna:jna:5.14.0")
+    api("net.java.dev.jna:jna:5.14.0@aar")
+    androidTestImplementation("net.java.dev.jna:jna:5.14.0@aar")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

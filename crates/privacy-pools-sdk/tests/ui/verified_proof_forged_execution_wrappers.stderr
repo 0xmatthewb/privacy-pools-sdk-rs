@@ -1,0 +1,19 @@
+error[E0451]: fields `transaction` and `request` of struct `FinalizedPreflightedTransaction` are private
+  --> tests/ui/verified_proof_forged_execution_wrappers.rs:9:9
+   |
+ 8 |     let _forged_finalized = FinalizedPreflightedTransaction {
+   |                             ------------------------------- in this type
+ 9 |         transaction: value(),
+   |         ^^^^^^^^^^^ private field
+10 |         request: value(),
+   |         ^^^^^^^ private field
+
+error[E0451]: fields `transaction` and `receipt` of struct `SubmittedPreflightedTransaction` are private
+  --> tests/ui/verified_proof_forged_execution_wrappers.rs:13:9
+   |
+12 |     let _forged_submitted = SubmittedPreflightedTransaction {
+   |                             ------------------------------- in this type
+13 |         transaction: value(),
+   |         ^^^^^^^^^^^ private field
+14 |         receipt: value(),
+   |         ^^^^^^^ private field

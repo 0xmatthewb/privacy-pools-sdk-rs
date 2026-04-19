@@ -8,6 +8,26 @@ export type Secrets = {
   secret: string;
 };
 
+export type SecretHandle = string & {
+  readonly __privacyPoolsSecretHandle: unique symbol;
+};
+
+export type VerifiedProofHandle = string & {
+  readonly __privacyPoolsVerifiedProofHandle: unique symbol;
+};
+
+export type PreflightedTransactionHandle = string & {
+  readonly __privacyPoolsPreflightedTransactionHandle: unique symbol;
+};
+
+export type FinalizedPreflightedTransactionHandle = string & {
+  readonly __privacyPoolsFinalizedPreflightedTransactionHandle: unique symbol;
+};
+
+export type SubmittedPreflightedTransactionHandle = string & {
+  readonly __privacyPoolsSubmittedPreflightedTransactionHandle: unique symbol;
+};
+
 export type Commitment = {
   hash: string;
   nullifierHash: string;
@@ -55,6 +75,88 @@ export type TransactionPlan = {
   calldata: string;
   value: string;
   proof: FormattedGroth16Proof;
+};
+
+export type ExecutionPolicy = {
+  expectedChainId?: number;
+  expected_chain_id?: number;
+  caller: string;
+  expectedPoolCodeHash?: string | null;
+  expected_pool_code_hash?: string | null;
+  expectedEntrypointCodeHash?: string | null;
+  expected_entrypoint_code_hash?: string | null;
+  mode?: "strict" | "insecure_dev";
+};
+
+export type CodeHashCheck = {
+  address: string;
+  expectedCodeHash: string | null;
+  actualCodeHash: string;
+  matchesExpected: boolean | null;
+};
+
+export type RootCheck = {
+  kind: "pool_state" | "asp";
+  contractAddress: string;
+  poolAddress: string;
+  expectedRoot: string;
+  actualRoot: string;
+  matches: boolean;
+};
+
+export type ExecutionPreflightReport = {
+  kind: "withdraw" | "relay" | "ragequit";
+  caller: string;
+  target: string;
+  expectedChainId: number;
+  actualChainId: number;
+  chainIdMatches: boolean;
+  simulated: boolean;
+  estimatedGas: number;
+  mode?: "strict" | "insecure_dev";
+  codeHashChecks: CodeHashCheck[];
+  rootChecks: RootCheck[];
+};
+
+export type PreflightedTransaction = {
+  transaction: TransactionPlan;
+  preflight: ExecutionPreflightReport;
+};
+
+export type FinalizedTransactionRequest = {
+  kind: "withdraw" | "relay" | "ragequit";
+  chainId: number;
+  from: string;
+  to: string;
+  nonce: number;
+  gasLimit: number;
+  value: string;
+  data: string;
+  gasPrice: string | null;
+  maxFeePerGas: string | null;
+  maxPriorityFeePerGas: string | null;
+};
+
+export type FinalizedPreflightedTransaction = {
+  preflighted: PreflightedTransaction;
+  request: FinalizedTransactionRequest;
+};
+
+export type TransactionReceiptSummary = {
+  transactionHash: string;
+  blockHash: string | null;
+  blockNumber: number | null;
+  transactionIndex: number | null;
+  success: boolean;
+  gasUsed: number;
+  effectiveGasPrice: string;
+  from: string;
+  to: string | null;
+};
+
+export type SubmittedPreflightedTransaction = {
+  preflighted: PreflightedTransaction;
+  receipt: TransactionReceiptSummary;
 };
 
 export type RootRead = {
@@ -286,6 +388,31 @@ export type ArtifactBytesInput = {
   bytes: Uint8Array | ArrayBuffer | number[];
 };
 
+export type SignedManifestArtifactBytesInput = {
+  filename: string;
+  bytes: Uint8Array | ArrayBuffer | number[];
+};
+
+export type SignedArtifactManifestMetadata = {
+  ceremony?: string | null;
+  build?: string | null;
+  repository?: string | null;
+  commit?: string | null;
+};
+
+export type SignedArtifactManifestPayload = {
+  manifest: {
+    version: string;
+    artifacts: VerifiedArtifactDescriptor[];
+  };
+  metadata: SignedArtifactManifestMetadata;
+};
+
+export type VerifiedSignedArtifactManifest = {
+  payload: SignedArtifactManifestPayload;
+  artifactCount: number;
+};
+
 export type ArtifactStatus = {
   version: string;
   circuit: string;
@@ -346,9 +473,18 @@ export type RuntimeCapabilities = {
   reason?: string;
 };
 
+export type ExperimentalThreadedInitialization = {
+  threadedProvingEnabled: boolean;
+  fallback: "stable-single-threaded" | null;
+  reason?: string;
+  threadCount?: number;
+};
+
 export type RuntimeStatusStage =
   | "preload"
   | "witness"
+  | "witness-parse"
+  | "witness-transfer"
   | "prove"
   | "verify"
   | "done"
@@ -358,6 +494,7 @@ export type RuntimeStatus = {
   stage: RuntimeStatusStage;
   circuit?: string;
   witnessSize?: number;
+  witnessRuntime?: "probe-reuse" | "fallback";
   message?: string;
 };
 
@@ -441,6 +578,11 @@ export class Circuits {
     withdrawalManifestJson?: string;
     withdrawManifestJson?: string;
     commitmentManifestJson?: string;
+    signedManifestJson?: string;
+    withdrawalSignedManifestJson?: string;
+    commitmentSignedManifestJson?: string;
+    signedManifestPublicKey?: string;
+    allowUnsignedArtifactsForTesting?: boolean;
     client?: PrivacyPoolsSdkClient;
   });
   downloadArtifacts(version?: string): Promise<Record<string, Record<string, Uint8Array>>>;
@@ -559,12 +701,20 @@ export class ContractInteractionsService {
   constructor(...args: unknown[]);
   getStateRoot(poolAddress: string): Promise<RootRead>;
   getScopeData(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planWithdrawalTransaction(
     chainId: number | string | bigint,
     poolAddress: string,
     withdrawal: Withdrawal,
     proof: ProofBundle,
   ): Promise<TransactionPlan>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planRelayTransaction(
     chainId: number | string | bigint,
     entrypointAddress: string,
@@ -572,6 +722,10 @@ export class ContractInteractionsService {
     proof: ProofBundle,
     scope: string | bigint,
   ): Promise<TransactionPlan>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planRagequitTransaction(
     chainId: number | string | bigint,
     poolAddress: string,
@@ -588,24 +742,85 @@ export class PrivacyPoolsSdkClient {
   getRuntimeCapabilities(): Promise<RuntimeCapabilities>;
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
-  fastBackendSupportedOnTarget(): Promise<boolean>;
+  supportsExperimentalThreadedBrowserProving(): Promise<boolean>;
   deriveMasterKeys(mnemonic: string): Promise<MasterKeys>;
+  deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
   deriveDepositSecrets(
     masterKeys: MasterKeys,
     scope: string,
     index: string,
   ): Promise<Secrets>;
+  generateDepositSecretsHandle(
+    masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
+    scope: string,
+    index: string,
+  ): Promise<SecretHandle>;
   deriveWithdrawalSecrets(
     masterKeys: MasterKeys,
     label: string,
     index: string,
   ): Promise<Secrets>;
+  generateWithdrawalSecretsHandle(
+    masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
+    label: string,
+    index: string,
+  ): Promise<SecretHandle>;
   getCommitment(
     value: string,
     label: string,
     nullifier: string,
     secret: string,
   ): Promise<Commitment>;
+  getCommitmentFromHandles(
+    value: string,
+    label: string,
+    secretsHandle: SecretHandle,
+  ): Promise<SecretHandle>;
+  proveCommitmentWithHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveWithdrawalWithHandles(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    withdrawal: Withdrawal,
+    scope: string,
+    withdrawalAmount: string,
+    stateWitness: CircuitMerkleWitness,
+    aspWitness: CircuitMerkleWitness,
+    newSecretsHandle: SecretHandle,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveAndVerifyCommitmentHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    status?: RuntimeStatusOptions,
+  ): Promise<VerifiedProofHandle>;
+  proveAndVerifyWithdrawalHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    withdrawal: Withdrawal,
+    scope: string,
+    withdrawalAmount: string,
+    stateWitness: CircuitMerkleWitness,
+    aspWitness: CircuitMerkleWitness,
+    newSecretsHandle: SecretHandle,
+    status?: RuntimeStatusOptions,
+  ): Promise<VerifiedProofHandle>;
+  removeSecretHandle(handle: SecretHandle): Promise<boolean>;
+  removeVerifiedProofHandle(handle: VerifiedProofHandle): Promise<boolean>;
+  clearSecretHandles(): Promise<boolean>;
+  clearVerifiedProofHandles(): Promise<boolean>;
+  dispose(options?: { terminate?: boolean }): Promise<unknown>;
   calculateWithdrawalContext(
     withdrawal: Withdrawal,
     scope: string,
@@ -642,6 +857,17 @@ export class PrivacyPoolsSdkClient {
     circuit: string,
     artifacts: ArtifactBytesInput[],
   ): Promise<VerifiedArtifactBundle>;
+  verifySignedManifest(
+    payloadJson: string,
+    signatureHex: string,
+    publicKeyHex: string,
+  ): Promise<VerifiedSignedArtifactManifest>;
+  verifySignedManifestArtifacts(
+    payloadJson: string,
+    signatureHex: string,
+    publicKeyHex: string,
+    artifacts: SignedManifestArtifactBytesInput[],
+  ): Promise<VerifiedSignedArtifactManifest>;
   prepareWithdrawalCircuitSession(
     manifestJson: string,
     artifactsRoot: string,
@@ -662,60 +888,121 @@ export class PrivacyPoolsSdkClient {
   removeCommitmentCircuitSession(sessionHandle: string): Promise<boolean>;
   clearCircuitSessionCache(): Promise<void>;
   proveWithdrawal(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
     status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   proveWithdrawalWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
+    sessionHandle: string,
+    request: WithdrawalWitnessRequest,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveWithdrawalBinary(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: WithdrawalWitnessRequest,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveWithdrawalWithSessionBinary(
+    backendProfile: "stable",
     sessionHandle: string,
     request: WithdrawalWitnessRequest,
     status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   verifyWithdrawalProof(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyWithdrawalProofWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
+  verifyWithdrawalProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    withdrawal: Withdrawal,
+    scope: string,
+    withdrawalAmount: string,
+    stateWitness: CircuitMerkleWitness,
+    aspWitness: CircuitMerkleWitness,
+    newSecretsHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
   proveCommitment(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: CommitmentWitnessRequest,
     status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   proveCommitmentWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
+    sessionHandle: string,
+    request: CommitmentWitnessRequest,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveCommitmentBinary(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    request: CommitmentWitnessRequest,
+    status?: RuntimeStatusOptions,
+  ): Promise<ProvingResult>;
+  proveCommitmentWithSessionBinary(
+    backendProfile: "stable",
     sessionHandle: string,
     request: CommitmentWitnessRequest,
     status?: RuntimeStatusOptions,
   ): Promise<ProvingResult>;
   verifyCommitmentProof(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyCommitmentProofWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
+  verifyCommitmentProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
+  verifyRagequitProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    commitmentHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
   formatGroth16ProofBundle(proof: ProofBundle): Promise<FormattedGroth16Proof>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planWithdrawalTransaction(
     chainId: number | string | bigint,
     poolAddress: string,
     withdrawal: Withdrawal,
     proof: ProofBundle,
   ): Promise<TransactionPlan>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planRelayTransaction(
     chainId: number | string | bigint,
     entrypointAddress: string,
@@ -723,11 +1010,72 @@ export class PrivacyPoolsSdkClient {
     proof: ProofBundle,
     scope: string | bigint,
   ): Promise<TransactionPlan>;
+  /**
+   * Low-level compatibility/offline formatting API. For execution flows,
+   * prefer verified-proof handle planners.
+   */
   planRagequitTransaction(
     chainId: number | string | bigint,
     poolAddress: string,
     proof: ProofBundle,
   ): Promise<TransactionPlan>;
+  planVerifiedWithdrawalTransactionWithHandle(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  planVerifiedRelayTransactionWithHandle(
+    chainId: number | string | bigint,
+    entrypointAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  planVerifiedRagequitTransactionWithHandle(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  preflightVerifiedWithdrawalTransactionWithHandle(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  preflightVerifiedRelayTransactionWithHandle(
+    chainId: number | string | bigint,
+    entrypointAddress: string,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  preflightVerifiedRagequitTransactionWithHandle(
+    chainId: number | string | bigint,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  finalizePreflightedTransactionHandle(
+    rpcUrl: string,
+    preflightedHandle: PreflightedTransactionHandle,
+  ): Promise<FinalizedPreflightedTransactionHandle>;
+  submitPreflightedTransactionHandle(
+    rpcUrl: string,
+    preflightedHandle: PreflightedTransactionHandle,
+  ): Promise<SubmittedPreflightedTransactionHandle>;
+  submitFinalizedPreflightedTransactionHandle(
+    rpcUrl: string,
+    finalizedHandle: FinalizedPreflightedTransactionHandle,
+    signedTransaction: string,
+  ): Promise<SubmittedPreflightedTransactionHandle>;
+  removeExecutionHandle(
+    handle:
+      | PreflightedTransactionHandle
+      | FinalizedPreflightedTransactionHandle
+      | SubmittedPreflightedTransactionHandle,
+  ): Promise<boolean>;
+  clearExecutionHandles(): Promise<boolean>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
   isCurrentStateRoot(
@@ -758,6 +1106,134 @@ export function createPrivacyPoolsSdkClient(): PrivacyPoolsSdkClient;
 export function createWorkerClient(worker: Worker): PrivacyPoolsSdkClient;
 export function getRuntimeCapabilities(): RuntimeCapabilities;
 export function clearBrowserCircuitSessionCache(): Promise<void>;
+export function supportsExperimentalThreadedBrowserProving(): boolean;
+export function initializeExperimentalThreadedBrowserProving(options?: {
+  threadCount?: number;
+}): Promise<ExperimentalThreadedInitialization>;
+export function deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+export function generateDepositSecretsHandle(
+  masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
+  scope: string | bigint,
+  index: string | bigint,
+): Promise<SecretHandle>;
+export function generateWithdrawalSecretsHandle(
+  masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
+  label: string | bigint,
+  index: string | bigint,
+): Promise<SecretHandle>;
+export function getCommitmentFromHandles(
+  value: string | bigint,
+  label: string | bigint,
+  secretsHandle: SecretHandle,
+): Promise<SecretHandle>;
+export function proveCommitmentWithHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
+export function proveWithdrawalWithHandles(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  withdrawal: Withdrawal,
+  scope: string | bigint,
+  withdrawalAmount: string | bigint,
+  stateWitness: CircuitMerkleWitness,
+  aspWitness: CircuitMerkleWitness,
+  newSecretsHandle: SecretHandle,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
+export function proveAndVerifyCommitmentHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  status?: RuntimeStatusOptions,
+): Promise<VerifiedProofHandle>;
+export function proveAndVerifyWithdrawalHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  withdrawal: Withdrawal,
+  scope: string | bigint,
+  withdrawalAmount: string | bigint,
+  stateWitness: CircuitMerkleWitness,
+  aspWitness: CircuitMerkleWitness,
+  newSecretsHandle: SecretHandle,
+  status?: RuntimeStatusOptions,
+): Promise<VerifiedProofHandle>;
+export function removeSecretHandle(handle: SecretHandle): Promise<boolean>;
+export function removeVerifiedProofHandle(handle: VerifiedProofHandle): Promise<boolean>;
+export function clearSecretHandles(): Promise<boolean>;
+export function clearVerifiedProofHandles(): Promise<boolean>;
+export function verifySignedManifest(
+  payloadJson: string,
+  signatureHex: string,
+  publicKeyHex: string,
+): Promise<VerifiedSignedArtifactManifest>;
+export function verifySignedManifestArtifacts(
+  payloadJson: string,
+  signatureHex: string,
+  publicKeyHex: string,
+  artifacts: SignedManifestArtifactBytesInput[],
+): Promise<VerifiedSignedArtifactManifest>;
+export function verifyCommitmentProofForRequestHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle>;
+export function verifyRagequitProofForRequestHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle>;
+export function verifyWithdrawalProofForRequestHandle(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  commitmentHandle: SecretHandle,
+  withdrawal: Withdrawal,
+  scope: string | bigint,
+  withdrawalAmount: string | bigint,
+  stateWitness: CircuitMerkleWitness,
+  aspWitness: CircuitMerkleWitness,
+  newSecretsHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle>;
+export function proveWithdrawalBinary(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
+export function proveWithdrawalWithSessionBinary(
+  backendProfile: "stable",
+  sessionHandle: string,
+  request: WithdrawalWitnessRequest,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
+export function proveCommitmentBinary(
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: CommitmentWitnessRequest,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
+export function proveCommitmentWithSessionBinary(
+  backendProfile: "stable",
+  sessionHandle: string,
+  request: CommitmentWitnessRequest,
+  status?: RuntimeStatusOptions,
+): Promise<ProvingResult>;
 export function generateMasterKeys(mnemonic: string): Promise<V1MasterKeys>;
 export function generateDepositSecrets(
   masterKeys: MasterKeys | V1MasterKeys,
@@ -831,11 +1307,31 @@ export function planAspRootRead(
   poolAddress: string,
 ): Promise<RootRead>;
 export function planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
+/**
+ * Low-level compatibility/offline formatting API. For execution flows,
+ * prefer verified-proof handle planners.
+ */
 export function planRagequitTransaction(
   chainId: number | string | bigint,
   poolAddress: string,
   proof: ProofBundle,
 ): Promise<TransactionPlan>;
+export function planVerifiedRagequitTransactionWithHandle(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan>;
+export function preflightVerifiedRagequitTransactionWithHandle(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle>;
+/**
+ * Low-level compatibility/offline formatting API. For execution flows,
+ * prefer verified-proof handle planners.
+ */
 export function planRelayTransaction(
   chainId: number | string | bigint,
   entrypointAddress: string,
@@ -843,9 +1339,58 @@ export function planRelayTransaction(
   proof: ProofBundle,
   scope: string | bigint,
 ): Promise<TransactionPlan>;
+export function planVerifiedRelayTransactionWithHandle(
+  chainId: number | string | bigint,
+  entrypointAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan>;
+export function preflightVerifiedRelayTransactionWithHandle(
+  chainId: number | string | bigint,
+  entrypointAddress: string,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle>;
+/**
+ * Low-level compatibility/offline formatting API. For execution flows,
+ * prefer verified-proof handle planners.
+ */
 export function planWithdrawalTransaction(
   chainId: number | string | bigint,
   poolAddress: string,
   withdrawal: Withdrawal,
   proof: ProofBundle,
 ): Promise<TransactionPlan>;
+export function planVerifiedWithdrawalTransactionWithHandle(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan>;
+export function preflightVerifiedWithdrawalTransactionWithHandle(
+  chainId: number | string | bigint,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle>;
+export function finalizePreflightedTransactionHandle(
+  rpcUrl: string,
+  preflightedHandle: PreflightedTransactionHandle,
+): Promise<FinalizedPreflightedTransactionHandle>;
+export function submitPreflightedTransactionHandle(
+  rpcUrl: string,
+  preflightedHandle: PreflightedTransactionHandle,
+): Promise<SubmittedPreflightedTransactionHandle>;
+export function submitFinalizedPreflightedTransactionHandle(
+  rpcUrl: string,
+  finalizedHandle: FinalizedPreflightedTransactionHandle,
+  signedTransaction: string,
+): Promise<SubmittedPreflightedTransactionHandle>;
+export function removeExecutionHandle(
+  handle:
+    | PreflightedTransactionHandle
+    | FinalizedPreflightedTransactionHandle
+    | SubmittedPreflightedTransactionHandle,
+): Promise<boolean>;
+export function clearExecutionHandles(): Promise<boolean>;

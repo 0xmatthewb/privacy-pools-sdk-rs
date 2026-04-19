@@ -1,8 +1,8 @@
 import Foundation
 import React
 
-@objc(PrivacyPoolsSdk)
-final class PrivacyPoolsSdk: NSObject {
+@objc(PrivacyPoolsSdkModule)
+final class PrivacyPoolsSdkModule: NSObject {
     @objc
     static func requiresMainQueueSetup() -> Bool {
         false
@@ -28,14 +28,6 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
-    @objc(fastBackendSupportedOnTarget:rejecter:)
-    func fastBackendSupportedOnTarget(
-        resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock,
-    ) {
-        resolve(PrivacyPoolsSdkClient.supportsFastBackendOnTarget())
-    }
-
     @objc(deriveMasterKeys:resolver:rejecter:)
     func deriveMasterKeys(
         mnemonic: String,
@@ -44,10 +36,33 @@ final class PrivacyPoolsSdk: NSObject {
     ) {
         do {
             let keys = try PrivacyPoolsSdkClient.masterKeys(forMnemonic: mnemonic)
-            resolve([
-                "master_nullifier": keys.masterNullifier,
-                "master_secret": keys.masterSecret,
-            ])
+            resolve(masterKeysMap(keys))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(deriveMasterKeysHandle:resolver:rejecter:)
+    func deriveMasterKeysHandle(
+        mnemonic: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.masterKeysHandle(forMnemonic: mnemonic))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(dangerouslyExportMasterKeys:resolver:rejecter:)
+    func dangerouslyExportMasterKeys(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(masterKeysMap(try PrivacyPoolsSdkClient.exportMasterKeys(handle: handle)))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -75,6 +90,25 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(generateDepositSecretsHandle:scope:index:resolver:rejecter:)
+    func generateDepositSecretsHandle(
+        masterKeysHandle: String,
+        scope: String,
+        index: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.depositSecretsHandle(
+                masterKeysHandle: masterKeysHandle,
+                scope: scope,
+                index: index
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(deriveWithdrawalSecrets:masterSecret:label:index:resolver:rejecter:)
     func deriveWithdrawalSecrets(
         masterNullifier: String,
@@ -97,6 +131,38 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(generateWithdrawalSecretsHandle:label:index:resolver:rejecter:)
+    func generateWithdrawalSecretsHandle(
+        masterKeysHandle: String,
+        label: String,
+        index: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.withdrawalSecretsHandle(
+                masterKeysHandle: masterKeysHandle,
+                label: label,
+                index: index
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(dangerouslyExportSecret:resolver:rejecter:)
+    func dangerouslyExportSecret(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(secretsMap(try PrivacyPoolsSdkClient.exportSecret(handle: handle)))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(getCommitment:label:nullifier:secret:resolver:rejecter:)
     func getCommitment(
         value: String,
@@ -114,6 +180,103 @@ final class PrivacyPoolsSdk: NSObject {
                 secret: secret
             )
             resolve(commitmentMap(commitment))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(getCommitmentFromHandles:label:secretsHandle:resolver:rejecter:)
+    func getCommitmentFromHandles(
+        value: String,
+        label: String,
+        secretsHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.commitmentFromHandles(
+                value: value,
+                label: label,
+                secretsHandle: secretsHandle
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(dangerouslyExportCommitmentPreimage:resolver:rejecter:)
+    func dangerouslyExportCommitmentPreimage(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(commitmentMap(try PrivacyPoolsSdkClient.exportCommitmentPreimage(handle: handle)))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(buildWithdrawalWitnessRequestHandle:resolver:rejecter:)
+    func buildWithdrawalWitnessRequestHandle(
+        request: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.withdrawalWitnessRequestHandle(
+                request: try withdrawalWitnessRequestRecord(from: request)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(removeSecretHandle:resolver:rejecter:)
+    func removeSecretHandle(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.removeSecretHandle(handle: handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(clearSecretHandles:rejecter:)
+    func clearSecretHandles(
+        resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.clearSecretHandles())
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(removeVerifiedProofHandle:resolver:rejecter:)
+    func removeVerifiedProofHandle(
+        handle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.removeVerifiedProofHandle(handle: handle))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(clearVerifiedProofHandles:rejecter:)
+    func clearVerifiedProofHandles(
+        resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.clearVerifiedProofHandles())
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -340,6 +503,28 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(proveWithdrawalWithHandles:manifestJson:artifactsRoot:requestHandle:resolver:rejecter:)
+    func proveWithdrawalWithHandles(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.withdrawalProofWithHandles(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(proveCommitment:manifestJson:artifactsRoot:request:resolver:rejecter:)
     func proveCommitment(
         backendProfile: String,
@@ -375,6 +560,28 @@ final class PrivacyPoolsSdk: NSObject {
                 backendProfile: backendProfile,
                 sessionHandle: sessionHandle,
                 request: try commitmentWitnessRequestRecord(from: request)
+            )
+            resolve(provingResultMap(result))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveCommitmentWithHandle:manifestJson:artifactsRoot:requestHandle:resolver:rejecter:)
+    func proveCommitmentWithHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let result = try PrivacyPoolsSdkClient.commitmentProofWithHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle
             )
             resolve(provingResultMap(result))
         } catch {
@@ -497,6 +704,117 @@ final class PrivacyPoolsSdk: NSObject {
             resolve(try PrivacyPoolsSdkClient.verifyCommitment(
                 backendProfile: backendProfile,
                 sessionHandle: sessionHandle,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveAndVerifyCommitmentHandle:manifestJson:artifactsRoot:requestHandle:resolver:rejecter:)
+    func proveAndVerifyCommitmentHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.proveAndVerifyCommitmentHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(proveAndVerifyWithdrawalHandle:manifestJson:artifactsRoot:requestHandle:resolver:rejecter:)
+    func proveAndVerifyWithdrawalHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.proveAndVerifyWithdrawalHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyCommitmentProofForRequestHandle:manifestJson:artifactsRoot:requestHandle:proof:resolver:rejecter:)
+    func verifyCommitmentProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyCommitmentProofForRequestHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyRagequitProofForRequestHandle:manifestJson:artifactsRoot:requestHandle:proof:resolver:rejecter:)
+    func verifyRagequitProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyRagequitProofForRequestHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle,
+                proof: try proofBundleRecord(from: proof)
+            ))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifyWithdrawalProofForRequestHandle:manifestJson:artifactsRoot:requestHandle:proof:resolver:rejecter:)
+    func verifyWithdrawalProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: [String: Any],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.verifyWithdrawalProofForRequestHandle(
+                backendProfile: backendProfile,
+                manifestJson: manifestJson,
+                artifactsRoot: artifactsRoot,
+                requestHandle: requestHandle,
                 proof: try proofBundleRecord(from: proof)
             ))
         } catch {
@@ -706,26 +1024,6 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
-    @objc(registerLocalMnemonicSigner:mnemonic:index:resolver:rejecter:)
-    func registerLocalMnemonicSigner(
-        handle: String,
-        mnemonic: String,
-        index: NSNumber,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock,
-    ) {
-        do {
-            let signer = try PrivacyPoolsSdkClient.registerLocalMnemonicSigner(
-                handle: handle,
-                mnemonic: mnemonic,
-                index: index.uint32Value
-            )
-            resolve(signerHandleMap(signer))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
-    }
-
     @objc(registerHostProvidedSigner:address:resolver:rejecter:)
     func registerHostProvidedSigner(
         handle: String,
@@ -919,6 +1217,66 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(planVerifiedWithdrawalTransactionWithHandle:poolAddress:proofHandle:resolver:rejecter:)
+    func planVerifiedWithdrawalTransactionWithHandle(
+        chainId: NSNumber,
+        poolAddress: String,
+        proofHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.verifiedWithdrawalTransactionPlan(
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                proofHandle: proofHandle
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(planVerifiedRelayTransactionWithHandle:entrypointAddress:proofHandle:resolver:rejecter:)
+    func planVerifiedRelayTransactionWithHandle(
+        chainId: NSNumber,
+        entrypointAddress: String,
+        proofHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.verifiedRelayTransactionPlan(
+                chainId: chainId.uint64Value,
+                entrypointAddress: entrypointAddress,
+                proofHandle: proofHandle
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(planVerifiedRagequitTransactionWithHandle:poolAddress:proofHandle:resolver:rejecter:)
+    func planVerifiedRagequitTransactionWithHandle(
+        chainId: NSNumber,
+        poolAddress: String,
+        proofHandle: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let plan = try PrivacyPoolsSdkClient.verifiedRagequitTransactionPlan(
+                chainId: chainId.uint64Value,
+                poolAddress: poolAddress,
+                proofHandle: proofHandle
+            )
+            resolve(transactionPlanMap(plan))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(planPoolStateRootRead:resolver:rejecter:)
     func planPoolStateRootRead(
         poolAddress: String,
@@ -1013,6 +1371,48 @@ final class PrivacyPoolsSdk: NSObject {
         }
     }
 
+    @objc(verifySignedManifest:signatureHex:publicKeyHex:resolver:rejecter:)
+    func verifySignedManifest(
+        payloadJson: String,
+        signatureHex: String,
+        publicKeyHex: String,
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let verified = try PrivacyPoolsSdkClient.verifySignedManifestPayload(
+                payloadJson: payloadJson,
+                signatureHex: signatureHex,
+                publicKeyHex: publicKeyHex
+            )
+            resolve(verifiedSignedManifestMap(verified))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
+    @objc(verifySignedManifestArtifacts:signatureHex:publicKeyHex:artifacts:resolver:rejecter:)
+    func verifySignedManifestArtifacts(
+        payloadJson: String,
+        signatureHex: String,
+        publicKeyHex: String,
+        artifacts: [[String: Any]],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            let verified = try PrivacyPoolsSdkClient.verifySignedManifestArtifactBytes(
+                payloadJson: payloadJson,
+                signatureHex: signatureHex,
+                publicKeyHex: publicKeyHex,
+                artifacts: try artifacts.map(signedManifestArtifactBytesRecord(from:))
+            )
+            resolve(verifiedSignedManifestMap(verified))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(getArtifactStatuses:artifactsRoot:circuit:resolver:rejecter:)
     func getArtifactStatuses(
         manifestJson: String,
@@ -1074,6 +1474,13 @@ final class PrivacyPoolsSdk: NSObject {
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
+    }
+
+    private func masterKeysMap(_ keys: FfiMasterKeys) -> [String: String] {
+        [
+            "master_nullifier": keys.masterNullifier,
+            "master_secret": keys.masterSecret,
+        ]
     }
 
     private func secretsMap(_ secrets: FfiSecrets) -> [String: String] {
@@ -1645,6 +2052,7 @@ final class PrivacyPoolsSdk: NSObject {
             chainIdMatches: chainIdMatches,
             simulated: simulated,
             estimatedGas: estimatedGas.uint64Value,
+            mode: value["mode"] as? String,
             codeHashChecks: try codeHashChecks.map(codeHashCheckRecord),
             rootChecks: try rootChecks.map(rootCheckRecord)
         )
@@ -1756,6 +2164,17 @@ final class PrivacyPoolsSdk: NSObject {
         ]
     }
 
+    private func verifiedSignedManifestMap(_ manifest: FfiVerifiedSignedManifest) -> [String: Any] {
+        [
+            "version": manifest.version,
+            "artifact_count": manifest.artifactCount,
+            "ceremony": manifest.ceremony as Any,
+            "build": manifest.build as Any,
+            "repository": manifest.repository as Any,
+            "commit": manifest.commit as Any,
+        ]
+    }
+
     private func artifactBytesRecord(from value: [String: Any]) throws -> FfiArtifactBytes {
         guard
             let kind = value["kind"] as? String,
@@ -1770,7 +2189,27 @@ final class PrivacyPoolsSdk: NSObject {
 
         return FfiArtifactBytes(
             kind: kind,
-            bytes: bytes.map(\.uint8Value)
+            bytes: Data(bytes.map(\.uint8Value))
+        )
+    }
+
+    private func signedManifestArtifactBytesRecord(
+        from value: [String: Any],
+    ) throws -> FfiSignedManifestArtifactBytes {
+        guard
+            let filename = value["filename"] as? String,
+            let bytes = value["bytes"] as? [NSNumber]
+        else {
+            throw NSError(
+                domain: "PrivacyPoolsSdk",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "invalid signed manifest artifact payload"]
+            )
+        }
+
+        return FfiSignedManifestArtifactBytes(
+            filename: filename,
+            bytes: Data(bytes.map(\.uint8Value))
         )
     }
 

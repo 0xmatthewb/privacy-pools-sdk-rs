@@ -11,6 +11,11 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+dangerous-exports = []
+threaded = ["dep:wasm-bindgen-rayon"]
+
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-sol-types.workspace = true
@@ -19,6 +24,7 @@ base64 = "0.22.1"
 getrandom = { workspace = true, features = ["js"] }
 hex.workspace = true
 js-sys = "0.3.82"
+num-bigint.workspace = true
 privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-circuits = { version = "0.1.0", path = "../privacy-pools-sdk-circuits" }
 privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
@@ -29,7 +35,9 @@ privacy-pools-sdk-tree = { version = "0.1.0", path = "../privacy-pools-sdk-tree"
 privacy-pools-sdk-verifier = { version = "0.1.0", path = "../privacy-pools-sdk-verifier" }
 serde.workspace = true
 serde_json.workspace = true
+uuid = { workspace = true, features = ["js", "v4"] }
 wasm-bindgen = { version = "0.2.118", features = ["serde-serialize"] }
+wasm-bindgen-rayon = { version = "1.3.0", features = ["no-bundler"], optional = true }
 
 [lints]
 workspace = true
