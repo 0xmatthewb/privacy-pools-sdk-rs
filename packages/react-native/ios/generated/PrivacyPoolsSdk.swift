@@ -3276,11 +3276,19 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case InvalidExecutionPolicyMode(String
     )
+    case InvalidMnemonic(String
+    )
+    case InvalidRelayData(String
+    )
+    case PayloadTooLarge(String
+    )
     case SessionNotFound(String
     )
     case SignerNotFound(String
     )
     case HandleAlreadyRegistered(String
+    )
+    case RegistryFull(registry: String, maxEntries: UInt64
     )
     case SecretHandleNotFound(String
     )
@@ -3292,9 +3300,15 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case SignerRequiresExternalSigning(String
     )
+    case UnmatchedRagequit(String
+    )
     case InvalidManifest(String
     )
     case InvalidSignedTransaction(String
+    )
+    case ProverFailure(String
+    )
+    case VerifierFailure(String
     )
     case OperationFailed(String
     )
@@ -3348,37 +3362,59 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 7: return .InvalidExecutionPolicyMode(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .SessionNotFound(
+        case 8: return .InvalidMnemonic(
             try FfiConverterString.read(from: &buf)
             )
-        case 9: return .SignerNotFound(
+        case 9: return .InvalidRelayData(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .HandleAlreadyRegistered(
+        case 10: return .PayloadTooLarge(
             try FfiConverterString.read(from: &buf)
             )
-        case 11: return .SecretHandleNotFound(
+        case 11: return .SessionNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 12: return .VerifiedProofHandleNotFound(
+        case 12: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 13: return .ExecutionHandleNotFound(
+        case 13: return .HandleAlreadyRegistered(
             try FfiConverterString.read(from: &buf)
             )
-        case 14: return .JobNotFound(
+        case 14: return .RegistryFull(
+            registry: try FfiConverterString.read(from: &buf),
+            maxEntries: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 15: return .SecretHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 15: return .SignerRequiresExternalSigning(
+        case 16: return .VerifiedProofHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 16: return .InvalidManifest(
+        case 17: return .ExecutionHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 17: return .InvalidSignedTransaction(
+        case 18: return .JobNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 18: return .OperationFailed(
+        case 19: return .SignerRequiresExternalSigning(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 20: return .UnmatchedRagequit(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 21: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 22: return .InvalidSignedTransaction(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 23: return .ProverFailure(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 24: return .VerifierFailure(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 25: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -3428,58 +3464,94 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SessionNotFound(v1):
+        case let .InvalidMnemonic(v1):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerNotFound(v1):
+        case let .InvalidRelayData(v1):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .HandleAlreadyRegistered(v1):
+        case let .PayloadTooLarge(v1):
             writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SecretHandleNotFound(v1):
+        case let .SessionNotFound(v1):
             writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .VerifiedProofHandleNotFound(v1):
+        case let .SignerNotFound(v1):
             writeInt(&buf, Int32(12))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .ExecutionHandleNotFound(v1):
+        case let .HandleAlreadyRegistered(v1):
             writeInt(&buf, Int32(13))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .JobNotFound(v1):
+        case let .RegistryFull(registry,maxEntries):
             writeInt(&buf, Int32(14))
-            FfiConverterString.write(v1, into: &buf)
+            FfiConverterString.write(registry, into: &buf)
+            FfiConverterUInt64.write(maxEntries, into: &buf)
 
 
-        case let .SignerRequiresExternalSigning(v1):
+        case let .SecretHandleNotFound(v1):
             writeInt(&buf, Int32(15))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .VerifiedProofHandleNotFound(v1):
             writeInt(&buf, Int32(16))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidSignedTransaction(v1):
+        case let .ExecutionHandleNotFound(v1):
             writeInt(&buf, Int32(17))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .JobNotFound(v1):
             writeInt(&buf, Int32(18))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .SignerRequiresExternalSigning(v1):
+            writeInt(&buf, Int32(19))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .UnmatchedRagequit(v1):
+            writeInt(&buf, Int32(20))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .InvalidManifest(v1):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .InvalidSignedTransaction(v1):
+            writeInt(&buf, Int32(22))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .ProverFailure(v1):
+            writeInt(&buf, Int32(23))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .VerifierFailure(v1):
+            writeInt(&buf, Int32(24))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(25))
             FfiConverterString.write(v1, into: &buf)
 
         }

@@ -50,6 +50,10 @@ const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TOTAL_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_SECRET_HANDLES: usize = 512;
+const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
+const MAX_EXECUTION_HANDLES: usize = 256;
+const MAX_CIRCUIT_SESSIONS: usize = 64;
 
 static BN254_BASE_FIELD_MODULUS: LazyLock<U256> = LazyLock::new(|| {
     parse_decimal_field(
@@ -554,16 +558,26 @@ static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedP
 static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
+    while registry.len() >= capacity {
+        let Some(handle) = registry.keys().min().cloned() else {
+            break;
+        };
+        registry.remove(&handle);
+    }
+}
+
 fn next_secret_handle() -> String {
     Uuid::new_v4().to_string()
 }
 
 fn register_secret_handle(entry: SecretHandleEntry) -> Result<String> {
     let handle = next_secret_handle();
-    SECRET_HANDLE_REGISTRY
+    let mut registry = SECRET_HANDLE_REGISTRY
         .write()
-        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?
-        .insert(handle.clone(), entry);
+        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 
@@ -578,10 +592,11 @@ fn secret_handle(handle: &str) -> Result<SecretHandleEntry> {
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    VERIFIED_PROOF_HANDLE_REGISTRY
+    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
         .write()
-        .map_err(|error| anyhow::anyhow!("verified proof handle registry lock poisoned: {error}"))?
-        .insert(handle.clone(), entry);
+        .map_err(|error| anyhow::anyhow!("verified proof handle registry lock poisoned: {error}"))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 
@@ -613,10 +628,11 @@ pub fn clear_verified_proof_handles() -> Result<bool> {
 
 fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    EXECUTION_HANDLE_REGISTRY
+    let mut registry = EXECUTION_HANDLE_REGISTRY
         .write()
-        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?
-        .insert(handle.clone(), entry);
+        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 
@@ -3974,8 +3990,11 @@ fn prepare_circuit_session_from_artifacts(
 
     SESSION_REGISTRY
         .write()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?
-        .insert(handle, session.clone());
+        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))
+        .map(|mut registry| {
+            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS);
+            registry.insert(handle, session.clone());
+        })?;
 
     Ok(session)
 }

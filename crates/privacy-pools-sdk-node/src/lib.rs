@@ -45,6 +45,10 @@ use zeroize::Zeroize;
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
+const MAX_SECRET_HANDLES: usize = 512;
+const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
+const MAX_EXECUTION_HANDLES: usize = 256;
+const MAX_CIRCUIT_SESSIONS_PER_TYPE: usize = 64;
 
 static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(PrivacyPoolsSdk::default);
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
@@ -58,6 +62,15 @@ static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedP
     LazyLock::new(|| RwLock::new(HashMap::new()));
 static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
+fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
+    while registry.len() >= capacity {
+        let Some(handle) = registry.keys().min().cloned() else {
+            break;
+        };
+        registry.remove(&handle);
+    }
+}
 
 #[derive(Debug, Clone)]
 enum SecretHandleEntry {
@@ -1009,8 +1022,11 @@ pub fn prepare_withdrawal_circuit_session(
     WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
-        .map_err(to_napi_error)?
-        .insert(handle, session);
+        .map_err(to_napi_error)
+        .map(|mut registry| {
+            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+            registry.insert(handle, session);
+        })?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -1041,8 +1057,11 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
     WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
-        .map_err(to_napi_error)?
-        .insert(handle, session);
+        .map_err(to_napi_error)
+        .map(|mut registry| {
+            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+            registry.insert(handle, session);
+        })?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -1074,8 +1093,11 @@ pub fn prepare_commitment_circuit_session(
     COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
-        .map_err(to_napi_error)?
-        .insert(handle, session);
+        .map_err(to_napi_error)
+        .map(|mut registry| {
+            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+            registry.insert(handle, session);
+        })?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -1106,8 +1128,11 @@ pub fn prepare_commitment_circuit_session_from_bytes(
     COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(lock_error)
-        .map_err(to_napi_error)?
-        .insert(handle, session);
+        .map_err(to_napi_error)
+        .map(|mut registry| {
+            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+            registry.insert(handle, session);
+        })?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -2106,10 +2131,9 @@ fn next_secret_handle() -> String {
 
 fn register_secret_handle(entry: SecretHandleEntry) -> Result<String> {
     let handle = next_secret_handle();
-    SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .insert(handle.clone(), entry);
+    let mut registry = SECRET_HANDLE_REGISTRY.write().map_err(lock_error)?;
+    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 
@@ -2137,10 +2161,9 @@ fn clear_secret_handle_registry() -> Result<()> {
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .insert(handle.clone(), entry);
+    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY.write().map_err(lock_error)?;
+    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 
@@ -2171,10 +2194,9 @@ fn clear_verified_proof_handle_registry() -> Result<()> {
 
 fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .insert(handle.clone(), entry);
+    let mut registry = EXECUTION_HANDLE_REGISTRY.write().map_err(lock_error)?;
+    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
+    registry.insert(handle.clone(), entry);
     Ok(handle)
 }
 

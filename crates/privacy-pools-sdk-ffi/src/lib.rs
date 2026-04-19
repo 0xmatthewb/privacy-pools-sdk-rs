@@ -24,11 +24,12 @@ use privacy_pools_sdk::{
         },
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
-    recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
-    signer::{ExternalSigner, SignerAdapter, SignerKind},
+    recovery::{CompatibilityMode, PoolEvent, RecoveryError, RecoveryPolicy},
+    signer::{ExternalSigner, SignerAdapter, SignerError, SignerKind},
+    SdkError,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     path::PathBuf,
     str::FromStr,
@@ -38,6 +39,12 @@ use std::{
     },
 };
 use zeroize::Zeroize;
+
+const MAX_SECRET_HANDLES: usize = 512;
+const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
+const MAX_EXECUTION_HANDLES: usize = 256;
+const MAX_CIRCUIT_SESSIONS_PER_TYPE: usize = 64;
+const MAX_RETAINED_COMPLETED_JOBS: usize = 128;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -55,12 +62,20 @@ pub enum FfiError {
     InvalidCompatibilityMode(String),
     #[error("invalid execution policy mode: {0}")]
     InvalidExecutionPolicyMode(String),
+    #[error("invalid mnemonic: {0}")]
+    InvalidMnemonic(String),
+    #[error("invalid relay data: {0}")]
+    InvalidRelayData(String),
+    #[error("payload exceeds configured size limits: {0}")]
+    PayloadTooLarge(String),
     #[error("withdrawal circuit session handle not found: {0}")]
     SessionNotFound(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
     #[error("signer handle is already registered: {0}")]
     HandleAlreadyRegistered(String),
+    #[error("registry `{registry}` is full (max {max_entries})")]
+    RegistryFull { registry: String, max_entries: u64 },
     #[error("secret handle not found: {0}")]
     SecretHandleNotFound(String),
     #[error("verified proof handle not found: {0}")]
@@ -71,10 +86,16 @@ pub enum FfiError {
     JobNotFound(String),
     #[error("signer handle requires external signing: {0}")]
     SignerRequiresExternalSigning(String),
+    #[error("unmatched ragequit event: {0}")]
+    UnmatchedRagequit(String),
     #[error("artifact manifest parse failed: {0}")]
     InvalidManifest(String),
     #[error("signed transaction did not match the finalized request: {0}")]
     InvalidSignedTransaction(String),
+    #[error("prover failure: {0}")]
+    ProverFailure(String),
+    #[error("verifier failure: {0}")]
+    VerifierFailure(String),
     #[error("sdk operation failed: {0}")]
     OperationFailed(String),
 }
@@ -503,6 +524,7 @@ enum BackgroundJobResult {
 
 #[derive(Debug)]
 struct BackgroundJobEntry {
+    job_id: String,
     kind: BackgroundJobKind,
     state: BackgroundJobState,
     stage: Option<String>,
@@ -556,7 +578,7 @@ impl RegisteredSigner {
             #[cfg(feature = "local-mnemonic")]
             Self::LocalMnemonic(signer) => signer
                 .sign_transaction_request(request)
-                .map_err(|error| FfiError::OperationFailed(error.to_string())),
+                .map_err(map_signer_error),
             Self::External(_) => Err(FfiError::SignerRequiresExternalSigning(handle.to_owned())),
         }
     }
@@ -573,6 +595,8 @@ static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandl
 static JOB_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<Mutex<BackgroundJobEntry>>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMPLETED_JOB_IDS: LazyLock<Mutex<VecDeque<String>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
     RwLock<HashMap<String, privacy_pools_sdk::WithdrawalCircuitSession>>,
@@ -580,6 +604,15 @@ static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
 static COMMITMENT_SESSION_REGISTRY: LazyLock<
     RwLock<HashMap<String, privacy_pools_sdk::CommitmentCircuitSession>>,
 > = LazyLock::new(|| RwLock::new(HashMap::new()));
+// UniFFI/mobile calls share one long-lived Tokio runtime so synchronous bridge
+// entrypoints do not rebuild an executor per call or rely on thread affinity.
+static SDK_RUNTIME: LazyLock<Result<tokio::runtime::Runtime, String>> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())
+});
 
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
     serde_json::from_str(manifest_json)
@@ -613,6 +646,79 @@ fn parse_read_consistency(value: &str) -> Result<ReadConsistency, FfiError> {
         _ => Err(FfiError::OperationFailed(format!(
             "invalid read consistency: {value}"
         ))),
+    }
+}
+
+fn sdk_runtime() -> Result<&'static tokio::runtime::Runtime, FfiError> {
+    SDK_RUNTIME
+        .as_ref()
+        .map_err(|error| FfiError::OperationFailed(error.clone()))
+}
+
+fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
+    while registry.len() >= capacity {
+        let Some(handle) = registry.keys().min().cloned() else {
+            break;
+        };
+        registry.remove(&handle);
+    }
+}
+
+fn map_signer_error(error: SignerError) -> FfiError {
+    match error {
+        #[cfg(feature = "local-mnemonic")]
+        SignerError::Local(error) => FfiError::InvalidMnemonic(error.to_string()),
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_crypto_error(error: privacy_pools_sdk::crypto::CryptoError) -> FfiError {
+    match error {
+        privacy_pools_sdk::crypto::CryptoError::Signer(error) => {
+            FfiError::InvalidMnemonic(error.to_string())
+        }
+        _ => FfiError::OperationFailed(error.to_string()),
+    }
+}
+
+fn map_chain_error(error: privacy_pools_sdk::chain::ChainError) -> FfiError {
+    match error {
+        privacy_pools_sdk::chain::ChainError::InvalidRelayData(message) => {
+            FfiError::InvalidRelayData(message)
+        }
+        privacy_pools_sdk::chain::ChainError::InvalidSignedTransaction(message) => {
+            FfiError::InvalidSignedTransaction(message)
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_artifact_error(error: privacy_pools_sdk::artifacts::ArtifactError) -> FfiError {
+    match error {
+        privacy_pools_sdk::artifacts::ArtifactError::PayloadTooLarge { .. } => {
+            FfiError::PayloadTooLarge(error.to_string())
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_recovery_error(error: RecoveryError) -> FfiError {
+    match error {
+        RecoveryError::UnmatchedRagequitEvent { .. } => {
+            FfiError::UnmatchedRagequit(error.to_string())
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_sdk_error(error: SdkError) -> FfiError {
+    match error {
+        SdkError::Artifact(error) => map_artifact_error(error),
+        SdkError::Chain(error) => map_chain_error(error),
+        SdkError::Signer(error) => map_signer_error(error),
+        SdkError::Prover(error) => FfiError::ProverFailure(error.to_string()),
+        SdkError::ProofRejected => FfiError::VerifierFailure(SdkError::ProofRejected.to_string()),
+        other => FfiError::OperationFailed(other.to_string()),
     }
 }
 
@@ -742,22 +848,11 @@ fn hash_label(value: B256) -> String {
     value.to_string()
 }
 
-fn build_runtime() -> Result<tokio::runtime::Runtime, FfiError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))
-}
-
 fn block_on_sdk<F, T>(future: F) -> Result<T, FfiError>
 where
-    F: Future<Output = Result<T, privacy_pools_sdk::SdkError>>,
+    F: Future<Output = Result<T, SdkError>>,
 {
-    let runtime = build_runtime()?;
-
-    runtime
-        .block_on(future)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+    sdk_runtime()?.block_on(future).map_err(map_sdk_error)
 }
 
 fn register_signer(handle: String, signer: RegisteredSigner) -> Result<FfiSignerHandle, FfiError> {
@@ -794,6 +889,7 @@ fn register_secret_handle(entry: SecretHandleEntry) -> Result<String, FfiError> 
     let mut registry = SECRET_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -829,6 +925,7 @@ fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<Str
     let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -864,6 +961,7 @@ fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String, FfiE
     let mut registry = EXECUTION_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -909,6 +1007,7 @@ fn register_withdrawal_session(
     let mut registry = WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
     registry.insert(handle, session);
     Ok(ffi)
 }
@@ -947,6 +1046,7 @@ fn register_commitment_session(
     let mut registry = COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
     registry.insert(handle, session);
     Ok(ffi)
 }
@@ -975,6 +1075,7 @@ fn register_job(
 ) -> Result<(FfiAsyncJobHandle, Arc<Mutex<BackgroundJobEntry>>), FfiError> {
     let job_id = format!("job-{}", JOB_COUNTER.fetch_add(1, Ordering::Relaxed));
     let entry = Arc::new(Mutex::new(BackgroundJobEntry {
+        job_id: job_id.clone(),
         kind,
         state: BackgroundJobState::Queued,
         stage: None,
@@ -991,6 +1092,35 @@ fn register_job(
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
     registry.insert(job_id, Arc::clone(&entry));
     Ok((handle, entry))
+}
+
+fn trim_completed_jobs(job_id: &str) {
+    let Ok(mut completed_jobs) = COMPLETED_JOB_IDS.lock() else {
+        return;
+    };
+    completed_jobs.push_back(job_id.to_owned());
+    while completed_jobs.len() > MAX_RETAINED_COMPLETED_JOBS {
+        let Some(evicted_job_id) = completed_jobs.pop_front() else {
+            break;
+        };
+        let Ok(mut registry) = JOB_REGISTRY.write() else {
+            break;
+        };
+        let should_remove = registry
+            .get(&evicted_job_id)
+            .and_then(|entry| entry.lock().ok())
+            .is_some_and(|entry| {
+                matches!(
+                    entry.state,
+                    BackgroundJobState::Completed
+                        | BackgroundJobState::Failed
+                        | BackgroundJobState::Cancelled
+                )
+            });
+        if should_remove {
+            registry.remove(&evicted_job_id);
+        }
+    }
 }
 
 fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> {
@@ -1027,40 +1157,51 @@ fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<()
 }
 
 fn complete_job(entry: &Arc<Mutex<BackgroundJobEntry>>, result: BackgroundJobResult) {
+    let mut completed_job_id = None;
     if let Ok(mut entry) = entry.lock() {
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.result = None;
             entry.error = None;
-            return;
+            completed_job_id = Some(entry.job_id.clone());
+        } else {
+            entry.state = BackgroundJobState::Completed;
+            entry.stage = None;
+            entry.error = None;
+            entry.result = Some(result);
+            completed_job_id = Some(entry.job_id.clone());
         }
-
-        entry.state = BackgroundJobState::Completed;
-        entry.stage = None;
-        entry.error = None;
-        entry.result = Some(result);
+    }
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
     }
 }
 
 fn fail_job(entry: &Arc<Mutex<BackgroundJobEntry>>, error: impl Into<String>) {
+    let mut completed_job_id = None;
     if let Ok(mut entry) = entry.lock() {
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.error = None;
             entry.result = None;
-            return;
+            completed_job_id = Some(entry.job_id.clone());
+        } else {
+            entry.state = BackgroundJobState::Failed;
+            entry.stage = None;
+            entry.error = Some(error.into());
+            entry.result = None;
+            completed_job_id = Some(entry.job_id.clone());
         }
-
-        entry.state = BackgroundJobState::Failed;
-        entry.stage = None;
-        entry.error = Some(error.into());
-        entry.result = None;
+    }
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
     }
 }
 
 fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+    let mut completed_job_id = None;
     if let Ok(mut entry) = entry.lock() {
         if matches!(
             entry.state,
@@ -1077,6 +1218,11 @@ fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
             entry.stage = None;
             entry.error = None;
             entry.result = None;
+            completed_job_id = Some(entry.job_id.clone());
+        }
+        drop(entry);
+        if let Some(job_id) = completed_job_id {
+            trim_completed_jobs(&job_id);
         }
         return true;
     }
@@ -1949,13 +2095,13 @@ fn prove_withdrawal_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let result = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::Proving(Box::new(
@@ -1975,29 +2121,27 @@ fn prepare_withdrawal_execution_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "validating");
     ensure_job_not_cancelled(&entry)?;
     sdk()
         .validate_withdrawal_proof_against_request(&request, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .map_err(map_sdk_error)?
     {
-        return Err(FfiError::OperationFailed(
-            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
-        ));
+        return Err(FfiError::VerifierFailure(SdkError::ProofRejected.to_string()));
     }
 
     set_job_stage(&entry, "planning");
@@ -2009,14 +2153,13 @@ fn prepare_withdrawal_execution_background(
             &request.withdrawal,
             &proving.proof,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     set_job_stage(&entry, "preflight");
     ensure_job_not_cancelled(&entry)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let runtime = build_runtime()?;
-    let preflight = runtime
+    let preflight = sdk_runtime()?
         .block_on(privacy_pools_sdk::chain::preflight_withdrawal(
             &client,
             &transaction,
@@ -2025,7 +2168,7 @@ fn prepare_withdrawal_execution_background(
             request.asp_witness.root,
             &config.policy,
         ))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
@@ -2049,29 +2192,27 @@ fn prepare_relay_execution_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "validating");
     ensure_job_not_cancelled(&entry)?;
     sdk()
         .validate_withdrawal_proof_against_request(&request, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .map_err(map_sdk_error)?
     {
-        return Err(FfiError::OperationFailed(
-            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
-        ));
+        return Err(FfiError::VerifierFailure(SdkError::ProofRejected.to_string()));
     }
 
     set_job_stage(&entry, "planning");
@@ -2084,14 +2225,13 @@ fn prepare_relay_execution_background(
             &proving.proof,
             request.scope,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     set_job_stage(&entry, "preflight");
     ensure_job_not_cancelled(&entry)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let runtime = build_runtime()?;
-    let preflight = runtime
+    let preflight = sdk_runtime()?
         .block_on(privacy_pools_sdk::chain::preflight_relay(
             &client,
             &transaction,
@@ -2101,7 +2241,7 @@ fn prepare_relay_execution_background(
             request.asp_witness.root,
             &config.policy,
         ))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
@@ -2132,7 +2272,7 @@ pub fn get_stable_backend_name() -> Result<String, FfiError> {
 pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     let keys = sdk()
         .generate_master_keys(&mnemonic)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     Ok(FfiMasterKeys {
         master_nullifier: keys.master_nullifier.to_decimal_string(),
@@ -2146,7 +2286,7 @@ fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<St
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
         let keys = sdk()
             .generate_master_keys(phrase)
-            .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+            .map_err(map_crypto_error)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys))
     })();
     mnemonic.zeroize();
@@ -2157,7 +2297,7 @@ fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<St
 pub fn derive_master_keys_handle(mnemonic: String) -> Result<String, FfiError> {
     let keys = sdk()
         .generate_master_keys(&mnemonic)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_crypto_error)?;
     register_secret_handle(SecretHandleEntry::MasterKeys(keys))
 }
 
@@ -2417,7 +2557,7 @@ pub fn prepare_withdrawal_circuit_session(
     let manifest = parse_manifest(&manifest_json)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, PathBuf::from(artifacts_root))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_withdrawal_session(session)
 }
@@ -2430,10 +2570,10 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
     let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .verify_artifact_bundle_bytes(&manifest, "withdraw", from_ffi_artifact_bytes(artifacts)?)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session_from_bundle(bundle)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_withdrawal_session(session)
 }
@@ -2451,7 +2591,7 @@ pub fn prepare_commitment_circuit_session(
     let manifest = parse_manifest(&manifest_json)?;
     let session = sdk()
         .prepare_commitment_circuit_session(&manifest, PathBuf::from(artifacts_root))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_commitment_session(session)
 }
@@ -2464,10 +2604,10 @@ pub fn prepare_commitment_circuit_session_from_bytes(
     let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .verify_artifact_bundle_bytes(&manifest, "commitment", from_ffi_artifact_bytes(artifacts)?)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
     let session = sdk()
         .prepare_commitment_circuit_session_from_bundle(bundle)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_commitment_session(session)
 }
@@ -3072,7 +3212,7 @@ pub fn register_local_mnemonic_signer(
     index: u32,
 ) -> Result<FfiSignerHandle, FfiError> {
     let signer = LocalMnemonicSigner::from_phrase_nth(&mnemonic, index)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_signer_error)?;
     register_signer(handle, RegisteredSigner::LocalMnemonic(signer))
 }
 
@@ -3592,7 +3732,7 @@ pub fn verify_signed_manifest(
         &signature_hex,
         &public_key_hex,
     )
-    .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    .map_err(map_artifact_error)?;
     Ok(to_ffi_verified_signed_manifest(&payload, 0))
 }
 
@@ -3609,7 +3749,7 @@ pub fn verify_signed_manifest_artifacts(
         &public_key_hex,
         from_ffi_signed_manifest_artifact_bytes(artifacts),
     )
-    .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    .map_err(map_artifact_error)?;
     Ok(to_ffi_verified_signed_manifest(
         verified.payload(),
         verified.artifact_count(),
@@ -3643,7 +3783,7 @@ pub fn resolve_verified_artifact_bundle(
         .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
     let bundle = sdk()
         .resolve_verified_artifact_bundle(&manifest, PathBuf::from(artifacts_root), &circuit)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
 
     Ok(to_ffi_resolved_artifact_bundle(bundle))
 }
@@ -3658,7 +3798,7 @@ pub fn checkpoint_recovery(
             &from_ffi_pool_events(events)?,
             from_ffi_recovery_policy(policy)?,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_recovery_error)?;
 
     to_ffi_recovery_checkpoint(checkpoint)
 }

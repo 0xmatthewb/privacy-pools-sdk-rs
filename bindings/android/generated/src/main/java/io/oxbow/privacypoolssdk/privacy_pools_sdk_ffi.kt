@@ -3819,6 +3819,30 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class InvalidMnemonic(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidRelayData(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class PayloadTooLarge(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class SessionNotFound(
 
         val v1: kotlin.String
@@ -3841,6 +3865,16 @@ sealed class FfiException: kotlin.Exception() {
         ) : FfiException() {
         override val message
             get() = "v1=${ v1 }"
+    }
+
+    class RegistryFull(
+
+        val `registry`: kotlin.String,
+
+        val `maxEntries`: kotlin.ULong
+        ) : FfiException() {
+        override val message
+            get() = "registry=${ `registry` }, maxEntries=${ `maxEntries` }"
     }
 
     class SecretHandleNotFound(
@@ -3883,6 +3917,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class UnmatchedRagequit(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class InvalidManifest(
 
         val v1: kotlin.String
@@ -3892,6 +3934,22 @@ sealed class FfiException: kotlin.Exception() {
     }
 
     class InvalidSignedTransaction(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class ProverFailure(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class VerifierFailure(
 
         val v1: kotlin.String
         ) : FfiException() {
@@ -3947,37 +4005,59 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             7 -> FfiException.InvalidExecutionPolicyMode(
                 FfiConverterString.read(buf),
                 )
-            8 -> FfiException.SessionNotFound(
+            8 -> FfiException.InvalidMnemonic(
                 FfiConverterString.read(buf),
                 )
-            9 -> FfiException.SignerNotFound(
+            9 -> FfiException.InvalidRelayData(
                 FfiConverterString.read(buf),
                 )
-            10 -> FfiException.HandleAlreadyRegistered(
+            10 -> FfiException.PayloadTooLarge(
                 FfiConverterString.read(buf),
                 )
-            11 -> FfiException.SecretHandleNotFound(
+            11 -> FfiException.SessionNotFound(
                 FfiConverterString.read(buf),
                 )
-            12 -> FfiException.VerifiedProofHandleNotFound(
+            12 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            13 -> FfiException.ExecutionHandleNotFound(
+            13 -> FfiException.HandleAlreadyRegistered(
                 FfiConverterString.read(buf),
                 )
-            14 -> FfiException.JobNotFound(
+            14 -> FfiException.RegistryFull(
+                FfiConverterString.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            15 -> FfiException.SecretHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            15 -> FfiException.SignerRequiresExternalSigning(
+            16 -> FfiException.VerifiedProofHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            16 -> FfiException.InvalidManifest(
+            17 -> FfiException.ExecutionHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            17 -> FfiException.InvalidSignedTransaction(
+            18 -> FfiException.JobNotFound(
                 FfiConverterString.read(buf),
                 )
-            18 -> FfiException.OperationFailed(
+            19 -> FfiException.SignerRequiresExternalSigning(
+                FfiConverterString.read(buf),
+                )
+            20 -> FfiException.UnmatchedRagequit(
+                FfiConverterString.read(buf),
+                )
+            21 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            22 -> FfiException.InvalidSignedTransaction(
+                FfiConverterString.read(buf),
+                )
+            23 -> FfiException.ProverFailure(
+                FfiConverterString.read(buf),
+                )
+            24 -> FfiException.VerifierFailure(
+                FfiConverterString.read(buf),
+                )
+            25 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -4021,6 +4101,21 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
             )
+            is FfiException.InvalidMnemonic -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidRelayData -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.PayloadTooLarge -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
             is FfiException.SessionNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
@@ -4035,6 +4130,12 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.RegistryFull -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`registry`)
+                + FfiConverterULong.allocationSize(value.`maxEntries`)
             )
             is FfiException.SecretHandleNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
@@ -4061,12 +4162,27 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
             )
+            is FfiException.UnmatchedRagequit -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
             is FfiException.InvalidManifest -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidSignedTransaction -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.ProverFailure -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.VerifierFailure -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -4116,58 +4232,94 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SessionNotFound -> {
+            is FfiException.InvalidMnemonic -> {
                 buf.putInt(8)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerNotFound -> {
+            is FfiException.InvalidRelayData -> {
                 buf.putInt(9)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.HandleAlreadyRegistered -> {
+            is FfiException.PayloadTooLarge -> {
                 buf.putInt(10)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SecretHandleNotFound -> {
+            is FfiException.SessionNotFound -> {
                 buf.putInt(11)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.VerifiedProofHandleNotFound -> {
+            is FfiException.SignerNotFound -> {
                 buf.putInt(12)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.ExecutionHandleNotFound -> {
+            is FfiException.HandleAlreadyRegistered -> {
                 buf.putInt(13)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.JobNotFound -> {
+            is FfiException.RegistryFull -> {
                 buf.putInt(14)
-                FfiConverterString.write(value.v1, buf)
+                FfiConverterString.write(value.`registry`, buf)
+                FfiConverterULong.write(value.`maxEntries`, buf)
                 Unit
             }
-            is FfiException.SignerRequiresExternalSigning -> {
+            is FfiException.SecretHandleNotFound -> {
                 buf.putInt(15)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.VerifiedProofHandleNotFound -> {
                 buf.putInt(16)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidSignedTransaction -> {
+            is FfiException.ExecutionHandleNotFound -> {
                 buf.putInt(17)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.JobNotFound -> {
                 buf.putInt(18)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.SignerRequiresExternalSigning -> {
+                buf.putInt(19)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.UnmatchedRagequit -> {
+                buf.putInt(20)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.InvalidManifest -> {
+                buf.putInt(21)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.InvalidSignedTransaction -> {
+                buf.putInt(22)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.ProverFailure -> {
+                buf.putInt(23)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.VerifierFailure -> {
+                buf.putInt(24)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(25)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
