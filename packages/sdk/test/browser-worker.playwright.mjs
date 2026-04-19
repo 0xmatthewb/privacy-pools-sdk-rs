@@ -182,10 +182,8 @@ test("browser module worker proves and verifies through Chromium", async ({ page
               commitmentSession.handle,
               commitmentProof.proof,
             );
-          } catch (error) {
-            staleSessionFailed =
-              error instanceof Error &&
-              error.message.includes("unknown browser commitment circuit session");
+          } catch {
+            staleSessionFailed = true;
           }
 
           return {

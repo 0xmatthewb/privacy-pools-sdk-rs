@@ -123,6 +123,10 @@ struct JsMasterKeys {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    not(any(feature = "dangerous-key-export", feature = "dangerous-exports")),
+    allow(dead_code)
+)]
 struct JsSecrets {
     nullifier: String,
     secret: String,
