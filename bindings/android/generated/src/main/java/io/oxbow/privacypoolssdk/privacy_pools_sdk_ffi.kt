@@ -655,18 +655,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles(
     ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction(
-    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle_bytes(
@@ -844,18 +832,6 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_secret_handles(uniffi_ou
 ): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles(uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle_bytes(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
@@ -1147,24 +1123,6 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage() != 10373.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction() != 19222.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys() != 61984.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction() != 33607.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret() != 41510.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction() != 18160.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279.toShort()) {
@@ -4870,72 +4828,6 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles(
 
         _status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportCommitmentPreimage`(`handle`: kotlin.String): FfiCommitment {
-            return FfiConverterTypeFfiCommitment.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportFinalizedPreflightedTransaction`(`handle`: kotlin.String): FfiFinalizedPreflightedTransaction {
-            return FfiConverterTypeFfiFinalizedPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportMasterKeys`(`handle`: kotlin.String): FfiMasterKeys {
-            return FfiConverterTypeFfiMasterKeys.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportPreflightedTransaction`(`handle`: kotlin.String): FfiPreflightedTransaction {
-            return FfiConverterTypeFfiPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportSecret`(`handle`: kotlin.String): FfiSecrets {
-            return FfiConverterTypeFfiSecrets.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportSubmittedPreflightedTransaction`(`handle`: kotlin.String): FfiSubmittedPreflightedTransaction {
-            return FfiConverterTypeFfiSubmittedPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
 }
     )
     }
