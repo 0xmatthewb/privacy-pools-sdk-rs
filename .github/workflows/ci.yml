@@ -26,7 +26,7 @@ jobs:
         run: >
           cargo run -p xtask -- assurance --profile pr --runtime rust
           --only-checks
-          rust-fmt,rust-clippy,cargo-test-workspace,cargo-test-doc-workspace,rust-malformed-input-check,rust-secret-hardening-check,rust-verified-proof-safety-check,rust-chain-rejection-checks
+          rust-fmt,rust-clippy,cargo-test-workspace,cargo-test-doc-workspace,rust-malformed-input-check,rust-secret-hardening-check,rust-verified-proof-safety-check,rust-chain-rejection-checks,rust-signer-local-tests
           --out-dir target/assurance-pr-rust-core
       - name: print rust core findings on failure
         if: failure()

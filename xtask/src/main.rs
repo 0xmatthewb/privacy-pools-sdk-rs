@@ -3987,6 +3987,26 @@ fn build_assurance_catalog(
             None,
         ),
         assurance_check_spec(
+            "rust-signer-local-tests",
+            "cargo test -p privacy-pools-sdk-signer --features local-mnemonic",
+            vec![AssuranceRuntime::Rust],
+            "funds-safety",
+            AssuranceCheckMode::Normative,
+            "cargo",
+            vec![
+                "test".to_owned(),
+                "-p".to_owned(),
+                "privacy-pools-sdk-signer".to_owned(),
+                "--features".to_owned(),
+                "local-mnemonic".to_owned(),
+            ],
+            workspace_root.clone(),
+            vec![],
+            "rust-signer-local-tests.log",
+            vec![],
+            None,
+        ),
+        assurance_check_spec(
             "cargo-test-doc-workspace",
             "cargo test --doc --workspace",
             vec![AssuranceRuntime::Shared],
@@ -5399,6 +5419,10 @@ fn finalize_assurance_check_spec(mut spec: AssuranceCheckSpec) -> AssuranceCheck
             "wrong-code-hash-rejection".to_owned(),
             "wrong-signer-rejection".to_owned(),
         ],
+        "rust-signer-local-tests" => vec![
+            "malformed-input-rejection".to_owned(),
+            "wrong-chain-id-rejection".to_owned(),
+        ],
         "compare-rust-goldens-rust"
         | "compare-rust-goldens-node"
         | "compare-rust-goldens-browser"
@@ -5475,6 +5499,9 @@ fn finalize_assurance_check_spec(mut spec: AssuranceCheckSpec) -> AssuranceCheck
         }
         "rust-chain-rejection-checks" => {
             "Run exact chain-level rejection checks for replay, root, chain-id, code-hash, and signer mismatches.".to_owned()
+        }
+        "rust-signer-local-tests" => {
+            "Run the signer crate's local-mnemonic tests explicitly so bad-mnemonic and zero-chain-id regressions stay PR-gated.".to_owned()
         }
         "compare-rust-goldens-rust" => {
             "Keep the Rust semantic source aligned with checked-in deterministic goldens.".to_owned()
