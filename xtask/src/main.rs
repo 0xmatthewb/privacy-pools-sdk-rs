@@ -6331,14 +6331,15 @@ fn validate_reference_benchmark_evidence(
     backend: BenchmarkBackendProfile,
     commit: &str,
 ) -> Result<Value> {
-    let benchmark_files = [
+    let required_benchmark_files = [
         "rust-desktop-stable.json",
         "node-desktop-stable.json",
         "browser-desktop-stable.json",
         "react-native-ios-stable.json",
         "react-native-android-stable.json",
     ];
-    let existing_count = benchmark_files
+    let optional_benchmark_files = ["browser-desktop-threaded.json"];
+    let existing_count = required_benchmark_files
         .iter()
         .filter(|file| benchmark_dir.join(file).exists())
         .count();
@@ -6352,7 +6353,7 @@ fn validate_reference_benchmark_evidence(
         }));
     }
 
-    if existing_count != benchmark_files.len() {
+    if existing_count != required_benchmark_files.len() {
         return Ok(json!({
             "status": ReferencePerformanceStatus::Missing.as_str(),
             "path": benchmark_dir.as_str(),
@@ -6361,7 +6362,7 @@ fn validate_reference_benchmark_evidence(
             "error": format!(
                 "reference benchmark evidence in {} is incomplete: expected {} reports but found {}",
                 benchmark_dir,
-                benchmark_files.len(),
+                required_benchmark_files.len(),
                 existing_count
             ),
         }));
@@ -6378,7 +6379,11 @@ fn validate_reference_benchmark_evidence(
         let mut artifact_bundle_sha256 = None::<String>;
         let mut reference_status = ReferencePerformanceStatus::Fresh;
 
-        for benchmark_file in benchmark_files {
+        for benchmark_file in required_benchmark_files.into_iter().chain(
+            optional_benchmark_files
+                .into_iter()
+                .filter(|file| benchmark_dir.join(file).exists()),
+        ) {
             let path = benchmark_dir.join(benchmark_file);
             let expected_device_label = if benchmark_file.contains("-ios-") {
                 "ios"
@@ -9469,7 +9474,8 @@ mod tests {
         match file {
             "rust-desktop-stable.json"
             | "node-desktop-stable.json"
-            | "browser-desktop-stable.json" => {
+            | "browser-desktop-stable.json"
+            | "browser-desktop-threaded.json" => {
                 ("desktop", "reference-desktop", "desktop-reference")
             }
             "react-native-ios-stable.json" => ("ios", "reference-ios-device", "ios-reference"),
@@ -9872,6 +9878,7 @@ mod tests {
             "rust-desktop-stable.json",
             "node-desktop-stable.json",
             "browser-desktop-stable.json",
+            "browser-desktop-threaded.json",
             "react-native-ios-stable.json",
             "react-native-android-stable.json",
         ] {
@@ -9999,6 +10006,7 @@ mod tests {
             "rust-desktop-stable.json",
             "node-desktop-stable.json",
             "browser-desktop-stable.json",
+            "browser-desktop-threaded.json",
             "react-native-ios-stable.json",
             "react-native-android-stable.json",
         ] {
@@ -11032,6 +11040,7 @@ mod tests {
             "rust-desktop-stable.json",
             "node-desktop-stable.json",
             "browser-desktop-stable.json",
+            "browser-desktop-threaded.json",
             "react-native-ios-stable.json",
             "react-native-android-stable.json",
         ] {
@@ -11052,7 +11061,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(evidence["referencePerformance"]["status"], "stale");
-        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 5);
+        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 6);
     }
 
     #[test]
@@ -11114,6 +11123,7 @@ mod tests {
             "rust-desktop-stable.json",
             "node-desktop-stable.json",
             "browser-desktop-stable.json",
+            "browser-desktop-threaded.json",
             "react-native-ios-stable.json",
             "react-native-android-stable.json",
         ] {
@@ -11131,7 +11141,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(evidence["referencePerformance"]["status"], "fresh");
-        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 5);
+        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 6);
     }
 
     #[test]

@@ -26,127 +26,171 @@ main().catch((error) => {
 });
 
 async function main() {
-  const moduleServer = createStaticServer(packageRoot);
-  const artifactServer = createStaticServer(fixturesRoot, { cors: true });
+  const moduleServer = createStaticServer(packageRoot, {
+    crossOriginIsolated: options.threaded,
+    pageConfig: {
+      cryptoFixture,
+      withdrawalFixture,
+      manifestUrl: "ARTIFACT_SERVER_ORIGIN/artifacts/withdrawal-proving-manifest.json",
+      artifactsRoot: "ARTIFACT_SERVER_ORIGIN/artifacts/",
+      iterations: options.iterations,
+      threaded: options.threaded,
+      threadCount: options.threadCount,
+    },
+  });
+  const artifactServer = createStaticServer(fixturesRoot, {
+    cors: true,
+    crossOriginIsolated: options.threaded,
+  });
   const browser = await chromium.launch({ headless: true });
 
   await moduleServer.start();
   await artifactServer.start();
+  moduleServer.setArtifactOrigin(artifactServer.origin);
 
   try {
     const page = await browser.newPage();
     await page.goto(`${moduleServer.origin}/`);
 
-    const result = await page.evaluate(
-      async ({ cryptoFixture, withdrawalFixture, manifestJson, artifactsRoot, iterations }) => {
-        const { PrivacyPoolsSdkClient } = await import("/src/browser/index.mjs");
-        const sdk = new PrivacyPoolsSdkClient();
-        try {
-          const commitment = await sdk.getCommitment(
-            withdrawalFixture.existingValue,
-            withdrawalFixture.label,
-            cryptoFixture.depositSecrets.nullifier,
-            cryptoFixture.depositSecrets.secret,
-          );
-          const request = {
-            commitment,
-            withdrawal: {
-              processooor: "0x1111111111111111111111111111111111111111",
-              data: "0x1234",
-            },
-            scope: cryptoFixture.scope,
-            withdrawalAmount: withdrawalFixture.withdrawalAmount,
-            stateWitness: withdrawalFixture.stateWitness,
-            aspWitness: withdrawalFixture.aspWitness,
-            newNullifier: withdrawalFixture.newNullifier,
-            newSecret: withdrawalFixture.newSecret,
-          };
-
-          const artifactResolutionStart = Date.now();
-          await sdk.getArtifactStatuses(manifestJson, artifactsRoot);
-          const artifactResolutionMs = Date.now() - artifactResolutionStart;
-
-          const bundleVerificationStart = Date.now();
-          await sdk.resolveVerifiedArtifactBundle(manifestJson, artifactsRoot);
-          const bundleVerificationMs = Date.now() - bundleVerificationStart;
-
-          const sessionPreloadStart = Date.now();
-          const session = await sdk.prepareWithdrawalCircuitSession(
-            manifestJson,
-            artifactsRoot,
-          );
-          const sessionPreloadMs = Date.now() - sessionPreloadStart;
-
-          const samples = [];
-          for (let iteration = 0; iteration < iterations; iteration += 1) {
-            const inputPreparationStart = Date.now();
-            await sdk.buildWithdrawalCircuitInput(request);
-            const inputPreparationMs = Date.now() - inputPreparationStart;
-
-            const stageTimes = new Map();
-            const proveStart = Date.now();
-            const proof = await sdk.proveWithdrawalWithSession(
-              "stable",
-              session.handle,
-              request,
-              {
-                onStatus(status) {
-                  if (status?.stage && !stageTimes.has(status.stage)) {
-                    stageTimes.set(status.stage, Date.now());
-                  }
-                },
-              },
-            );
-            const proveFinishedAt = Date.now();
-            const proveStageStartedAt = stageTimes.get("prove");
-            const witnessGenerationMs =
-              proveStageStartedAt == null
-                ? proveFinishedAt - proveStart
-                : Math.max(0, proveStageStartedAt - proveStart);
-            const proofGenerationMs =
-              proveStageStartedAt == null
-                ? 0
-                : Math.max(0, proveFinishedAt - proveStageStartedAt);
-
-            const verificationStart = Date.now();
-            const verified = await sdk.verifyWithdrawalProofWithSession(
-              "stable",
-              session.handle,
-              proof.proof,
-            );
-            const verificationMs = Date.now() - verificationStart;
-            if (!verified) {
-              throw new Error("browser benchmark proof did not verify");
-            }
-
-            samples.push({
-              inputPreparationMs,
-              witnessGenerationMs,
-              proofGenerationMs,
-              verificationMs,
-              proveAndVerifyMs: proveFinishedAt - proveStart + verificationMs,
-            });
-          }
-
-          await sdk.dispose();
-          return {
-            artifactResolutionMs,
-            bundleVerificationMs,
-            sessionPreloadMs,
-            samples,
-          };
-        } finally {
-          await sdk.dispose();
+    const result = await page.evaluate(async () => {
+      const config = await fetch("/__benchmark-config.json").then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`failed to load benchmark config: ${response.status}`);
         }
-      },
-      {
+        return response.json();
+      });
+      const {
         cryptoFixture,
         withdrawalFixture,
-        manifestJson,
-        artifactsRoot: `${artifactServer.origin}/artifacts/`,
-        iterations: options.iterations,
-      },
-    );
+        manifestUrl,
+        artifactsRoot,
+        iterations,
+        threaded,
+        threadCount,
+      } = config;
+      const {
+        PrivacyPoolsSdkClient,
+        initializeExperimentalThreadedBrowserProving,
+      } = await import("/src/browser/index.mjs");
+      let initialization = null;
+      if (threaded) {
+        initialization = await initializeExperimentalThreadedBrowserProving({
+          threadCount,
+        });
+        if (!initialization?.threadedProvingEnabled) {
+          throw new Error(
+            `threaded browser proving did not initialize: ${
+              initialization?.reason ?? "unknown reason"
+            }`,
+          );
+        }
+      }
+      const sdk = new PrivacyPoolsSdkClient();
+      try {
+        const manifestJson = await fetch(manifestUrl).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`failed to load benchmark manifest: ${response.status}`);
+          }
+          return response.text();
+        });
+        const commitment = await sdk.getCommitment(
+          withdrawalFixture.existingValue,
+          withdrawalFixture.label,
+          cryptoFixture.depositSecrets.nullifier,
+          cryptoFixture.depositSecrets.secret,
+        );
+        const request = {
+          commitment,
+          withdrawal: {
+            processooor: "0x1111111111111111111111111111111111111111",
+            data: "0x1234",
+          },
+          scope: cryptoFixture.scope,
+          withdrawalAmount: withdrawalFixture.withdrawalAmount,
+          stateWitness: withdrawalFixture.stateWitness,
+          aspWitness: withdrawalFixture.aspWitness,
+          newNullifier: withdrawalFixture.newNullifier,
+          newSecret: withdrawalFixture.newSecret,
+        };
+
+        const artifactResolutionStart = Date.now();
+        await sdk.getArtifactStatuses(manifestJson, artifactsRoot);
+        const artifactResolutionMs = Date.now() - artifactResolutionStart;
+
+        const bundleVerificationStart = Date.now();
+        await sdk.resolveVerifiedArtifactBundle(manifestJson, artifactsRoot);
+        const bundleVerificationMs = Date.now() - bundleVerificationStart;
+
+        const sessionPreloadStart = Date.now();
+        const session = await sdk.prepareWithdrawalCircuitSession(
+          manifestJson,
+          artifactsRoot,
+        );
+        const sessionPreloadMs = Date.now() - sessionPreloadStart;
+
+        const samples = [];
+        for (let iteration = 0; iteration < iterations; iteration += 1) {
+          const inputPreparationStart = Date.now();
+          await sdk.buildWithdrawalCircuitInput(request);
+          const inputPreparationMs = Date.now() - inputPreparationStart;
+
+          const stageTimes = new Map();
+          const proveStart = Date.now();
+          const proof = await sdk.proveWithdrawalWithSessionBinary(
+            "stable",
+            session.handle,
+            request,
+            {
+              onStatus(status) {
+                if (status?.stage && !stageTimes.has(status.stage)) {
+                  stageTimes.set(status.stage, Date.now());
+                }
+              },
+            },
+          );
+          const proveFinishedAt = Date.now();
+          const proveStageStartedAt = stageTimes.get("prove");
+          const witnessGenerationMs =
+            proveStageStartedAt == null
+              ? proveFinishedAt - proveStart
+              : Math.max(0, proveStageStartedAt - proveStart);
+          const proofGenerationMs =
+            proveStageStartedAt == null
+              ? 0
+              : Math.max(0, proveFinishedAt - proveStageStartedAt);
+
+          const verificationStart = Date.now();
+          const verified = await sdk.verifyWithdrawalProofWithSession(
+            "stable",
+            session.handle,
+            proof.proof,
+          );
+          const verificationMs = Date.now() - verificationStart;
+          if (!verified) {
+            throw new Error("browser benchmark proof did not verify");
+          }
+
+          samples.push({
+            inputPreparationMs,
+            witnessGenerationMs,
+            proofGenerationMs,
+            verificationMs,
+            proveAndVerifyMs: proveFinishedAt - proveStart + verificationMs,
+          });
+        }
+
+        await sdk.dispose();
+        return {
+          initialization,
+          artifactResolutionMs,
+          bundleVerificationMs,
+          sessionPreloadMs,
+          samples,
+        };
+      } finally {
+        await sdk.dispose();
+      }
+    });
 
     const report = buildBenchmarkReport({
       deviceLabel: options.deviceLabel,
@@ -159,8 +203,16 @@ async function main() {
       peakResidentMemoryBytes: null,
       manifestPath: withdrawalManifestPath,
       artifactsRootPath: fixtureArtifactsRoot,
+      benchmarkScenarioId: options.threaded
+        ? "withdraw-stable-browser-threaded"
+        : "withdraw-stable-browser-direct",
     });
     report.browser_transport = "direct";
+    report.browser_threading = options.threaded
+      ? "experimental-threaded"
+      : "stable-single-threaded";
+    report.threaded_proving_enabled = options.threaded;
+    report.thread_count = result.initialization?.threadCount ?? null;
     writeReport(options.report, report);
     console.log(`wrote browser benchmark report to ${options.report}`);
   } finally {
@@ -177,6 +229,8 @@ function parseArgs(rawArgs) {
     deviceLabel: "desktop",
     deviceModel: "reference-desktop",
     deviceClass: "desktop-reference",
+    threaded: false,
+    threadCount: null,
   };
 
   for (let index = 0; index < rawArgs.length; index += 1) {
@@ -197,6 +251,12 @@ function parseArgs(rawArgs) {
       case "--device-class":
         parsed.deviceClass = rawArgs[++index] ?? "";
         break;
+      case "--threaded":
+        parsed.threaded = true;
+        break;
+      case "--thread-count":
+        parsed.threadCount = Number.parseInt(rawArgs[++index] ?? "", 10);
+        break;
       default:
         throw new Error(`unknown argument: ${arg}`);
     }
@@ -211,22 +271,56 @@ function parseArgs(rawArgs) {
 
 function createStaticServer(root, options = {}) {
   const requests = [];
+  let pageConfig = options.pageConfig ?? null;
   const server = createServer((request, response) => {
-    const relativePath = normalize(new URL(request.url ?? "/", "http://local").pathname)
-      .replace(/^\/+/, "")
-      .replace(/\.\.(\/|\\)/g, "");
+    const url = new URL(request.url ?? "/", "http://127.0.0.1");
+
+    if (options.crossOriginIsolated) {
+      response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+      response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+      response.setHeader(
+        "Cross-Origin-Resource-Policy",
+        options.cors ? "cross-origin" : "same-origin",
+      );
+    }
 
     if (options.cors) {
       response.setHeader("access-control-allow-origin", "*");
+      response.setHeader("access-control-allow-methods", "GET, OPTIONS");
+      response.setHeader("access-control-allow-headers", "content-type");
+      if (request.method === "OPTIONS") {
+        response.writeHead(204);
+        response.end();
+        return;
+      }
     }
-    if (!relativePath) {
+    if (url.pathname === "/") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><html><body>privacy pools benchmark</body></html>");
       return;
     }
 
-    requests.push(`/${relative(root, join(root, relativePath)).replaceAll("\\", "/")}`);
-    const filePath = join(root, relativePath);
+    if (url.pathname === "/__benchmark-config.json") {
+      if (pageConfig == null) {
+        response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+        response.end("missing benchmark config");
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify(pageConfig));
+      return;
+    }
+
+    const decodedPath = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+    const normalizedPath = normalize(decodedPath);
+    const filePath = join(root, normalizedPath);
+    if (relative(root, filePath).startsWith("..")) {
+      response.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      response.end("forbidden");
+      return;
+    }
+
+    requests.push(`/${relative(root, filePath).replaceAll("\\", "/")}`);
     try {
       const body = readFileSync(filePath);
       response.writeHead(200, { "content-type": contentType(extname(filePath)) });
@@ -240,6 +334,14 @@ function createStaticServer(root, options = {}) {
   return {
     origin: "",
     requests,
+    setArtifactOrigin(origin) {
+      if (pageConfig == null) {
+        return;
+      }
+      pageConfig = JSON.parse(
+        JSON.stringify(pageConfig).replaceAll("ARTIFACT_SERVER_ORIGIN", origin),
+      );
+    },
     async start() {
       await new Promise((resolve) => {
         server.listen(0, "127.0.0.1", resolve);

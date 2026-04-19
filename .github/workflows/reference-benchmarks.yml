@@ -37,6 +37,8 @@ jobs:
         working-directory: packages/sdk
       - run: npm run build:web:release
         working-directory: packages/sdk
+      - run: node ./scripts/build-web.mjs --release --experimental-threaded
+        working-directory: packages/sdk
       - run: mkdir -p target/reference-benchmarks/benchmarks
       - run: |
           cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
@@ -62,6 +64,14 @@ jobs:
             --device-model reference-desktop \
             --device-class desktop-reference \
             --iterations 3
+      - run: |
+          node ./packages/sdk/scripts/benchmark-browser.mjs \
+            --report target/reference-benchmarks/benchmarks/browser-desktop-threaded.json \
+            --device-label desktop \
+            --device-model reference-desktop \
+            --device-class desktop-reference \
+            --iterations 3 \
+            --threaded
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: reference-benchmarks-desktop
