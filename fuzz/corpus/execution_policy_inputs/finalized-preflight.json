@@ -1,0 +1,10 @@
+{
+  "chainId": 1,
+  "caller": "0x3333333333333333333333333333333333333333",
+  "poolAddress": "0x2222222222222222222222222222222222222222",
+  "entrypointAddress": "0x1111111111111111111111111111111111111111",
+  "expectedPoolCodeHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "expectedEntrypointCodeHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "stateRoot": "123",
+  "aspRoot": "456"
+}

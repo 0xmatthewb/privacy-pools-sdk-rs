@@ -3125,6 +3125,8 @@ dependencies = [
  "privacy-pools-sdk-artifacts",
  "privacy-pools-sdk-chain",
  "privacy-pools-sdk-core",
+ "privacy-pools-sdk-tree",
+ "privacy-pools-sdk-verifier",
  "serde_json",
  "tokio",
 ]

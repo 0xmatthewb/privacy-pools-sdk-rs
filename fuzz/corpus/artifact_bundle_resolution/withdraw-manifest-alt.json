@@ -1,0 +1,23 @@
+{
+  "version": "v1.2.0",
+  "artifacts": [
+    {
+      "circuit": "withdraw",
+      "kind": "wasm",
+      "filename": "../circuits/withdraw/withdraw-fixture.wasm",
+      "sha256": "36cda22791def3d520a55c0fc808369cd5849532a75fab65686e666ed3d55c10"
+    },
+    {
+      "circuit": "withdraw",
+      "kind": "zkey",
+      "filename": "withdraw.zkey",
+      "sha256": "2a893b42174c813566e5c40c715a8b90cd49fc4ecf384e3a6024158c3d6de677"
+    },
+    {
+      "circuit": "withdraw",
+      "kind": "vkey",
+      "filename": "withdraw.vkey.json",
+      "sha256": "666bd0983b20c1611543b04f7712e067fbe8cad69f07ada8a310837ff398d21e"
+    }
+  ]
+}

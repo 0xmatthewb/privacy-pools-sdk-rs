@@ -18,6 +18,8 @@ privacy-pools-sdk = { path = "../crates/privacy-pools-sdk" }
 privacy-pools-sdk-artifacts = { path = "../crates/privacy-pools-sdk-artifacts" }
 privacy-pools-sdk-chain = { path = "../crates/privacy-pools-sdk-chain" }
 privacy-pools-sdk-core = { path = "../crates/privacy-pools-sdk-core" }
+privacy-pools-sdk-tree = { path = "../crates/privacy-pools-sdk-tree" }
+privacy-pools-sdk-verifier = { path = "../crates/privacy-pools-sdk-verifier" }
 serde_json = "1"
 tokio = { version = "1.51.1", features = ["rt"] }
 
@@ -66,5 +68,23 @@ doc = false
 [[bin]]
 name = "execution_policy_inputs"
 path = "fuzz_targets/execution_policy_inputs.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "groth16_verifier_fuzz"
+path = "fuzz_targets/groth16_verifier_fuzz.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "relay_data_abi_fuzz"
+path = "fuzz_targets/relay_data_abi_fuzz.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "merkle_proof_tamper_fuzz"
+path = "fuzz_targets/merkle_proof_tamper_fuzz.rs"
 test = false
 doc = false

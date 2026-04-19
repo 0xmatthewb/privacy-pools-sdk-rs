@@ -8,8 +8,8 @@ use privacy_pools_sdk_chain::{
     ChainError, ExecutionClient, asp_root_read, preflight_withdrawal, state_root_read,
 };
 use privacy_pools_sdk_core::{
-    ExecutionPolicy, ExecutionPolicyMode, FormattedGroth16Proof, RootRead, RootReadKind,
-    TransactionKind, TransactionPlan,
+    ExecutionPolicy, ExecutionPolicyMode, FormattedGroth16Proof, ReadConsistency, RootRead,
+    RootReadKind, TransactionKind, TransactionPlan,
 };
 use std::collections::HashMap;
 use tokio::runtime::Builder;
@@ -38,6 +38,7 @@ fn entrypoint_read(pool: Address) -> RootRead {
         contract_address: pool,
         pool_address: pool,
         call_data: Bytes::from(IPrivacyPoolFuzzSpec::ENTRYPOINTCall {}.abi_encode()),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -47,6 +48,7 @@ fn current_root_index_read(pool: Address) -> RootRead {
         contract_address: pool,
         pool_address: pool,
         call_data: Bytes::from(IPrivacyPoolFuzzSpec::currentRootIndexCall {}.abi_encode()),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -61,6 +63,7 @@ fn historical_state_root_read(pool: Address, index: u32) -> RootRead {
             }
             .abi_encode(),
         ),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -70,7 +73,11 @@ impl ExecutionClient for MockClient {
         Ok(self.chain_id)
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        _consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         self.code_hashes
             .get(&address)
             .copied()
@@ -142,9 +149,18 @@ fuzz_target!(|data: &[u8]| {
             (pool, entrypoint_read(pool).call_data),
             U256::from_be_slice(entrypoint.as_slice()),
         ),
-        ((pool, state_root_read(pool).call_data), actual_state_root),
+        (
+            (pool, state_root_read(pool, ReadConsistency::Latest).call_data),
+            actual_state_root,
+        ),
         ((pool, current_root_index_read(pool).call_data), U256::ZERO),
-        ((entrypoint, asp_root_read(entrypoint, pool).call_data), asp_root),
+        (
+            (
+                entrypoint,
+                asp_root_read(entrypoint, pool, ReadConsistency::Latest).call_data,
+            ),
+            asp_root,
+        ),
     ]);
     if actual_state_root != state_root {
         for index in 0..ROOT_HISTORY_SIZE {
@@ -167,6 +183,8 @@ fuzz_target!(|data: &[u8]| {
         expected_pool_code_hash: Some(pool_hash),
         expected_entrypoint_code_hash: Some(entrypoint_hash),
         mode: ExecutionPolicyMode::Strict,
+        read_consistency: ReadConsistency::Latest,
+        max_fee_quote_wei: None,
     };
     let plan = plan(expected_chain_id, pool);
 
