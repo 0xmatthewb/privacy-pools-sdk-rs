@@ -7,8 +7,9 @@
 //! Reorg handling is intentionally stateless: callers should rebuild proofs and
 //! witnesses from the canonical post-reorg leaf sequence rather than trying to
 //! mutate a cached tree in place. A typical recovery flow is "rewind local
-//! events to the reorg boundary, replay the canonical leaf stream, then call
-//! [`generate_merkle_proof`] and [`to_circuit_witness`] again".
+//! events to the reorg boundary, replay the canonical leaf stream, and then use
+//! [`rewind_leaves`], [`rebuild_root`], [`generate_merkle_proof`], and
+//! [`to_circuit_witness`] again".
 
 use alloy_primitives::U256;
 use privacy_pools_sdk_core::{
@@ -31,6 +32,8 @@ static SNARK_SCALAR_FIELD_MODULUS: LazyLock<FieldElement> = LazyLock::new(|| {
 pub enum TreeError {
     #[error("leaf not found in the leaves array")]
     LeafNotFound,
+    #[error("rewind boundary {boundary} exceeds leaf count {leaf_count}")]
+    InvalidRewindBoundary { boundary: usize, leaf_count: usize },
     #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
     InvalidCircuitWitnessShape { expected: usize, actual: usize },
     #[error("circuit witness index {index} exceeds circuit index bit width {depth}")]
@@ -70,6 +73,39 @@ pub fn generate_merkle_proof(
     let proof = build_merkle_proof(&levels, leaf_index)?;
     validate_merkle_proof_fields(&proof)?;
     Ok(proof)
+}
+
+pub fn rewind_leaves(
+    leaves: &[FieldElement],
+    boundary: usize,
+) -> Result<Vec<FieldElement>, TreeError> {
+    if boundary > leaves.len() {
+        return Err(TreeError::InvalidRewindBoundary {
+            boundary,
+            leaf_count: leaves.len(),
+        });
+    }
+
+    Ok(leaves[..boundary].to_vec())
+}
+
+pub fn rebuild_root(leaves: &[FieldElement]) -> Result<FieldElement, TreeError> {
+    for value in leaves {
+        ensure_canonical_field(*value, "leaf")?;
+    }
+
+    let leaf_bytes = leaves
+        .iter()
+        .copied()
+        .map(field_to_bytes)
+        .collect::<Vec<_>>();
+    let levels = build_merkle_levels(&leaf_bytes)?;
+    let root = levels
+        .last()
+        .and_then(|level| level.first())
+        .copied()
+        .ok_or(TreeError::LeafNotFound)?;
+    Ok(bytes_to_field(root))
 }
 
 pub fn verify_merkle_proof(proof: &MerkleProof) -> bool {
@@ -391,6 +427,39 @@ mod tests {
                 .iter()
                 .all(|sibling| *sibling == U256::ZERO)
         );
+    }
+
+    #[test]
+    fn rewind_and_rebuild_root_matches_canonical_replay() {
+        let original = vec![
+            U256::from(11),
+            U256::from(22),
+            U256::from(33),
+            U256::from(44),
+            U256::from(55),
+        ];
+        let canonical_suffix = [U256::from(77), U256::from(88)];
+
+        let mut rebuilt = rewind_leaves(&original, 3).unwrap();
+        rebuilt.extend_from_slice(&canonical_suffix);
+
+        let rebuilt_root = rebuild_root(&rebuilt).unwrap();
+        let proof_root = generate_merkle_proof(&rebuilt, U256::from(77))
+            .unwrap()
+            .root;
+
+        assert_eq!(rebuilt_root, proof_root);
+    }
+
+    #[test]
+    fn rewind_rejects_boundaries_past_leaf_count() {
+        assert!(matches!(
+            rewind_leaves(&[U256::from(11), U256::from(22)], 3),
+            Err(TreeError::InvalidRewindBoundary {
+                boundary: 3,
+                leaf_count: 2
+            })
+        ));
     }
 
     #[test]
