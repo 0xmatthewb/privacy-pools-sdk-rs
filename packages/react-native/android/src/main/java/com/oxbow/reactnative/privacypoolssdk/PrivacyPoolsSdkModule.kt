@@ -96,7 +96,7 @@ class PrivacyPoolsSdkModule(
     @ReactMethod
     fun deriveMasterKeysHandle(mnemonic: String, promise: Promise) {
         try {
-            promise.resolve(NativeSdk.masterKeysHandle(mnemonic))
+            promise.resolve(NativeSdk.masterKeysHandle(mnemonic.encodeToByteArray()))
         } catch (error: FfiException) {
             rejectPromise(promise, error)
         }

@@ -35,7 +35,7 @@ final class PrivacyPoolsSdkModule: NSObject {
         rejecter reject: RCTPromiseRejectBlock,
     ) {
         do {
-            resolve(try PrivacyPoolsSdkClient.masterKeysHandle(forMnemonic: mnemonic))
+            resolve(try PrivacyPoolsSdkClient.masterKeysHandle(forMnemonicBytes: Data(mnemonic.utf8)))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }

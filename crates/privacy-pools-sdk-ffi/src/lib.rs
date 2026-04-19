@@ -3,7 +3,7 @@ use alloy_primitives::{Address, B256, U256};
 use privacy_pools_sdk::signer::LocalMnemonicSigner;
 use privacy_pools_sdk::{
     FinalizedPreflightedTransaction, FinalizedTransactionExecution, PreflightedTransaction,
-    PreparedTransactionExecution, PrivacyPoolsSdk, SubmittedPreflightedTransaction,
+    PreparedTransactionExecution, PrivacyPoolsSdk, SdkError, SubmittedPreflightedTransaction,
     SubmittedTransactionExecution, VerifiedCommitmentProof, VerifiedRagequitProof,
     VerifiedWithdrawalProof,
     artifacts::{
@@ -26,8 +26,8 @@ use privacy_pools_sdk::{
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{CompatibilityMode, PoolEvent, RecoveryError, RecoveryPolicy},
     signer::{ExternalSigner, SignerAdapter, SignerError, SignerKind},
-    SdkError,
 };
+use serde::de::DeserializeOwned;
 use std::{
     collections::{HashMap, VecDeque},
     future::Future,
@@ -38,7 +38,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use serde::de::DeserializeOwned;
 use zeroize::Zeroizing;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
@@ -544,6 +543,7 @@ struct PrepareWithdrawalJobConfig {
     pool_address: Address,
     rpc_url: String,
     policy: ExecutionPolicy,
+    policy_echo: FfiExecutionPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -553,6 +553,7 @@ struct PrepareRelayJobConfig {
     pool_address: Address,
     rpc_url: String,
     policy: ExecutionPolicy,
+    policy_echo: FfiExecutionPolicy,
 }
 
 impl RegisteredSigner {
@@ -635,11 +636,10 @@ where
 }
 
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
-    parse_json_with_limit(manifest_json, MAX_ARTIFACT_JSON_INPUT_BYTES).map_err(|error| {
-        match error {
-            FfiError::OperationFailed(message) => FfiError::InvalidManifest(message),
-            other => other,
-        }
+    parse_json_with_limit(manifest_json, MAX_ARTIFACT_JSON_INPUT_BYTES).map_err(|error| match error
+    {
+        FfiError::OperationFailed(message) => FfiError::InvalidManifest(message),
+        other => other,
     })
 }
 
@@ -1476,7 +1476,7 @@ fn to_ffi_transaction_plan(plan: TransactionPlan) -> FfiTransactionPlan {
     }
 }
 
-fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
+fn from_ffi_execution_policy(policy: &FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
     let mode = policy
         .mode
         .as_deref()
@@ -1511,6 +1511,15 @@ fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPoli
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
         mode,
     })
+}
+
+fn apply_execution_policy_round_trip(
+    preflight: &mut FfiExecutionPreflightReport,
+    policy: &FfiExecutionPolicy,
+) {
+    preflight.read_consistency = policy.read_consistency.clone();
+    preflight.max_fee_quote_wei = policy.max_fee_quote_wei.clone();
+    preflight.mode = policy.mode.clone();
 }
 
 fn to_ffi_code_hash_check(check: CodeHashCheck) -> FfiCodeHashCheck {
@@ -1570,6 +1579,15 @@ fn to_ffi_prepared_execution(
         transaction: to_ffi_transaction_plan(prepared.transaction),
         preflight: to_ffi_execution_preflight(prepared.preflight),
     }
+}
+
+fn to_ffi_prepared_execution_with_policy(
+    prepared: PreparedTransactionExecution,
+    policy: &FfiExecutionPolicy,
+) -> FfiPreparedTransactionExecution {
+    let mut ffi = to_ffi_prepared_execution(prepared);
+    apply_execution_policy_round_trip(&mut ffi.preflight, policy);
+    ffi
 }
 
 fn to_ffi_finalized_request(
@@ -2187,7 +2205,9 @@ fn prepare_withdrawal_execution_background(
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
         .map_err(map_sdk_error)?
     {
-        return Err(FfiError::VerifierFailure(SdkError::ProofRejected.to_string()));
+        return Err(FfiError::VerifierFailure(
+            SdkError::ProofRejected.to_string(),
+        ));
     }
 
     set_job_stage(&entry, "planning");
@@ -2218,11 +2238,14 @@ fn prepare_withdrawal_execution_background(
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
-        to_ffi_prepared_execution(PreparedTransactionExecution {
-            proving,
-            transaction,
-            preflight,
-        }),
+        to_ffi_prepared_execution_with_policy(
+            PreparedTransactionExecution {
+                proving,
+                transaction,
+                preflight,
+            },
+            &config.policy_echo,
+        ),
     )))
 }
 
@@ -2258,7 +2281,9 @@ fn prepare_relay_execution_background(
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
         .map_err(map_sdk_error)?
     {
-        return Err(FfiError::VerifierFailure(SdkError::ProofRejected.to_string()));
+        return Err(FfiError::VerifierFailure(
+            SdkError::ProofRejected.to_string(),
+        ));
     }
 
     set_job_stage(&entry, "planning");
@@ -2291,11 +2316,14 @@ fn prepare_relay_execution_background(
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
-        to_ffi_prepared_execution(PreparedTransactionExecution {
-            proving,
-            transaction,
-            preflight,
-        }),
+        to_ffi_prepared_execution_with_policy(
+            PreparedTransactionExecution {
+                proving,
+                transaction,
+                preflight,
+            },
+            &config.policy_echo,
+        ),
     )))
 }
 
@@ -3102,13 +3130,14 @@ pub fn start_prepare_withdrawal_execution_job(
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let pool_address = parse_address(&pool_address)?;
-    let policy = from_ffi_execution_policy(policy)?;
+    let parsed_policy = from_ffi_execution_policy(&policy)?;
     let artifacts_root = PathBuf::from(artifacts_root);
     let config = PrepareWithdrawalJobConfig {
         chain_id,
         pool_address,
         rpc_url,
-        policy,
+        policy: parsed_policy,
+        policy_echo: policy,
     };
 
     spawn_background_job(
@@ -3149,8 +3178,9 @@ pub fn prepare_withdrawal_execution(
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
-    Ok(to_ffi_prepared_execution(block_on_sdk(
-        sdk().prepare_withdrawal_execution_with_client(
+    let policy_config = from_ffi_execution_policy(&policy)?;
+    Ok(to_ffi_prepared_execution_with_policy(
+        block_on_sdk(sdk().prepare_withdrawal_execution_with_client(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
@@ -3158,11 +3188,12 @@ pub fn prepare_withdrawal_execution(
             &privacy_pools_sdk::core::WithdrawalExecutionConfig {
                 chain_id,
                 pool_address: parse_address(&pool_address)?,
-                policy: from_ffi_execution_policy(policy)?,
+                policy: policy_config,
             },
             &client,
-        ),
-    )?))
+        ))?,
+        &policy,
+    ))
 }
 
 #[uniffi::export]
@@ -3183,14 +3214,15 @@ pub fn start_prepare_relay_execution_job(
     let request = from_ffi_withdrawal_witness_request(request)?;
     let entrypoint_address = parse_address(&entrypoint_address)?;
     let pool_address = parse_address(&pool_address)?;
-    let policy = from_ffi_execution_policy(policy)?;
+    let parsed_policy = from_ffi_execution_policy(&policy)?;
     let artifacts_root = PathBuf::from(artifacts_root);
     let config = PrepareRelayJobConfig {
         chain_id,
         entrypoint_address,
         pool_address,
         rpc_url,
-        policy,
+        policy: parsed_policy,
+        policy_echo: policy,
     };
 
     spawn_background_job(BackgroundJobKind::PrepareRelayExecution, move |entry| {
@@ -3229,8 +3261,9 @@ pub fn prepare_relay_execution(
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
-    Ok(to_ffi_prepared_execution(block_on_sdk(
-        sdk().prepare_relay_execution_with_client(
+    let policy_config = from_ffi_execution_policy(&policy)?;
+    Ok(to_ffi_prepared_execution_with_policy(
+        block_on_sdk(sdk().prepare_relay_execution_with_client(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
@@ -3239,11 +3272,12 @@ pub fn prepare_relay_execution(
                 chain_id,
                 entrypoint_address: parse_address(&entrypoint_address)?,
                 pool_address: parse_address(&pool_address)?,
-                policy: from_ffi_execution_policy(policy)?,
+                policy: policy_config,
             },
             &client,
-        ),
-    )?))
+        ))?,
+        &policy,
+    ))
 }
 
 #[cfg(feature = "local-mnemonic")]
@@ -3253,8 +3287,8 @@ pub fn register_local_mnemonic_signer(
     mnemonic: String,
     index: u32,
 ) -> Result<FfiSignerHandle, FfiError> {
-    let signer = LocalMnemonicSigner::from_phrase_nth(&mnemonic, index)
-        .map_err(map_signer_error)?;
+    let signer =
+        LocalMnemonicSigner::from_phrase_nth(&mnemonic, index).map_err(map_signer_error)?;
     register_signer(handle, RegisteredSigner::LocalMnemonic(signer))
 }
 
@@ -3488,7 +3522,7 @@ pub fn preflight_verified_withdrawal_transaction_with_handle(
         &WithdrawalExecutionConfig {
             chain_id,
             pool_address: parse_address(&pool_address)?,
-            policy: from_ffi_execution_policy(policy)?,
+            policy: from_ffi_execution_policy(&policy)?,
         },
         &proof,
         &client,
@@ -3520,7 +3554,7 @@ pub fn preflight_verified_relay_transaction_with_handle(
             chain_id,
             entrypoint_address: parse_address(&entrypoint_address)?,
             pool_address: parse_address(&pool_address)?,
-            policy: from_ffi_execution_policy(policy)?,
+            policy: from_ffi_execution_policy(&policy)?,
         },
         &proof,
         &client,
@@ -3550,7 +3584,7 @@ pub fn preflight_verified_ragequit_transaction_with_handle(
         &RagequitExecutionConfig {
             chain_id,
             pool_address: parse_address(&pool_address)?,
-            policy: from_ffi_execution_policy(policy)?,
+            policy: from_ffi_execution_policy(&policy)?,
         },
         &proof,
         &client,
@@ -3927,6 +3961,64 @@ mod tests {
                 actual: 2
             }
         ));
+    }
+
+    fn sample_execution_preflight_report() -> ExecutionPreflightReport {
+        ExecutionPreflightReport {
+            kind: privacy_pools_sdk::core::TransactionKind::Withdraw,
+            caller: Address::from_slice(&[0x11; 20]),
+            target: Address::from_slice(&[0x22; 20]),
+            expected_chain_id: 1,
+            actual_chain_id: 1,
+            chain_id_matches: true,
+            simulated: true,
+            estimated_gas: 42_000,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: Some(2_000_000_000),
+            mode: ExecutionPolicyMode::Strict,
+            code_hash_checks: vec![],
+            root_checks: vec![],
+        }
+    }
+
+    #[test]
+    fn execution_policy_round_trip_preserves_null_optional_fields() {
+        let policy = FfiExecutionPolicy {
+            expected_chain_id: 1,
+            caller: format!("{:#x}", Address::from_slice(&[0x11; 20])),
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+            read_consistency: None,
+            max_fee_quote_wei: None,
+            mode: None,
+        };
+
+        let mut preflight = to_ffi_execution_preflight(sample_execution_preflight_report());
+        apply_execution_policy_round_trip(&mut preflight, &policy);
+
+        assert_eq!(preflight.read_consistency, None);
+        assert_eq!(preflight.max_fee_quote_wei, None);
+        assert_eq!(preflight.mode, None);
+    }
+
+    #[test]
+    fn execution_policy_round_trip_preserves_explicit_optional_fields() {
+        let policy = FfiExecutionPolicy {
+            expected_chain_id: 1,
+            caller: format!("{:#x}", Address::from_slice(&[0x11; 20])),
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+            read_consistency: Some("finalized".to_owned()),
+            max_fee_quote_wei: Some("9999".to_owned()),
+            mode: Some("insecure_dev".to_owned()),
+        };
+
+        let mut preflight = to_ffi_execution_preflight(sample_execution_preflight_report());
+        apply_execution_policy_round_trip(&mut preflight, &policy);
+
+        assert_eq!(preflight.read_consistency, policy.read_consistency);
+        assert_eq!(preflight.max_fee_quote_wei, policy.max_fee_quote_wei);
+        assert_eq!(preflight.mode, policy.mode);
     }
 
     fn dangerous_exports_disabled<T>() -> Result<T, FfiError> {
@@ -5380,8 +5472,7 @@ mod tests {
         )
         .unwrap();
         assert_uuid_v4(&finalized_handle);
-        let finalized =
-            export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
+        let finalized = export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
         let submitted_handle = if cfg!(feature = "dangerous-exports") {
             let finalized = finalized.unwrap();
             assert_ffi_shape(

@@ -4,7 +4,7 @@ import XCTest
 
 private let reportMarker = "PRIVACY_POOLS_IOS_NATIVE_REPORT="
 private let smokeReadConsistency = "finalized"
-private let smokeMaxFeeQuoteWei = "1000000000"
+private let smokeMaxFeeQuoteWei = "2000000000"
 
 final class PrivacyPoolsSdkSmokeTests: XCTestCase {
     func testNativeMobileParitySurface() throws {

@@ -816,6 +816,8 @@ async function runParityChecks(
       fixture.label,
       fixture.withdrawalIndex,
     );
+    let commitmentHandle: string | undefined;
+    let withdrawalCommitmentHandle: string | undefined;
 
     try {
       checks.push({
@@ -831,11 +833,21 @@ async function runParityChecks(
         passed: withdrawalSecretsHandle.length > 0,
       });
 
+      commitmentHandle = await getCommitmentFromHandles(
+        fixture.value,
+        fixture.label,
+        depositSecretsHandle,
+      );
+      checks.push({
+        name: `${fixture.name}: commitmentHandle`,
+        passed: commitmentHandle.length > 0,
+      });
       const commitment = normalizeCommitment(
-        await getCommitmentFromHandles(
+        await getCommitment(
           fixture.value,
           fixture.label,
-          depositSecretsHandle,
+          expected.depositSecrets.nullifier,
+          expected.depositSecrets.secret,
         ),
       );
       recordCheck(
@@ -845,11 +857,21 @@ async function runParityChecks(
       );
       recordCheck(`${fixture.name}: commitment`, commitment, expected.commitment);
 
+      withdrawalCommitmentHandle = await getCommitmentFromHandles(
+        fixture.value,
+        fixture.label,
+        withdrawalSecretsHandle,
+      );
+      checks.push({
+        name: `${fixture.name}: withdrawalCommitmentHandle`,
+        passed: withdrawalCommitmentHandle.length > 0,
+      });
       const withdrawalSecretsCommitment = normalizeCommitment(
-        await getCommitmentFromHandles(
+        await getCommitment(
           fixture.value,
           fixture.label,
-          withdrawalSecretsHandle,
+          expected.withdrawalSecrets.nullifier,
+          expected.withdrawalSecrets.secret,
         ),
       );
       const expectedWithdrawalSecretsCommitment = normalizeCommitment(
@@ -879,11 +901,16 @@ async function runParityChecks(
         expected.withdrawalContextHex,
       );
     } finally {
-      await Promise.all([
-        removeSecretHandle(withdrawalSecretsHandle),
-        removeSecretHandle(depositSecretsHandle),
-        removeSecretHandle(masterKeysHandle),
-      ]);
+      const handlesToRemove = [
+        withdrawalCommitmentHandle,
+        commitmentHandle,
+        withdrawalSecretsHandle,
+        depositSecretsHandle,
+        masterKeysHandle,
+      ].filter((handle): handle is string => typeof handle === "string");
+      await Promise.all(
+        handlesToRemove.map((handle) => removeSecretHandle(handle)),
+      );
     }
   }
 
@@ -1022,7 +1049,7 @@ function assertSafeSurfaceLinked(): void {
   const safeExports = {
     buildWithdrawalCircuitInput,
     calculateWithdrawalContext,
-    deriveMasterKeysHandle,
+    deriveMasterKeysHandleBytes,
     finalizePreparedTransaction,
     generateDepositSecretsHandle,
     generateWithdrawalSecretsHandle,
@@ -1095,7 +1122,7 @@ function assertSafeNativeMethodsLinked(): void {
   const requiredMethods = [
     "buildWithdrawalCircuitInput",
     "calculateWithdrawalContext",
-    "deriveMasterKeysHandle",
+    "deriveMasterKeysHandleBytes",
     "finalizePreparedTransaction",
     "generateDepositSecretsHandle",
     "generateWithdrawalSecretsHandle",

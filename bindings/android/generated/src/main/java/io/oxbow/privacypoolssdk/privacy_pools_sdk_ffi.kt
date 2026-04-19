@@ -3877,6 +3877,16 @@ sealed class FfiException: kotlin.Exception() {
             get() = "registry=${ `registry` }, maxEntries=${ `maxEntries` }"
     }
 
+    class ChainIdMismatch(
+
+        val `expected`: kotlin.ULong,
+
+        val `actual`: kotlin.ULong
+        ) : FfiException() {
+        override val message
+            get() = "expected=${ `expected` }, actual=${ `actual` }"
+    }
+
     class SecretHandleNotFound(
 
         val v1: kotlin.String
@@ -4027,37 +4037,41 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.read(buf),
                 FfiConverterULong.read(buf),
                 )
-            15 -> FfiException.SecretHandleNotFound(
+            15 -> FfiException.ChainIdMismatch(
+                FfiConverterULong.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            16 -> FfiException.SecretHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            16 -> FfiException.VerifiedProofHandleNotFound(
+            17 -> FfiException.VerifiedProofHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            17 -> FfiException.ExecutionHandleNotFound(
+            18 -> FfiException.ExecutionHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            18 -> FfiException.JobNotFound(
+            19 -> FfiException.JobNotFound(
                 FfiConverterString.read(buf),
                 )
-            19 -> FfiException.SignerRequiresExternalSigning(
+            20 -> FfiException.SignerRequiresExternalSigning(
                 FfiConverterString.read(buf),
                 )
-            20 -> FfiException.UnmatchedRagequit(
+            21 -> FfiException.UnmatchedRagequit(
                 FfiConverterString.read(buf),
                 )
-            21 -> FfiException.InvalidManifest(
+            22 -> FfiException.InvalidManifest(
                 FfiConverterString.read(buf),
                 )
-            22 -> FfiException.InvalidSignedTransaction(
+            23 -> FfiException.InvalidSignedTransaction(
                 FfiConverterString.read(buf),
                 )
-            23 -> FfiException.ProverFailure(
+            24 -> FfiException.ProverFailure(
                 FfiConverterString.read(buf),
                 )
-            24 -> FfiException.VerifierFailure(
+            25 -> FfiException.VerifierFailure(
                 FfiConverterString.read(buf),
                 )
-            25 -> FfiException.OperationFailed(
+            26 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -4136,6 +4150,12 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.`registry`)
                 + FfiConverterULong.allocationSize(value.`maxEntries`)
+            )
+            is FfiException.ChainIdMismatch -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterULong.allocationSize(value.`expected`)
+                + FfiConverterULong.allocationSize(value.`actual`)
             )
             is FfiException.SecretHandleNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
@@ -4268,58 +4288,64 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterULong.write(value.`maxEntries`, buf)
                 Unit
             }
-            is FfiException.SecretHandleNotFound -> {
+            is FfiException.ChainIdMismatch -> {
                 buf.putInt(15)
-                FfiConverterString.write(value.v1, buf)
+                FfiConverterULong.write(value.`expected`, buf)
+                FfiConverterULong.write(value.`actual`, buf)
                 Unit
             }
-            is FfiException.VerifiedProofHandleNotFound -> {
+            is FfiException.SecretHandleNotFound -> {
                 buf.putInt(16)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.ExecutionHandleNotFound -> {
+            is FfiException.VerifiedProofHandleNotFound -> {
                 buf.putInt(17)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.JobNotFound -> {
+            is FfiException.ExecutionHandleNotFound -> {
                 buf.putInt(18)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerRequiresExternalSigning -> {
+            is FfiException.JobNotFound -> {
                 buf.putInt(19)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.UnmatchedRagequit -> {
+            is FfiException.SignerRequiresExternalSigning -> {
                 buf.putInt(20)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.UnmatchedRagequit -> {
                 buf.putInt(21)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidSignedTransaction -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(22)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.ProverFailure -> {
+            is FfiException.InvalidSignedTransaction -> {
                 buf.putInt(23)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.VerifierFailure -> {
+            is FfiException.ProverFailure -> {
                 buf.putInt(24)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.VerifierFailure -> {
                 buf.putInt(25)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(26)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }

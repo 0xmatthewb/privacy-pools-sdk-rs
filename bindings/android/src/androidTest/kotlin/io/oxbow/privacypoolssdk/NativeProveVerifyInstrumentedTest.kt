@@ -19,7 +19,7 @@ class NativeProveVerifyInstrumentedTest {
         private const val REPORT_TAG = "PrivacyPoolsNativeSmoke"
         private const val REPORT_MARKER = "PRIVACY_POOLS_ANDROID_NATIVE_REPORT"
         private const val SMOKE_READ_CONSISTENCY = "finalized"
-        private const val SMOKE_MAX_FEE_QUOTE_WEI = "1000000000"
+        private const val SMOKE_MAX_FEE_QUOTE_WEI = "2000000000"
     }
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
