@@ -19,13 +19,25 @@ This package:
 - `cargo run -p xtask -- react-native-package` stages package-local generated bindings
 - `cargo run -p xtask -- react-native-smoke` installs the packed tarball into the
   lightweight sample app under `examples/react-native-smoke` and typechecks it
+- `cargo run -p xtask -- mobile-smoke-local --platform ios|android|all --surface native|react-native|all`
+  is the primary local mobile developer loop and writes normalized per-surface
+  reports under `target/mobile-smoke-local`
 - `cargo run -p xtask -- react-native-app-smoke-ios` and
-  `cargo run -p xtask -- react-native-app-smoke-android` install the packed
-  tarball into generated consumer apps and run real app-process prepare, prove,
-  verify, and stale-session fixture flows
-- `cargo run -p xtask -- react-native-package --release --with-native` additionally stages release iOS and Android native artifacts for packaging
+  `cargo run -p xtask -- react-native-app-smoke-android` remain the
+  lower-level React Native app-process entrypoints used by the local
+  orchestrator
+- `cargo run -p xtask -- react-native-package --release --with-ios-native`
+  stages the release iOS native artifacts for packaging
+- `cargo run -p xtask -- react-native-package --release --with-android-native`
+  stages the release Android native artifacts for packaging
+- `cargo run -p xtask -- react-native-package --release --with-native` remains
+  as a convenience alias when you intentionally want both native asset sets
 - `npm run prepare:package-release:ios` stages the publishable iOS package surface, including the XCFramework
 - `npm run prepare:package-release:android` stages the publishable Android package surface, including JNI libraries
 
 Release packaging is validated per platform in CI. The iOS and Android release
 paths stay split so each runner only builds the native artifacts it can support.
+The heavyweight `mobile-smoke` workflow remains on-demand and produces the
+`mobile-smoke-evidence` artifact used for release promotion. Nightly assurance
+can ingest manually supplied mobile evidence, but it does not run the full
+simulator/emulator mobile smoke path by default.

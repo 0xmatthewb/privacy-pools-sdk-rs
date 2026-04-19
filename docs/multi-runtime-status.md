@@ -16,10 +16,14 @@ plan.
 
 - mobile app-process prove/verify coverage for React Native simulator/emulator
   apps. Native iOS XCTest, Android instrumentation, and React Native
-  app-process smoke jobs are wired in the manual/nightly `mobile-smoke`
-  workflow. The workflow now uploads `mobile-smoke.json` so release evidence can
-  prove the exact commit, run URL, and passed iOS/Android statuses. This should
-  move to completed only after that workflow is green for a release candidate.
+  app-process smoke jobs are wired in the on-demand `mobile-smoke` workflow,
+  and the scheduled `assurance-nightly` workflow can ingest the matching mobile
+  evidence when it is present. Local `xtask mobile-smoke-local --platform all
+  --surface all --evidence-out-dir ...` now produces the authoritative mobile
+  release evidence for exact commit/run identity, while hosted
+  `mobile-smoke-evidence` remains optional clean-runner confirmation. This
+  should move to completed only after the local all-surface flow and optional
+  hosted workflow are stable for a release candidate.
 - React Native iOS and Android app-process smoke harnesses now install the
   packed package tarball into generated consumer apps, copy deterministic
   fixture artifacts into app storage, and run native prepare/prove/verify
@@ -79,8 +83,10 @@ plan.
 - The SDK package now includes Chromium Playwright coverage for a real browser
   module worker, browser-native wasm-bindgen initialization, cross-origin CORS
   artifact fetching, and browser `WebAssembly.instantiate` witness execution.
-- SDK CI now checks browser generated WASM binding freshness after `build:web`
-  so committed generated assets cannot drift silently.
+- SDK PR CI now checks deterministic browser generated interface drift plus
+  browser WASM structural hygiene after `build:web`, while exact packaged
+  `privacy_pools_sdk_web_bg.wasm` validation happens in the canonical Linux
+  release packaging path.
 - Verified artifact bundle fields are sealed behind accessors so callers cannot
   forge a verified bundle by directly constructing public fields.
 - The Rust SDK now includes an explicit bounded `SessionCache` for callers that
@@ -90,6 +96,14 @@ plan.
   four-entry cache and exposes `clearCircuitSessionCache()` /
   `clearBrowserCircuitSessionCache()` to explicitly remove cached JS artifacts
   and their matching Rust/WASM sessions.
+- The browser worker transport uses transfer lists for typed-array artifact
+  payloads that cross the worker boundary. Witness buffers are generated inside
+  the worker proof call, so the hot proof path does not need to transfer witness
+  material between the main thread and worker.
+- Browser witness execution reuses an instantiated Circom witness runtime only
+  after a per-session reset-equivalence probe proves that `init(0)` yields the
+  same witness output twice for the same input. If the probe fails, the runtime
+  falls back to per-proof instantiation from the cached `WebAssembly.Module`.
 - The fixture set now pins the v1.2.0 withdrawal `wasm`, `zkey`, and `vkey`
   artifacts, so CI can exercise real withdrawal proof generation and
   verification instead of only static verification fixtures.
@@ -120,7 +134,7 @@ plan.
   through caller-provided RPC/client transport, then feeds those public DTOs
   into Rust-backed recovery helpers. It does not fetch, transmit, log, or retain
   mnemonics, nullifier secrets, witnesses, or proofs.
-- The fast React Native consumer smoke app now typechecks the reusable withdrawal
+- The React Native consumer smoke app now typechecks the reusable withdrawal
   circuit session APIs instead of only importing the older path-based proving
   and verification methods.
 - The Rust protocol/core crates still keep the workspace `unsafe_code = forbid`
@@ -130,20 +144,27 @@ plan.
 ## Partially Completed
 
 - The mobile surfaces share the Rust session/caching model, and the shared FFI
-  layer now runs full real prove/verify fixtures. React Native app-process
-  prove/verify smoke is wired for iOS and Android in the manual/nightly
-  `mobile-smoke` workflow, with release evidence captured as `mobile-smoke.json`.
-  It should remain partially complete until that workflow is green for the
-  candidate commit.
-- Fast-backend benchmarking exists, but the broader release-mode benchmark
-  matrix across surfaces and environments is not complete yet.
+  layer now runs full real prove/verify fixtures. The on-demand
+  `mobile-smoke` workflow assembles first-class structured evidence for iOS
+  native XCTest, Android native instrumentation, and React Native app-process
+  smoke on both platforms, with optional hosted release evidence captured in the
+  `mobile-smoke-evidence` artifact and optionally ingested by
+  `assurance-nightly`. It should remain partially complete until the local
+  all-surface evidence flow is stable for the candidate commit.
 
 ## Not Yet Completed
 
 - Mobile app-level smoke coverage still needs green confirmation from the
-  `mobile-smoke` workflow for the newly wired React Native iOS and Android
-  app-process prove/verify jobs, plus committed `mobile-smoke.json` evidence in
-  the channel bundle before promotion.
+  local all-surface mobile evidence flow for all four structured surfaces: iOS
+  native, Android native, iOS React Native, and Android React Native, plus
+  matching `mobile-smoke.json` / `mobile-parity.json` in the external release
+  evidence bundle before promotion.
+
+## Informational Only
+
+- Benchmark capture remains available across Rust, Node, browser, and React
+  Native surfaces, but benchmark evidence is now informational rather than a
+  merge or release blocker.
 
 ## Browser Proving Acceptance
 

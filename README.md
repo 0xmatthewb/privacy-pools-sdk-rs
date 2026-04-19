@@ -6,6 +6,15 @@ apps, with local proving and verification kept on the same Rust core.
 > [!CAUTION]
 > Experimental software. Use at your own risk.
 
+- **Rust-first:** one protocol implementation shared across Rust, browser, Node,
+  iOS, Android, and React Native
+- **Local proving:** key derivation, witnesses, proofs, and proof verification
+  stay on the client
+- **Trusted artifacts:** signed manifests and artifact hash verification gate
+  runtime proving assets
+- **Continuous assurance:** fast PR checks, scheduled nightly assessment, and
+  release-grade audit bundles all run from one shared assurance catalog
+
 ## What Is Privacy Pools?
 
 Privacy Pools is a non-custodial privacy protocol for Ethereum and compatible
@@ -32,9 +41,9 @@ Current first-class surfaces:
 
 Remaining package milestones:
 
-- committed mobile smoke evidence from the manual/nightly React Native iOS and
-  Android simulator/emulator prove/verify workflow for each promoted release
-- broader release-mode benchmark evidence across runtime surfaces
+- matching local all-surface mobile evidence for each promoted release, with
+  optional hosted `mobile-smoke-evidence` as secondary clean-runner confirmation
+- green release assurance bundles for promoted runtime surfaces
 
 Compatibility is anchored to the published
 `@0xbow/privacy-pools-core-sdk@1.2.0` behavior, plus the `getStateRoot()`
@@ -108,9 +117,10 @@ validation, and smoke tests.
 
 Prerequisites:
 
-- Rust stable
+- Rust 1.93.0
 - Node.js 22+ for the JS packages and smoke tests
-- Rust `wasm32-unknown-unknown` target plus `wasm-bindgen-cli` for browser package builds
+- Rust `wasm32-unknown-unknown` target plus `wasm-bindgen-cli 0.2.118` for
+  browser package builds
 - full Xcode for iOS builds and XCFramework packaging
 - Android SDK, NDK, Java 17, and `cargo-ndk` for Android native packaging
 
@@ -136,19 +146,32 @@ cargo run -p xtask -- feature-check
 cargo run -p xtask -- package-check
 cargo run -p xtask -- dependency-check
 cargo run -p xtask -- release-check --channel alpha
+cargo run -p xtask -- assurance --profile pr --runtime all
+cargo run -p xtask -- assurance --profile nightly --runtime all --skip-fuzz
 cargo run -p xtask -- bindings
 cargo run -p xtask -- react-native-smoke
-cargo run -p xtask -- react-native-app-smoke-ios
-cargo run -p xtask -- react-native-app-smoke-android
+cargo run -p xtask -- mobile-smoke-local --platform all --surface all
+cargo run -p xtask -- mobile-smoke-local --platform all --surface all --evidence-out-dir target/mobile-smoke-evidence
 cargo run -p xtask -- sdk-smoke
 ```
 
-The regular CI workflow runs the fast Rust, SDK, browser-worker, React Native
-package, and React Native typecheck gates on every push. The real simulator and
-emulator app-process mobile smokes run in the manual/nightly `mobile-smoke`
-workflow because they are intentionally heavyweight release/promotion gates.
-That workflow uploads `mobile-smoke.json`, which must be copied into the channel
-evidence bundle before promotion.
+The regular CI workflow runs the fast Rust, Node, browser, and React Native
+assurance lanes on every push and pull request.
+`assurance-nightly.yml` is the scheduled continuous assessment path for the
+shared assurance catalog and can optionally ingest manually supplied mobile
+evidence. The heavyweight producer workflows remain on-demand:
+`mobile-smoke.yml` emits the `mobile-smoke-evidence` artifact with
+`mobile-smoke.json` and `mobile-parity.json` covering iOS native, iOS React
+Native, Android native, and Android React Native surfaces, and
+`reference-benchmarks.yml` emits optional `reference-benchmarks-stable`
+artifacts for informational performance review. Local
+`xtask mobile-smoke-local --platform all --surface all --evidence-out-dir ...`
+is the primary maintainer mobile gate before merge and release-sensitive
+promotion. `assurance-fuzz.yml` is the dedicated scheduled fuzz lane for the
+Rust parser/wire/manifest surfaces and replays checked-in corpus seeds from
+`fuzz/corpus/**`. The manual `release.yml` workflow now produces
+`release-evidence-inputs-${channel}` so the final release audit can be
+assembled locally around maintainer-generated mobile evidence.
 
 Further documentation:
 
@@ -162,7 +185,11 @@ Further documentation:
 - [`docs/canary-rollout.md`](docs/canary-rollout.md)
 - [`docs/compatibility-baseline.md`](docs/compatibility-baseline.md)
 - [`docs/v1-js-compatibility-matrix.md`](docs/v1-js-compatibility-matrix.md)
+- [`docs/assurance.md`](docs/assurance.md)
+- [`docs/assurance-review-guide.md`](docs/assurance-review-guide.md)
 - [`docs/dependency-audit.md`](docs/dependency-audit.md)
+- [`docs/audit-pack.md`](docs/audit-pack.md)
+- [`security/audit-ledger.md`](security/audit-ledger.md)
 - [`docs/multi-runtime-status.md`](docs/multi-runtime-status.md)
 
 ## License

@@ -14,7 +14,7 @@ application developers and agents.
 | `privacy-pools-sdk-crypto` | Key derivation, precommitment hashing, nullifier hashing, commitment construction, and withdrawal context hashing. | Publishable | Cryptographic helpers stay protocol-named. |
 | `privacy-pools-sdk-tree` | LeanIMT proof helpers. | Publishable | Focused Merkle witness crate. |
 | `privacy-pools-sdk-artifacts` | Artifact manifest parsing, pinning, and hash verification. | Publishable | Shared by Rust and package surfaces. |
-| `privacy-pools-sdk-prover` | Arkworks proving, optional native witness generation, optional Rapidsnark backend policy, and proof verification hooks. | Publishable | Default feature includes `native-witness` on supported native targets. |
+| `privacy-pools-sdk-prover` | Stable Arkworks proving, optional native witness generation, and proof verification hooks. | Publishable | Default feature includes `native-witness` on supported native targets. |
 | `privacy-pools-sdk-verifier` | Verification key parsing and Groth16 verifier preparation. | Publishable | Used by proving and runtime preflight. |
 | `privacy-pools-sdk-circuits` | Circuit input validation and signal compatibility checks. | Publishable | Enforces protocol shape before proving and execution. |
 | `privacy-pools-sdk-recovery` | Account recovery replay from deposit, withdrawal, and ragequit events. | Publishable | Preserves the v1 migration behavior while exposing Rust-native names. |

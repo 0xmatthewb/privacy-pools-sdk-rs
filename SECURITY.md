@@ -41,8 +41,22 @@ Current safeguards include:
   Native package surfaces
 
 Dependency advisory status is tracked in
-[`docs/dependency-audit.md`](docs/dependency-audit.md). Release checks fail if
-the accepted advisory ID set drifts without updating that policy.
+[`security/advisories.toml`](security/advisories.toml). Release checks fail if
+the accepted advisory ID set drifts without updating that policy and the
+derived `deny.toml` / docs checks.
+
+## Security Governance
+
+- Reviewer-facing invariant and threat-model guidance:
+  [`docs/assurance-review-guide.md`](docs/assurance-review-guide.md)
+- Internal audit and risk tracking:
+  [`security/audit-ledger.md`](security/audit-ledger.md)
+- External audit handoff checklist:
+  [`security/external-audit-readiness.md`](security/external-audit-readiness.md)
+- Machine-readable assurance coverage policy:
+  [`security/assurance-matrix.json`](security/assurance-matrix.json)
+- Unsafe surface policy:
+  [`security/unsafe-allowlist.json`](security/unsafe-allowlist.json)
 
 ## Audit Status
 
@@ -50,3 +64,6 @@ The SDK is publish-ready alpha software, not audited production custody
 software. Treat the Rust SDK, JS package, mobile bindings, and React Native
 package as security-sensitive infrastructure that requires application-level
 review before mainnet funds are exposed.
+
+See [`security/audit-ledger.md`](security/audit-ledger.md) for the current
+internal review record, open findings, and accepted residual risks.
