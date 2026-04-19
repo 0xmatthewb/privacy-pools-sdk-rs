@@ -4482,7 +4482,11 @@ fn build_assurance_catalog(
                 ),
                 vec!["sdk-browser-build".to_owned()],
             ),
-            vec![AssuranceProfile::Nightly, AssuranceProfile::Release],
+            vec![
+                AssuranceProfile::Pr,
+                AssuranceProfile::Nightly,
+                AssuranceProfile::Release,
+            ],
         ),
         assurance_check_with_profiles(
             assurance_check_spec(
@@ -8669,6 +8673,8 @@ fn read_advisory_policy(workspace_root: &Utf8PathBuf) -> Result<AdvisoryPolicy> 
 }
 
 fn validate_advisory_metadata_sections(contents: &str, advisory_ids: &[String]) -> Result<()> {
+    let today = current_calendar_date()?;
+
     for advisory_id in advisory_ids {
         let section_marker = format!("[metadata.{advisory_id}]");
         ensure!(
@@ -8686,6 +8692,16 @@ fn validate_advisory_metadata_sections(contents: &str, advisory_ids: &[String]) 
                 "security/advisories.toml metadata for {advisory_id} must define `{required_key}`"
             );
         }
+
+        let review_date = advisory_metadata_value(section, "review_date")
+            .with_context(|| format!("missing review_date for {advisory_id}"))?;
+        let review_date_value = parse_calendar_date(&review_date)
+            .with_context(|| format!("invalid review_date for {advisory_id}: {review_date}"))?;
+        ensure!(
+            review_date_value >= today,
+            "security/advisories.toml metadata for {advisory_id} has expired review_date {review_date} (today is {})",
+            format_calendar_date(today)
+        );
     }
 
     Ok(())
@@ -8699,6 +8715,70 @@ fn advisory_metadata_section<'a>(contents: &'a str, section_marker: &str) -> Opt
         .map(|offset| start + section_marker.len() + offset)
         .unwrap_or(contents.len());
     Some(&contents[start..end])
+}
+
+fn advisory_metadata_value(section: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key} =");
+    section
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix(&prefix))
+        .map(str::trim)
+        .and_then(|value| value.strip_prefix('"'))
+        .and_then(|value| value.strip_suffix('"'))
+        .map(ToOwned::to_owned)
+}
+
+fn current_calendar_date() -> Result<(u32, u32, u32)> {
+    let output = Command::new("date")
+        .args(["+%Y-%m-%d"])
+        .output()
+        .context("failed to execute `date` to determine the current review date")?;
+    ensure!(output.status.success(), "`date` exited unsuccessfully");
+
+    let today = String::from_utf8(output.stdout).context("`date` output was not valid UTF-8")?;
+    parse_calendar_date(today.trim())
+}
+
+fn parse_calendar_date(value: &str) -> Result<(u32, u32, u32)> {
+    ensure!(
+        value.len() == 10
+            && value.as_bytes().get(4) == Some(&b'-')
+            && value.as_bytes().get(7) == Some(&b'-'),
+        "expected YYYY-MM-DD"
+    );
+
+    let year = value[0..4]
+        .parse::<u32>()
+        .with_context(|| format!("invalid year component in {value}"))?;
+    let month = value[5..7]
+        .parse::<u32>()
+        .with_context(|| format!("invalid month component in {value}"))?;
+    let day = value[8..10]
+        .parse::<u32>()
+        .with_context(|| format!("invalid day component in {value}"))?;
+
+    ensure!((1..=12).contains(&month), "month must be between 01 and 12");
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if is_leap_year(year) => 29,
+        2 => 28,
+        _ => unreachable!("validated month range"),
+    };
+    ensure!(
+        (1..=max_day).contains(&day),
+        "day must be between 01 and {max_day:02}"
+    );
+
+    Ok((year, month, day))
+}
+
+const fn is_leap_year(year: u32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn format_calendar_date((year, month, day): (u32, u32, u32)) -> String {
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 fn read_deny_advisory_ids(workspace_root: &Utf8PathBuf) -> Result<Vec<String>> {
@@ -10972,6 +11052,7 @@ mod tests {
             "sdk-browser-smoke",
             "sdk-browser-generated-drift-check",
             "sdk-browser-fail-closed-checks",
+            "sdk-browser-worker-suite",
         ] {
             assert!(
                 selected_specs.iter().any(|spec| spec.id == required),
@@ -10981,7 +11062,6 @@ mod tests {
         for excluded in [
             "sdk-browser-core",
             "sdk-browser-direct-execution",
-            "sdk-browser-worker-suite",
             "browser-threaded-build",
             "browser-threaded-drift-check",
         ] {
@@ -11355,7 +11435,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(evidence["attestationCount"], 4);
-        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 5);
+        assert_eq!(evidence["benchmarks"].as_array().map_or(0, Vec::len), 6);
         assert_eq!(
             evidence["signedManifestPackageBinding"]["subjectPath"],
             "packages/circuits/privacy-pools-sdk-circuit-artifacts-alpha.tar.gz"

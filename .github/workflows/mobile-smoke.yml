@@ -1,6 +1,19 @@
 name: mobile-smoke
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/mobile-smoke.yml"
+      - ".github/actions/install-rust-ci-tools/**"
+      - "bindings/**"
+      - "crates/**"
+      - "examples/react-native-app-smoke/**"
+      - "fixtures/**"
+      - "packages/react-native/**"
+      - "packages/sdk/**"
+      - "xtask/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   workflow_dispatch:
 
 permissions:

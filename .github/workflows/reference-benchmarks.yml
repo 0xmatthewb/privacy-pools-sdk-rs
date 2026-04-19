@@ -1,6 +1,8 @@
 name: reference-benchmarks
 
 on:
+  schedule:
+    - cron: "0 9 * * 1"
   workflow_dispatch:
 
 permissions:
