@@ -3,10 +3,8 @@ version = 2
 yanked = "deny"
 unmaintained = "workspace"
 ignore = [
-    # Transitive through circom-prover/ark-relations; no semver-safe workspace fix yet.
+    # Mirrored from security/advisories.toml[cargo_deny].ignore.
     "RUSTSEC-2025-0055",
-    # Transitive through arkworks/alloy; xtask dependency-check separately verifies
-    # that the unsound rand path remains unreachable because the `log` feature is off.
     "RUSTSEC-2026-0097",
 ]
 

@@ -1,0 +1,70 @@
+[package]
+name = "privacy-pools-sdk-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+alloy-primitives = { version = "1.5.7", features = ["serde"] }
+alloy-sol-types = "1.5.7"
+async-trait = "0.1.89"
+libfuzzer-sys = "0.4"
+privacy-pools-sdk = { path = "../crates/privacy-pools-sdk" }
+privacy-pools-sdk-artifacts = { path = "../crates/privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-chain = { path = "../crates/privacy-pools-sdk-chain" }
+privacy-pools-sdk-core = { path = "../crates/privacy-pools-sdk-core" }
+serde_json = "1"
+tokio = { version = "1.51.1", features = ["rt"] }
+
+[[bin]]
+name = "field_parsing"
+path = "fuzz_targets/field_parsing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "wire_conversion"
+path = "fuzz_targets/wire_conversion.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "proof_bundle_parsing"
+path = "fuzz_targets/proof_bundle_parsing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "manifest_parsing"
+path = "fuzz_targets/manifest_parsing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "json_boundaries"
+path = "fuzz_targets/json_boundaries.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "artifact_bundle_resolution"
+path = "fuzz_targets/artifact_bundle_resolution.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "session_invalidation"
+path = "fuzz_targets/session_invalidation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "execution_policy_inputs"
+path = "fuzz_targets/execution_policy_inputs.rs"
+test = false
+doc = false

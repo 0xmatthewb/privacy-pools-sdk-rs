@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { extname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { preflightFixtureArtifacts } from "./browser-fixtures.mjs";
 
 const testDir = fileURLToPath(new URL(".", import.meta.url));
 const packageRoot = join(testDir, "..");
@@ -18,7 +19,10 @@ const commitmentProvingManifest = readFixtureText(
   "artifacts/commitment-proving-manifest.json",
 );
 
+preflightFixtureArtifacts(withdrawalProvingManifest, commitmentProvingManifest);
+
 test("browser module worker proves and verifies through Chromium", async ({ page }) => {
+  markSlowOnCiLinux();
   const moduleServer = createStaticServer(packageRoot);
   const artifactServer = createStaticServer(fixturesRoot, {
     cors: true,
@@ -111,7 +115,66 @@ test("browser module worker proves and verifies through Chromium", async ({ page
             commitmentProof.proof,
           );
 
+          const masterKeysHandle = await sdk.deriveMasterKeysHandle(
+            cryptoFixture.mnemonic,
+          );
+          const depositSecretsHandle = await sdk.generateDepositSecretsHandle(
+            masterKeysHandle,
+            cryptoFixture.scope,
+            "0",
+          );
+          const withdrawalSecretsHandle = await sdk.generateWithdrawalSecretsHandle(
+            masterKeysHandle,
+            cryptoFixture.label,
+            "1",
+          );
+          const commitmentHandle = await sdk.getCommitmentFromHandles(
+            withdrawalFixture.existingValue,
+            cryptoFixture.label,
+            depositSecretsHandle,
+          );
+
+          const handleCommitmentStatuses = [];
+          const handleCommitmentProof = await sdk.proveCommitmentWithHandle(
+            "stable",
+            commitmentProvingManifest,
+            artifactsRoot,
+            commitmentHandle,
+            { onStatus: (status) => handleCommitmentStatuses.push(status) },
+          );
+          const handleCommitmentVerified = await sdk.verifyCommitmentProof(
+            "stable",
+            commitmentProvingManifest,
+            artifactsRoot,
+            handleCommitmentProof.proof,
+          );
+
+          const handleWithdrawalStatuses = [];
+          const handleWithdrawalProof = await sdk.proveWithdrawalWithHandles(
+            "stable",
+            withdrawalProvingManifest,
+            artifactsRoot,
+            commitmentHandle,
+            {
+              processooor: "0x1111111111111111111111111111111111111111",
+              data: "0x1234",
+            },
+            cryptoFixture.scope,
+            withdrawalFixture.withdrawalAmount,
+            withdrawalFixture.stateWitness,
+            withdrawalFixture.aspWitness,
+            withdrawalSecretsHandle,
+            { onStatus: (status) => handleWithdrawalStatuses.push(status) },
+          );
+          const handleWithdrawalVerified = await sdk.verifyWithdrawalProof(
+            "stable",
+            withdrawalProvingManifest,
+            artifactsRoot,
+            handleWithdrawalProof.proof,
+          );
+
           await sdk.clearCircuitSessionCache();
+          await sdk.clearSecretHandles();
           let staleSessionFailed = false;
           try {
             await sdk.verifyCommitmentProofWithSession(
@@ -135,10 +198,20 @@ test("browser module worker proves and verifies through Chromium", async ({ page
             commitmentBackend: commitmentProof.backend,
             commitmentVerified,
             commitmentStatusStages: commitmentStatuses.map((status) => status.stage),
+            handleCommitmentBackend: handleCommitmentProof.backend,
+            handleCommitmentVerified,
+            handleCommitmentStatusStages: handleCommitmentStatuses.map(
+              (status) => status.stage,
+            ),
+            handleWithdrawalBackend: handleWithdrawalProof.backend,
+            handleWithdrawalVerified,
+            handleWithdrawalStatusStages: handleWithdrawalStatuses.map(
+              (status) => status.stage,
+            ),
             staleSessionFailed,
           };
         } finally {
-          worker.terminate();
+          await sdk.dispose({ terminate: true });
         }
       },
       {
@@ -173,6 +246,30 @@ test("browser module worker proves and verifies through Chromium", async ({ page
       "verify",
       "done",
     ]);
+    expect(result.handleCommitmentBackend).toBe("arkworks");
+    expect(result.handleCommitmentVerified).toBe(true);
+    expect(result.handleCommitmentStatusStages).toEqual([
+      "preload",
+      "witness",
+      "witness-parse",
+      "witness-transfer",
+      "witness",
+      "prove",
+      "verify",
+      "done",
+    ]);
+    expect(result.handleWithdrawalBackend).toBe("arkworks");
+    expect(result.handleWithdrawalVerified).toBe(true);
+    expect(result.handleWithdrawalStatusStages).toEqual([
+      "preload",
+      "witness",
+      "witness-parse",
+      "witness-transfer",
+      "witness",
+      "prove",
+      "verify",
+      "done",
+    ]);
     expect(result.staleSessionFailed).toBe(true);
 
     expect(artifactServer.requests).toEqual(
@@ -193,8 +290,262 @@ test("browser module worker proves and verifies through Chromium", async ({ page
   }
 });
 
+test("experimental threaded browser client matches stable proof invariants", async ({
+  page,
+}) => {
+  markSlowOnCiLinux();
+  const moduleServer = createStaticServer(packageRoot, {
+    crossOriginIsolated: true,
+  });
+  const artifactServer = createStaticServer(fixturesRoot, {
+    cors: true,
+    crossOriginIsolated: true,
+  });
+
+  await moduleServer.start();
+  await artifactServer.start();
+
+  try {
+    await page.goto(`${moduleServer.origin}/`);
+
+    const stableResult = await page.evaluate(
+      async ({
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        commitmentProvingManifest,
+        artifactsRoot,
+      }) => {
+        const { PrivacyPoolsSdkClient } = await import("/src/browser/index.mjs");
+        const sdk = new PrivacyPoolsSdkClient();
+
+        try {
+          const commitment = await sdk.getCommitment(
+            withdrawalFixture.existingValue,
+            withdrawalFixture.label,
+            cryptoFixture.depositSecrets.nullifier,
+            cryptoFixture.depositSecrets.secret,
+          );
+          const withdrawalRequest = {
+            commitment,
+            withdrawal: {
+              processooor: "0x1111111111111111111111111111111111111111",
+              data: "0x1234",
+            },
+            scope: cryptoFixture.scope,
+            withdrawalAmount: withdrawalFixture.withdrawalAmount,
+            stateWitness: withdrawalFixture.stateWitness,
+            aspWitness: withdrawalFixture.aspWitness,
+            newNullifier: withdrawalFixture.newNullifier,
+            newSecret: withdrawalFixture.newSecret,
+          };
+
+          const commitmentSession = await sdk.prepareCommitmentCircuitSession(
+            commitmentProvingManifest,
+            artifactsRoot,
+          );
+          const commitmentProof = await sdk.proveCommitmentWithSession(
+            "stable",
+            commitmentSession.handle,
+            { commitment },
+          );
+
+          const withdrawalSession = await sdk.prepareWithdrawalCircuitSession(
+            withdrawalProvingManifest,
+            artifactsRoot,
+          );
+          const withdrawalProof = await sdk.proveWithdrawalWithSession(
+            "stable",
+            withdrawalSession.handle,
+            withdrawalRequest,
+          );
+
+          return {
+            commitmentProof: commitmentProof.proof,
+            withdrawalProof: withdrawalProof.proof,
+          };
+        } finally {
+          await sdk.dispose();
+        }
+      },
+      {
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        commitmentProvingManifest,
+        artifactsRoot: `${artifactServer.origin}/artifacts/`,
+      },
+    );
+
+    await page.goto(`${moduleServer.origin}/threaded`);
+
+    const threadedResult = await page.evaluate(
+      async ({
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        commitmentProvingManifest,
+        artifactsRoot,
+        stableCommitmentProof,
+        stableWithdrawalProof,
+      }) => {
+        const threaded = await import("/src/browser/experimental-threaded.mjs");
+        const capabilities = threaded.getExperimentalThreadedRuntimeCapabilities();
+        const initialization = await threaded.initializeExperimentalThreadedProving({
+          threadCount: 2,
+        });
+        const sdk = await threaded.createExperimentalThreadedBrowserClient({
+          threadCount: 2,
+        });
+
+        try {
+          const commitment = await sdk.getCommitment(
+            withdrawalFixture.existingValue,
+            withdrawalFixture.label,
+            cryptoFixture.depositSecrets.nullifier,
+            cryptoFixture.depositSecrets.secret,
+          );
+          const withdrawalRequest = {
+            commitment,
+            withdrawal: {
+              processooor: "0x1111111111111111111111111111111111111111",
+              data: "0x1234",
+            },
+            scope: cryptoFixture.scope,
+            withdrawalAmount: withdrawalFixture.withdrawalAmount,
+            stateWitness: withdrawalFixture.stateWitness,
+            aspWitness: withdrawalFixture.aspWitness,
+            newNullifier: withdrawalFixture.newNullifier,
+            newSecret: withdrawalFixture.newSecret,
+          };
+
+          const commitmentSession = await sdk.prepareCommitmentCircuitSession(
+            commitmentProvingManifest,
+            artifactsRoot,
+          );
+          const commitmentProof = await sdk.proveCommitmentWithSession(
+            "stable",
+            commitmentSession.handle,
+            { commitment },
+          );
+
+          const withdrawalSession = await sdk.prepareWithdrawalCircuitSession(
+            withdrawalProvingManifest,
+            artifactsRoot,
+          );
+          const withdrawalProof = await sdk.proveWithdrawalWithSession(
+            "stable",
+            withdrawalSession.handle,
+            withdrawalRequest,
+          );
+
+          return {
+            capabilities,
+            initialization,
+            commitmentProof: commitmentProof.proof,
+            withdrawalProof: withdrawalProof.proof,
+            verifiesStableCommitment: await sdk.verifyCommitmentProofWithSession(
+              "stable",
+              commitmentSession.handle,
+              stableCommitmentProof,
+            ),
+            verifiesStableWithdrawal: await sdk.verifyWithdrawalProofWithSession(
+              "stable",
+              withdrawalSession.handle,
+              stableWithdrawalProof,
+            ),
+          };
+        } finally {
+          await sdk.dispose();
+        }
+      },
+      {
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        commitmentProvingManifest,
+        artifactsRoot: `${artifactServer.origin}/artifacts/`,
+        stableCommitmentProof: stableResult.commitmentProof,
+        stableWithdrawalProof: stableResult.withdrawalProof,
+      },
+    );
+
+    expect(threadedResult.capabilities.threadedProvingAvailable).toBe(true);
+    expect(threadedResult.initialization.threadedProvingEnabled).toBe(true);
+    expect(threadedResult.initialization.fallback).toBeNull();
+    expect(threadedResult.verifiesStableCommitment).toBe(true);
+    expect(threadedResult.verifiesStableWithdrawal).toBe(true);
+    expect(threadedResult.commitmentProof.publicSignals).toEqual(
+      stableResult.commitmentProof.publicSignals,
+    );
+    expect(threadedResult.withdrawalProof.publicSignals).toEqual(
+      stableResult.withdrawalProof.publicSignals,
+    );
+
+    await page.goto(`${moduleServer.origin}/stable-cross-verify`);
+
+    const stableCrossVerification = await page.evaluate(
+      async ({
+        commitmentProvingManifest,
+        withdrawalProvingManifest,
+        artifactsRoot,
+        threadedCommitmentProof,
+        threadedWithdrawalProof,
+      }) => {
+        const { PrivacyPoolsSdkClient } = await import("/src/browser/index.mjs");
+        const sdk = new PrivacyPoolsSdkClient();
+
+        try {
+          const commitmentSession = await sdk.prepareCommitmentCircuitSession(
+            commitmentProvingManifest,
+            artifactsRoot,
+          );
+          const withdrawalSession = await sdk.prepareWithdrawalCircuitSession(
+            withdrawalProvingManifest,
+            artifactsRoot,
+          );
+
+          return {
+            verifiesThreadedCommitment: await sdk.verifyCommitmentProofWithSession(
+              "stable",
+              commitmentSession.handle,
+              threadedCommitmentProof,
+            ),
+            verifiesThreadedWithdrawal: await sdk.verifyWithdrawalProofWithSession(
+              "stable",
+              withdrawalSession.handle,
+              threadedWithdrawalProof,
+            ),
+          };
+        } finally {
+          await sdk.dispose();
+        }
+      },
+      {
+        commitmentProvingManifest,
+        withdrawalProvingManifest,
+        artifactsRoot: `${artifactServer.origin}/artifacts/`,
+        threadedCommitmentProof: threadedResult.commitmentProof,
+        threadedWithdrawalProof: threadedResult.withdrawalProof,
+      },
+    );
+
+    expect(stableCrossVerification.verifiesThreadedCommitment).toBe(true);
+    expect(stableCrossVerification.verifiesThreadedWithdrawal).toBe(true);
+  } finally {
+    await artifactServer.stop();
+    await moduleServer.stop();
+  }
+});
+
 function readFixtureText(path) {
   return readFileSync(join(fixturesRoot, path), "utf8");
+}
+
+function markSlowOnCiLinux() {
+  if (process.platform === "linux" || process.env.CI) {
+    test.slow();
+  }
 }
 
 function readFixtureJson(path) {
@@ -207,6 +558,14 @@ function createStaticServer(root, options = {}) {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (options.recordRequests) {
       requests.push(url.pathname);
+    }
+    if (options.crossOriginIsolated) {
+      response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+      response.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+      response.setHeader(
+        "Cross-Origin-Resource-Policy",
+        options.cors ? "cross-origin" : "same-origin",
+      );
     }
     if (options.cors) {
       response.setHeader("access-control-allow-origin", "*");

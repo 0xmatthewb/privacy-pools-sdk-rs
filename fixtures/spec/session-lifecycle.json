@@ -1,0 +1,13 @@
+{
+  "cryptoFixturePath": "fixtures/vectors/crypto-compatibility.json",
+  "withdrawalFixturePath": "fixtures/vectors/withdrawal-circuit-input.json",
+  "artifactsRoot": "fixtures/artifacts",
+  "withdrawalManifestPath": "fixtures/artifacts/withdrawal-proving-manifest.json",
+  "commitmentManifestPath": "fixtures/artifacts/commitment-proving-manifest.json",
+  "expected": {
+    "withdrawalCircuit": "withdraw",
+    "commitmentCircuit": "commitment",
+    "withdrawalPublicSignals": 8,
+    "commitmentPublicSignals": 4
+  }
+}

@@ -4,9 +4,10 @@ import { createServer } from "node:http";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
+import { Worker } from "node:worker_threads";
 
 const V1_PACKAGE = "@0xbow/privacy-pools-core-sdk";
 const V1_VERSION = "1.2.0";
@@ -22,6 +23,7 @@ const scriptDir = fileURLToPath(new URL(".", import.meta.url));
 const packageRoot = join(scriptDir, "..");
 const workspaceRoot = join(packageRoot, "..", "..");
 const fixturesRoot = join(workspaceRoot, "fixtures");
+const localBaselineRoot = process.env.PRIVACY_POOLS_V1_BASELINE_PATH;
 const reportPath =
   process.env.PRIVACY_POOLS_COMPARE_REPORT ??
   join(workspaceRoot, "dist", "v1-npm-comparison.json");
@@ -33,6 +35,14 @@ const withdrawalProvingManifest = readFixtureText(
 );
 const commitmentProvingManifest = readFixtureText(
   "artifacts/commitment-proving-manifest.json",
+);
+const withdrawalPerformanceManifest = withdrawalProvingManifest.replace(
+  "../circuits/withdraw/withdraw.wasm",
+  "withdraw.wasm",
+);
+const commitmentPerformanceManifest = commitmentProvingManifest.replace(
+  "../circuits/commitment/commitment.wasm",
+  "commitment.wasm",
 );
 
 const comparisonCases = [
@@ -77,13 +87,19 @@ main().catch((error) => {
 });
 
 async function main() {
-  const tempRoot = await mkdtemp(join(tmpdir(), "privacy-pools-v1-compare-"));
-  const registry = npmView(tempRoot);
+  const tempRoot = localBaselineRoot
+    ? null
+    : await mkdtemp(join(tmpdir(), "privacy-pools-v1-compare-"));
+  const registry = tempRoot ? npmView(tempRoot) : null;
   let server;
 
   try {
-    installV1(tempRoot);
-    const v1Root = join(tempRoot, "node_modules", "@0xbow", "privacy-pools-core-sdk");
+    if (tempRoot) {
+      installV1(tempRoot);
+    }
+    const v1Root = tempRoot
+      ? join(tempRoot, "node_modules", "@0xbow", "privacy-pools-core-sdk")
+      : localBaselineRoot;
     const v1 = await import(pathToFileURL(join(v1Root, "dist", "esm", "index.mjs")));
     const rust = await import(
       pathToFileURL(join(packageRoot, "src", "browser", "index.mjs"))
@@ -96,10 +112,13 @@ async function main() {
     const proofSafety = await runProofSafety(v1, rust, server);
     safetyChecks.push(...proofSafety.checks);
 
+    const browserPerformance = await runBrowserPerformance(rust, server);
+    validateBrowserPerformanceReport(browserPerformance);
     const performance = await runPerformance(v1, rust, server);
     const report = {
       generatedAt: new Date().toISOString(),
       npmBaseline: registry,
+      baselinePackagePath: v1Root,
       localPackage: "@0xmatthewb/privacy-pools-sdk",
       webAssumption:
         "compares the npm browser ESM export with the local Rust browser/WASM entrypoint",
@@ -108,6 +127,7 @@ async function main() {
         checks: safetyChecks,
       },
       performance,
+      browserPerformance,
     };
 
     mkdirSync(dirname(reportPath), { recursive: true });
@@ -123,7 +143,9 @@ async function main() {
     console.log(`wrote comparison report to ${reportPath}`);
   } finally {
     await server?.stop();
-    rmSync(tempRoot, { recursive: true, force: true });
+    if (tempRoot) {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
   }
 }
 
@@ -454,9 +476,9 @@ async function runPerformance(v1, rust, server) {
     BigInt(cryptoFixture.depositSecrets.secret),
   );
 
-  const commitmentSession = await rustClient.prepareCommitmentCircuitSession(
+  const commitmentSession = await rustClient.prepareCommitmentCircuitSessionFromBytes(
     commitmentProvingManifest,
-    artifactsRoot,
+    fixtureArtifactBytes("commitment"),
   );
   try {
     metrics.proveCommitment = await compareMetric(
@@ -477,9 +499,9 @@ async function runPerformance(v1, rust, server) {
     await rustClient.removeCommitmentCircuitSession(commitmentSession.handle);
   }
 
-  const withdrawalSession = await rustClient.prepareWithdrawalCircuitSession(
+  const withdrawalSession = await rustClient.prepareWithdrawalCircuitSessionFromBytes(
     withdrawalProvingManifest,
-    artifactsRoot,
+    fixtureArtifactBytes("withdraw"),
   );
   try {
     metrics.proveWithdrawal = await compareMetric(
@@ -497,6 +519,118 @@ async function runPerformance(v1, rust, server) {
   }
 
   return metrics;
+}
+
+async function runBrowserPerformance(rust, server) {
+  const directClient = new rust.PrivacyPoolsSdkClient();
+  const worker = new Worker(new URL("../src/browser/worker.mjs", import.meta.url), {
+    type: "module",
+  });
+  const workerClient = rust.createWorkerClient(worker);
+  const artifactsRoot = `${server.origin}/artifacts/`;
+
+  try {
+    const commitmentRequest = { commitment: referenceRustCommitment() };
+    const withdrawalRequest = referenceRustWithdrawalRequest(referenceRustCommitment());
+
+    await directClient.clearCircuitSessionCache();
+    await directClient.clearSecretHandles();
+    await workerClient.clearCircuitSessionCache();
+    await workerClient.clearSecretHandles();
+
+    const commitment = await benchmarkBrowserCircuit({
+      circuit: "commitment",
+      manifestJson: commitmentPerformanceManifest,
+      request: commitmentRequest,
+      artifactsRoot,
+      directClient,
+      workerClient,
+    });
+    const withdrawal = await benchmarkBrowserCircuit({
+      circuit: "withdrawal",
+      manifestJson: withdrawalPerformanceManifest,
+      request: withdrawalRequest,
+      artifactsRoot,
+      directClient,
+      workerClient,
+    });
+
+    return { commitment, withdrawal };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+async function benchmarkBrowserCircuit({
+  circuit,
+  manifestJson,
+  request,
+  artifactsRoot,
+  directClient,
+  workerClient,
+}) {
+  const isCommitment = circuit === "commitment";
+  const proveBinary = isCommitment ? "proveCommitmentBinary" : "proveWithdrawalBinary";
+  const proveWithSessionBinary = isCommitment
+    ? "proveCommitmentWithSessionBinary"
+    : "proveWithdrawalWithSessionBinary";
+  const prepareSession = isCommitment
+    ? "prepareCommitmentCircuitSession"
+    : "prepareWithdrawalCircuitSession";
+  const removeSession = isCommitment
+    ? "removeCommitmentCircuitSession"
+    : "removeWithdrawalCircuitSession";
+
+  const directCold = await benchmarkBrowserProof(
+    (status) =>
+      directClient[proveBinary]("stable", manifestJson, artifactsRoot, request, status),
+    proofIterations,
+  );
+
+  const directSession = await directClient[prepareSession](manifestJson, artifactsRoot);
+  try {
+    const directWarm = await benchmarkBrowserProof(
+      (status) =>
+        directClient[proveWithSessionBinary](
+          "stable",
+          directSession.handle,
+          request,
+          status,
+        ),
+      proofIterations,
+    );
+
+    const workerCold = await benchmarkBrowserProof(
+      (status) =>
+        workerClient[proveBinary]("stable", manifestJson, artifactsRoot, request, status),
+      proofIterations,
+    );
+
+    const workerSession = await workerClient[prepareSession](manifestJson, artifactsRoot);
+    try {
+      const workerWarm = await benchmarkBrowserProof(
+        (status) =>
+          workerClient[proveWithSessionBinary](
+            "stable",
+            workerSession.handle,
+            request,
+            status,
+          ),
+        proofIterations,
+      );
+
+      return {
+        directCold,
+        directWarm,
+        workerCold,
+        workerWarm,
+      };
+    } finally {
+      await workerClient[removeSession](workerSession.handle);
+    }
+  } finally {
+    await directClient[removeSession](directSession.handle);
+  }
 }
 
 async function compareMetric(v1Operation, rustOperation, iterations) {
@@ -517,6 +651,116 @@ async function compareMetric(v1Operation, rustOperation, iterations) {
   };
 }
 
+async function benchmarkBrowserProof(operation, iterations) {
+  const runs = [];
+  for (let index = 0; index < iterations; index += 1) {
+    runs.push(await measureBrowserProof(operation));
+  }
+
+  return summarizeBrowserProofRuns(runs);
+}
+
+async function measureBrowserProof(operation) {
+  const start = performance.now();
+  const events = [];
+  const result = await operation((status) => {
+    events.push({ stage: status.stage, time: performance.now() - start });
+  });
+  const totalMs = performance.now() - start;
+  return {
+    totalMs,
+    slices: summarizeBrowserProofSlices(events, totalMs),
+    result,
+  };
+}
+
+function summarizeBrowserProofRuns(runs) {
+  const totals = runs.map((run) => run.totalMs);
+  const sliceNames = Object.keys(runs[0]?.slices ?? {});
+  const slices = Object.fromEntries(
+    sliceNames.map((name) => [
+      name,
+      summarize(
+        runs.map((run) => run.slices[name]),
+      ),
+    ]),
+  );
+
+  return {
+    iterations: runs.length,
+    total: summarize(totals),
+    slices,
+  };
+}
+
+function validateBrowserPerformanceReport(report) {
+  for (const circuit of ["commitment", "withdrawal"]) {
+    const suites = report?.[circuit] ?? {};
+    for (const name of ["directCold", "directWarm", "workerCold", "workerWarm"]) {
+      const metric = suites[name];
+      if (!metric) {
+        throw new Error(`browser performance report missing ${circuit}.${name}`);
+      }
+      assertFiniteMetric(metric.total, `${circuit}.${name}.total`);
+      for (const slice of [
+        "preloadMs",
+        "witnessParseMs",
+        "witnessTransferMs",
+        "witnessMs",
+        "proveMs",
+        "verifyMs",
+        "totalMs",
+      ]) {
+        assertFiniteMetric(
+          metric.slices[slice],
+          `${circuit}.${name}.slices.${slice}`,
+        );
+      }
+    }
+  }
+}
+
+function assertFiniteMetric(metric, label) {
+  for (const key of ["averageMs", "minMs", "maxMs"]) {
+    if (!Number.isFinite(metric?.[key])) {
+      throw new Error(`browser performance report has invalid ${label}.${key}`);
+    }
+  }
+}
+
+function summarizeBrowserProofSlices(events, totalMs) {
+  const stageTimes = new Map();
+  let witnessCount = 0;
+
+  for (const event of events) {
+    if (event.stage === "witness") {
+      witnessCount += 1;
+      stageTimes.set(`witness${witnessCount}`, event.time);
+      continue;
+    }
+
+    stageTimes.set(event.stage, event.time);
+  }
+
+  const preloadEnd = stageTimes.get("witness1") ?? totalMs;
+  const witnessParseEnd = stageTimes.get("witness-parse") ?? preloadEnd;
+  const witnessTransferEnd = stageTimes.get("witness-transfer") ?? witnessParseEnd;
+  const witnessEnd = stageTimes.get("witness2") ?? witnessTransferEnd;
+  const proveEnd = stageTimes.get("prove") ?? witnessEnd;
+  const verifyEnd = stageTimes.get("verify") ?? proveEnd;
+  const doneEnd = stageTimes.get("done") ?? totalMs;
+
+  return {
+    preloadMs: preloadEnd,
+    witnessParseMs: Math.max(witnessParseEnd - preloadEnd, 0),
+    witnessTransferMs: Math.max(witnessTransferEnd - witnessParseEnd, 0),
+    witnessMs: Math.max(witnessEnd - witnessTransferEnd, 0),
+    proveMs: Math.max(proveEnd - witnessEnd, 0),
+    verifyMs: Math.max(verifyEnd - proveEnd, 0),
+    totalMs: Math.max(doneEnd, totalMs),
+  };
+}
+
 async function measure(operation) {
   const start = performance.now();
   await operation();
@@ -531,6 +775,18 @@ function summarize(durations) {
     minMs: sorted[0],
     medianMs: sorted[Math.floor(sorted.length / 2)],
     maxMs: sorted[sorted.length - 1],
+  };
+}
+
+function referenceRustCommitment() {
+  return {
+    hash: cryptoFixture.commitment.hash,
+    nullifierHash: cryptoFixture.commitment.nullifierHash,
+    precommitmentHash: cryptoFixture.commitment.nullifierHash,
+    value: withdrawalFixture.existingValue,
+    label: withdrawalFixture.label,
+    nullifier: cryptoFixture.depositSecrets.nullifier,
+    secret: cryptoFixture.depositSecrets.secret,
   };
 }
 
@@ -620,6 +876,30 @@ function stringArray(values) {
   return values.map(String);
 }
 
+function fixtureArtifactBytes(circuit) {
+  const wasmPath =
+    circuit === "commitment"
+      ? "circuits/commitment/commitment.wasm"
+      : "circuits/withdraw/withdraw.wasm";
+  const artifactPrefix = circuit === "commitment" ? "commitment" : "withdraw";
+  return [
+    {
+      kind: "wasm",
+      bytes: readFileSync(join(fixturesRoot, wasmPath)),
+    },
+    {
+      kind: "zkey",
+      bytes: readFileSync(join(fixturesRoot, "artifacts", `${artifactPrefix}.zkey`)),
+    },
+    {
+      kind: "vkey",
+      bytes: readFileSync(
+        join(fixturesRoot, "artifacts", `${artifactPrefix}.vkey.json`),
+      ),
+    },
+  ];
+}
+
 function createArtifactServer() {
   const pathMap = new Map([
     ["artifacts/withdraw.wasm", "circuits/withdraw/withdraw.wasm"],
@@ -637,8 +917,13 @@ function createArtifactServer() {
     response.setHeader("access-control-allow-origin", "*");
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const requested = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
-    const fixturePath = pathMap.get(requested);
+    const fixturePath = pathMap.get(requested) ?? normalize(requested);
     if (!fixturePath) {
+      response.statusCode = 404;
+      response.end("not found");
+      return;
+    }
+    if (fixturePath.startsWith("..")) {
       response.statusCode = 404;
       response.end("not found");
       return;
@@ -647,6 +932,8 @@ function createArtifactServer() {
     try {
       const bytes = readFileSync(join(fixturesRoot, fixturePath));
       response.statusCode = 200;
+      response.setHeader("connection", "close");
+      response.setHeader("content-length", String(bytes.byteLength));
       response.setHeader("content-type", contentType(fixturePath));
       response.end(bytes);
     } catch {

@@ -1,0 +1,878 @@
+{
+  "browserDirect": {
+    "commitment": {
+      "hash": "string",
+      "label": "string",
+      "nullifier": "string",
+      "nullifierHash": "string",
+      "precommitmentHash": "string",
+      "secret": "string",
+      "value": "string"
+    },
+    "commitmentCircuitInput": {
+      "label": "string",
+      "nullifier": "string",
+      "secret": "string",
+      "value": "string"
+    },
+    "commitmentWitnessRequest": {
+      "commitment": {
+        "hash": "string",
+        "label": "string",
+        "nullifier": "string",
+        "nullifierHash": "string",
+        "precommitmentHash": "string",
+        "secret": "string",
+        "value": "string"
+      }
+    },
+    "masterKeys": {
+      "masterNullifier": "string",
+      "masterSecret": "string"
+    },
+    "proofBundle": {
+      "proof": {
+        "curve": "string",
+        "piA": [
+          "string"
+        ],
+        "piB": [
+          [
+            "string"
+          ]
+        ],
+        "piC": [
+          "string"
+        ],
+        "protocol": "string"
+      },
+      "publicSignals": [
+        "string"
+      ]
+    },
+    "preparedTransactionExecution": {
+      "preflight": {
+        "actualChainId": "number",
+        "caller": "string",
+        "chainIdMatches": "boolean",
+        "codeHashChecks": [
+          {
+            "actualCodeHash": "string",
+            "address": "string",
+            "expectedCodeHash": "string",
+            "matchesExpected": "boolean"
+          }
+        ],
+        "estimatedGas": "number",
+        "expectedChainId": "number",
+        "kind": "string",
+        "mode": "string",
+        "rootChecks": [
+          {
+            "actualRoot": "string",
+            "contractAddress": "string",
+            "expectedRoot": "string",
+            "kind": "string",
+            "matches": "boolean",
+            "poolAddress": "string"
+          }
+        ],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "proving": {
+        "backend": "string",
+        "proof": {
+          "proof": {
+            "curve": "string",
+            "piA": [
+              "string"
+            ],
+            "piB": [
+              [
+                "string"
+              ]
+            ],
+            "piC": [
+              "string"
+            ],
+            "protocol": "string"
+          },
+          "publicSignals": [
+            "string"
+          ]
+        }
+      },
+      "transaction": {
+        "calldata": "string",
+        "chainId": "number",
+        "kind": "string",
+        "proof": {
+          "pA": [
+            "string"
+          ],
+          "pB": [
+            [
+              "string"
+            ]
+          ],
+          "pC": [
+            "string"
+          ],
+          "pubSignals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "finalizedTransactionExecution": {
+      "prepared": "$ref:browserDirect.preparedTransactionExecution",
+      "request": {
+        "chainId": "number",
+        "data": "string",
+        "from": "string",
+        "gasLimit": "number",
+        "gasPrice": "string",
+        "kind": "string",
+        "maxFeePerGas": "null",
+        "maxPriorityFeePerGas": "null",
+        "nonce": "number",
+        "to": "string",
+        "value": "string"
+      }
+    },
+    "submittedTransactionExecution": {
+      "prepared": "$ref:browserDirect.preparedTransactionExecution",
+      "receipt": {
+        "blockHash": "string",
+        "blockNumber": "number",
+        "effectiveGasPrice": "string",
+        "from": "string",
+        "gasUsed": "number",
+        "success": "boolean",
+        "to": "string",
+        "transactionHash": "string",
+        "transactionIndex": "number"
+      }
+    },
+    "executionHandles": {
+      "finalized": "string",
+      "preflighted": "string",
+      "submitted": "string"
+    },
+    "preflightedTransaction": {
+      "preflight": {
+        "actualChainId": "number",
+        "caller": "string",
+        "chainIdMatches": "boolean",
+        "codeHashChecks": [
+          {
+            "actualCodeHash": "string",
+            "address": "string",
+            "expectedCodeHash": "string",
+            "matchesExpected": "boolean"
+          }
+        ],
+        "estimatedGas": "number",
+        "expectedChainId": "number",
+        "kind": "string",
+        "mode": "string",
+        "rootChecks": [
+          {
+            "actualRoot": "string",
+            "contractAddress": "string",
+            "expectedRoot": "string",
+            "kind": "string",
+            "matches": "boolean",
+            "poolAddress": "string"
+          }
+        ],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "transaction": {
+        "calldata": "string",
+        "chainId": "number",
+        "kind": "string",
+        "proof": {
+          "pA": [
+            "string"
+          ],
+          "pB": [
+            [
+              "string"
+            ]
+          ],
+          "pC": [
+            "string"
+          ],
+          "pubSignals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "ragequitPreflightedTransaction": {
+      "preflight": {
+        "actualChainId": "number",
+        "caller": "string",
+        "chainIdMatches": "boolean",
+        "codeHashChecks": [
+          {
+            "actualCodeHash": "string",
+            "address": "string",
+            "expectedCodeHash": "string",
+            "matchesExpected": "boolean"
+          }
+        ],
+        "estimatedGas": "number",
+        "expectedChainId": "number",
+        "kind": "string",
+        "mode": "string",
+        "rootChecks": [],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "transaction": {
+        "calldata": "string",
+        "chainId": "number",
+        "kind": "string",
+        "proof": {
+          "pA": [
+            "string"
+          ],
+          "pB": [
+            [
+              "string"
+            ]
+          ],
+          "pC": [
+            "string"
+          ],
+          "pubSignals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "finalizedPreflightedTransaction": {
+      "preflighted": "$ref:browserDirect.preflightedTransaction",
+      "request": {
+        "chainId": "number",
+        "data": "string",
+        "from": "string",
+        "gasLimit": "number",
+        "gasPrice": "string",
+        "kind": "string",
+        "maxFeePerGas": "null",
+        "maxPriorityFeePerGas": "null",
+        "nonce": "number",
+        "to": "string",
+        "value": "string"
+      }
+    },
+    "ragequitFinalizedPreflightedTransaction": {
+      "preflighted": "$ref:browserDirect.ragequitPreflightedTransaction",
+      "request": {
+        "chainId": "number",
+        "data": "string",
+        "from": "string",
+        "gasLimit": "number",
+        "gasPrice": "string",
+        "kind": "string",
+        "maxFeePerGas": "null",
+        "maxPriorityFeePerGas": "null",
+        "nonce": "number",
+        "to": "string",
+        "value": "string"
+      }
+    },
+    "transactionReceiptSummary": {
+      "blockHash": "string",
+      "blockNumber": "number",
+      "effectiveGasPrice": "string",
+      "from": "string",
+      "gasUsed": "number",
+      "success": "boolean",
+      "to": "string",
+      "transactionHash": "string",
+      "transactionIndex": "number"
+    },
+    "submittedPreflightedTransaction": {
+      "preflighted": "$ref:browserDirect.preflightedTransaction",
+      "receipt": "$ref:browserDirect.transactionReceiptSummary"
+    },
+    "ragequitSubmittedPreflightedTransaction": {
+      "preflighted": "$ref:browserDirect.ragequitPreflightedTransaction",
+      "receipt": "$ref:browserDirect.transactionReceiptSummary"
+    },
+    "verifiedSignedManifest": {
+      "artifactCount": "number",
+      "payload": {
+        "manifest": {
+          "artifacts": [
+            {
+              "circuit": "string",
+              "filename": "string",
+              "kind": "string",
+              "sha256": "string"
+            }
+          ],
+          "version": "string"
+        },
+        "metadata": {
+          "build": "string",
+          "ceremony": "string",
+          "commit": "string",
+          "repository": "string"
+        }
+      }
+    },
+    "transactionPlan": {
+      "calldata": "string",
+      "chainId": "number",
+      "kind": "string",
+      "proof": {
+        "pA": [
+          "string"
+        ],
+        "pB": [
+          [
+            "string"
+          ]
+        ],
+        "pC": [
+          "string"
+        ],
+        "pubSignals": [
+          "string"
+        ]
+      },
+      "target": "string",
+      "value": "string"
+    },
+    "withdrawalCircuitInput": {
+      "ASPIndex": "number",
+      "ASPSiblings": [
+        "string"
+      ],
+      "aspRoot": "string",
+      "aspTreeDepth": "number",
+      "context": "string",
+      "existingNullifier": "string",
+      "existingSecret": "string",
+      "existingValue": "string",
+      "label": "string",
+      "newNullifier": "string",
+      "newSecret": "string",
+      "stateIndex": "number",
+      "stateRoot": "string",
+      "stateSiblings": [
+        "string"
+      ],
+      "stateTreeDepth": "number",
+      "withdrawnValue": "string"
+    },
+    "withdrawalWitnessRequest": {
+      "aspWitness": {
+        "depth": "number",
+        "index": "number",
+        "leaf": "string",
+        "root": "string",
+        "siblings": [
+          "string"
+        ]
+      },
+      "commitment": {
+        "hash": "string",
+        "label": "string",
+        "nullifier": "string",
+        "nullifierHash": "string",
+        "precommitmentHash": "string",
+        "secret": "string",
+        "value": "string"
+      },
+      "newNullifier": "string",
+      "newSecret": "string",
+      "scope": "string",
+      "stateWitness": {
+        "depth": "number",
+        "index": "number",
+        "leaf": "string",
+        "root": "string",
+        "siblings": [
+          "string"
+        ]
+      },
+      "withdrawal": {
+        "data": "string",
+        "processooor": "string"
+      },
+      "withdrawalAmount": "string"
+    }
+  },
+  "browserWorker": "$ref:browserDirect",
+  "ffiCommon": {
+    "commitment": {
+      "hash": "string",
+      "label": "string",
+      "nullifier": "string",
+      "nullifier_hash": "string",
+      "precommitment_hash": "string",
+      "secret": "string",
+      "value": "string"
+    },
+    "commitmentCircuitInput": {
+      "label": "string",
+      "nullifier": "string",
+      "secret": "string",
+      "value": "string"
+    },
+    "commitmentWitnessRequest": {
+      "commitment": {
+        "hash": "string",
+        "label": "string",
+        "nullifier": "string",
+        "nullifier_hash": "string",
+        "precommitment_hash": "string",
+        "secret": "string",
+        "value": "string"
+      }
+    },
+    "executionHandles": {
+      "finalized": "string",
+      "preflighted": "string",
+      "submitted": "string"
+    },
+    "preparedTransactionExecution": {
+      "preflight": {
+        "actual_chain_id": "number",
+        "caller": "string",
+        "chain_id_matches": "boolean",
+        "code_hash_checks": [
+          {
+            "actual_code_hash": "string",
+            "address": "string",
+            "expected_code_hash": "string",
+            "matches_expected": "boolean"
+          }
+        ],
+        "estimated_gas": "number",
+        "expected_chain_id": "number",
+        "kind": "string",
+        "mode": "string",
+        "root_checks": [
+          {
+            "actual_root": "string",
+            "contract_address": "string",
+            "expected_root": "string",
+            "kind": "string",
+            "matches": "boolean",
+            "pool_address": "string"
+          }
+        ],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "proving": {
+        "backend": "string",
+        "proof": {
+          "proof": {
+            "curve": "string",
+            "pi_a": [
+              "string"
+            ],
+            "pi_b": [
+              [
+                "string"
+              ]
+            ],
+            "pi_c": [
+              "string"
+            ],
+            "protocol": "string"
+          },
+          "public_signals": [
+            "string"
+          ]
+        }
+      },
+      "transaction": {
+        "calldata": "string",
+        "chain_id": "number",
+        "kind": "string",
+        "proof": {
+          "p_a": [
+            "string"
+          ],
+          "p_b": [
+            [
+              "string"
+            ]
+          ],
+          "p_c": [
+            "string"
+          ],
+          "pub_signals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "finalizedTransactionExecution": {
+      "prepared": "$ref:ffiCommon.preparedTransactionExecution",
+      "request": {
+        "chain_id": "number",
+        "data": "string",
+        "from": "string",
+        "gas_limit": "number",
+        "gas_price": "string",
+        "kind": "string",
+        "max_fee_per_gas": "null",
+        "max_priority_fee_per_gas": "null",
+        "nonce": "number",
+        "to": "string",
+        "value": "string"
+      }
+    },
+    "submittedTransactionExecution": {
+      "prepared": "$ref:ffiCommon.preparedTransactionExecution",
+      "receipt": {
+        "block_hash": "string",
+        "block_number": "number",
+        "effective_gas_price": "string",
+        "from": "string",
+        "gas_used": "number",
+        "success": "boolean",
+        "to": "string",
+        "transaction_hash": "string",
+        "transaction_index": "number"
+      }
+    },
+    "masterKeys": {
+      "master_nullifier": "string",
+      "master_secret": "string"
+    },
+    "proofBundle": {
+      "proof": {
+        "curve": "string",
+        "pi_a": [
+          "string"
+        ],
+        "pi_b": [
+          [
+            "string"
+          ]
+        ],
+        "pi_c": [
+          "string"
+        ],
+        "protocol": "string"
+      },
+      "public_signals": [
+        "string"
+      ]
+    },
+    "recordCase": "snake_case",
+    "preflightedTransaction": {
+      "preflight": {
+        "actual_chain_id": "number",
+        "caller": "string",
+        "chain_id_matches": "boolean",
+        "code_hash_checks": [
+          {
+            "actual_code_hash": "string",
+            "address": "string",
+            "expected_code_hash": "string",
+            "matches_expected": "boolean"
+          }
+        ],
+        "estimated_gas": "number",
+        "expected_chain_id": "number",
+        "kind": "string",
+        "mode": "string",
+        "root_checks": [
+          {
+            "actual_root": "string",
+            "contract_address": "string",
+            "expected_root": "string",
+            "kind": "string",
+            "matches": "boolean",
+            "pool_address": "string"
+          }
+        ],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "transaction": {
+        "calldata": "string",
+        "chain_id": "number",
+        "kind": "string",
+        "proof": {
+          "p_a": [
+            "string"
+          ],
+          "p_b": [
+            [
+              "string"
+            ]
+          ],
+          "p_c": [
+            "string"
+          ],
+          "pub_signals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "ragequitPreflightedTransaction": {
+      "preflight": {
+        "actual_chain_id": "number",
+        "caller": "string",
+        "chain_id_matches": "boolean",
+        "code_hash_checks": [
+          {
+            "actual_code_hash": "string",
+            "address": "string",
+            "expected_code_hash": "string",
+            "matches_expected": "boolean"
+          }
+        ],
+        "estimated_gas": "number",
+        "expected_chain_id": "number",
+        "kind": "string",
+        "mode": "string",
+        "root_checks": [],
+        "simulated": "boolean",
+        "target": "string"
+      },
+      "transaction": {
+        "calldata": "string",
+        "chain_id": "number",
+        "kind": "string",
+        "proof": {
+          "p_a": [
+            "string"
+          ],
+          "p_b": [
+            [
+              "string"
+            ]
+          ],
+          "p_c": [
+            "string"
+          ],
+          "pub_signals": [
+            "string"
+          ]
+        },
+        "target": "string",
+        "value": "string"
+      }
+    },
+    "finalizedPreflightedTransaction": {
+      "preflighted": "$ref:ffiCommon.preflightedTransaction",
+      "request": {
+        "chain_id": "number",
+        "data": "string",
+        "from": "string",
+        "gas_limit": "number",
+        "gas_price": "string",
+        "kind": "string",
+        "max_fee_per_gas": "null",
+        "max_priority_fee_per_gas": "null",
+        "nonce": "number",
+        "to": "string",
+        "value": "string"
+      }
+    },
+    "transactionReceiptSummary": {
+      "block_hash": "string",
+      "block_number": "number",
+      "effective_gas_price": "string",
+      "from": "string",
+      "gas_used": "number",
+      "success": "boolean",
+      "to": "string",
+      "transaction_hash": "string",
+      "transaction_index": "number"
+    },
+    "submittedPreflightedTransaction": {
+      "preflighted": "$ref:ffiCommon.preflightedTransaction",
+      "receipt": "$ref:ffiCommon.transactionReceiptSummary"
+    },
+    "verifiedSignedManifest": {
+      "artifact_count": "number",
+      "build": "string",
+      "ceremony": "string",
+      "commit": "string",
+      "repository": "string",
+      "version": "string"
+    },
+    "transactionPlan": {
+      "calldata": "string",
+      "chain_id": "number",
+      "kind": "string",
+      "proof": {
+        "p_a": [
+          "string"
+        ],
+        "p_b": [
+          [
+            "string"
+          ]
+        ],
+        "p_c": [
+          "string"
+        ],
+        "pub_signals": [
+          "string"
+        ]
+      },
+      "target": "string",
+      "value": "string"
+    },
+    "withdrawalCircuitInput": {
+      "asp_index": "number",
+      "asp_root": "string",
+      "asp_siblings": [
+        "string"
+      ],
+      "asp_tree_depth": "number",
+      "context": "string",
+      "existing_nullifier": "string",
+      "existing_secret": "string",
+      "existing_value": "string",
+      "label": "string",
+      "new_nullifier": "string",
+      "new_secret": "string",
+      "state_index": "number",
+      "state_root": "string",
+      "state_siblings": [
+        "string"
+      ],
+      "state_tree_depth": "number",
+      "withdrawn_value": "string"
+    },
+    "withdrawalWitnessRequest": {
+      "asp_witness": {
+        "depth": "number",
+        "index": "number",
+        "leaf": "string",
+        "root": "string",
+        "siblings": [
+          "string"
+        ]
+      },
+      "commitment": {
+        "hash": "string",
+        "label": "string",
+        "nullifier": "string",
+        "nullifier_hash": "string",
+        "precommitment_hash": "string",
+        "secret": "string",
+        "value": "string"
+      },
+      "new_nullifier": "string",
+      "new_secret": "string",
+      "scope": "string",
+      "state_witness": {
+        "depth": "number",
+        "index": "number",
+        "leaf": "string",
+        "root": "string",
+        "siblings": [
+          "string"
+        ]
+      },
+      "withdrawal": {
+        "data": [
+          "number"
+        ],
+        "processooor": "string"
+      },
+      "withdrawal_amount": "string"
+    }
+  },
+  "ffi": "$ref:ffiCommon",
+  "node": "$ref:browserDirect",
+  "reactNative": {
+    "masterKeys": "$ref:ffiCommon.masterKeys",
+    "commitment": "$ref:ffiCommon.commitment",
+    "commitmentWitnessRequest": "$ref:ffiCommon.commitmentWitnessRequest",
+    "withdrawalWitnessRequest": "$ref:ffiCommon.withdrawalWitnessRequest",
+    "commitmentCircuitInput": "$ref:ffiCommon.commitmentCircuitInput",
+    "withdrawalCircuitInput": "$ref:ffiCommon.withdrawalCircuitInput",
+    "proofBundle": "$ref:ffiCommon.proofBundle",
+    "transactionPlan": "$ref:ffiCommon.transactionPlan",
+    "executionHandles": "$ref:ffiCommon.executionHandles",
+    "preflightedTransaction": "$ref:ffiCommon.preflightedTransaction",
+    "finalizedPreflightedTransaction": "$ref:ffiCommon.finalizedPreflightedTransaction",
+    "submittedPreflightedTransaction": "$ref:ffiCommon.submittedPreflightedTransaction",
+    "transactionReceiptSummary": "$ref:ffiCommon.transactionReceiptSummary",
+    "preparedTransactionExecution": "$ref:ffiCommon.preparedTransactionExecution",
+    "finalizedTransactionExecution": "$ref:ffiCommon.finalizedTransactionExecution",
+    "submittedTransactionExecution": "$ref:ffiCommon.submittedTransactionExecution",
+    "verifiedSignedManifest": "$ref:ffiCommon.verifiedSignedManifest",
+    "recordCase": "snake_case",
+    "surface": {
+      "handleTypes": [
+        "SecretHandle",
+        "VerifiedProofHandle",
+        "PreflightedTransactionHandle",
+        "FinalizedPreflightedTransactionHandle",
+        "SubmittedPreflightedTransactionHandle"
+      ],
+      "secretHandleExports": [
+        "deriveMasterKeysHandle",
+        "generateDepositSecretsHandle",
+        "generateWithdrawalSecretsHandle",
+        "getCommitmentFromHandles",
+        "removeSecretHandle",
+        "clearSecretHandles"
+      ],
+      "debugSecretHandleExports": [
+        "dangerouslyExportMasterKeys",
+        "dangerouslyExportCommitmentPreimage",
+        "dangerouslyExportSecret"
+      ],
+      "verifiedProofHandleExports": [
+        "planVerifiedWithdrawalTransactionWithHandle",
+        "planVerifiedRelayTransactionWithHandle",
+        "planVerifiedRagequitTransactionWithHandle",
+        "preflightVerifiedWithdrawalTransactionWithHandle",
+        "preflightVerifiedRelayTransactionWithHandle",
+        "preflightVerifiedRagequitTransactionWithHandle",
+        "removeVerifiedProofHandle",
+        "clearVerifiedProofHandles"
+      ],
+      "executionHandleExports": [
+        "finalizePreflightedTransactionHandle",
+        "submitPreflightedTransactionHandle",
+        "submitFinalizedPreflightedTransactionHandle",
+        "removeExecutionHandle",
+        "clearExecutionHandles"
+      ],
+      "debugExecutionHandleExports": [
+        "dangerouslyExportPreflightedTransaction",
+        "dangerouslyExportFinalizedPreflightedTransaction",
+        "dangerouslyExportSubmittedPreflightedTransaction"
+      ],
+      "signedManifestExports": [
+        "verifySignedManifest",
+        "verifySignedManifestArtifacts"
+      ]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+# Single source of truth for accepted dependency advisories.
+
+[cargo_audit]
+ignore = [
+    # Transitive through circom-prover/ark-relations; no semver-safe workspace fix yet.
+    "RUSTSEC-2025-0055",
+]
+
+[cargo_deny]
+ignore = [
+    # Transitive through circom-prover/ark-relations; no semver-safe workspace fix yet.
+    "RUSTSEC-2025-0055",
+    # Transitive through arkworks/alloy; xtask dependency-check separately verifies
+    # that the unsound rand path remains unreachable because the `log` feature is off.
+    "RUSTSEC-2026-0097",
+]
+
+[dependency_check]
+warnings = [
+    # Transitive through circom-prover and arkworks.
+    "RUSTSEC-2024-0388",
+    # Transitive through alloy and macro-heavy transitive crates.
+    "RUSTSEC-2024-0436",
+    # Transitive through arkworks/alloy; kept as an accepted warning while `log` stays off.
+    "RUSTSEC-2026-0097",
+]
+
+[metadata.RUSTSEC-2024-0388]
+owner = "sdk-core"
+review_date = "2026-07-01"
+exit_condition = "remove the derivative dependency path from circom-prover and the proving stack"
+
+[metadata.RUSTSEC-2024-0436]
+owner = "sdk-core"
+review_date = "2026-07-01"
+exit_condition = "remove the paste dependency path from alloy and related transitive crates"
+
+[metadata.RUSTSEC-2025-0055]
+owner = "sdk-core"
+review_date = "2026-07-01"
+exit_condition = "upgrade or replace the affected circom-prover or ark-relations path with a semver-safe fix"
+
+[metadata.RUSTSEC-2026-0097]
+owner = "sdk-core"
+review_date = "2026-07-01"
+exit_condition = "upgrade the rand 0.8.5 path or permanently eliminate the affected feature combination"

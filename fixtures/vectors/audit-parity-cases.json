@@ -1,0 +1,63 @@
+{
+  "comparisonCases": [
+    {
+      "name": "case-1",
+      "mnemonic": "test test test test test test test test test test test junk",
+      "scope": "123",
+      "label": "456",
+      "depositIndex": "0",
+      "withdrawalIndex": "1",
+      "value": "1000",
+      "withdrawalAmount": "250",
+      "withdrawal": {
+        "processooor": "0x1111111111111111111111111111111111111111",
+        "data": "0x1234"
+      }
+    },
+    {
+      "name": "case-2",
+      "mnemonic": "test test test test test test test test test test test junk",
+      "scope": "987654321",
+      "label": "123456789",
+      "depositIndex": "2",
+      "withdrawalIndex": "3",
+      "value": "42",
+      "withdrawalAmount": "17",
+      "withdrawal": {
+        "processooor": "0x1111111111111111111111111111111111111111",
+        "data": "0x"
+      }
+    },
+    {
+      "name": "case-3",
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "scope": "18446744073709551615",
+      "label": "340282366920938463463374607431768211555",
+      "depositIndex": "7",
+      "withdrawalIndex": "11",
+      "value": "1000000000000000000",
+      "withdrawalAmount": "100000000000000000",
+      "withdrawal": {
+        "processooor": "0x1111111111111111111111111111111111111111",
+        "data": "0x1234"
+      }
+    }
+  ],
+  "merkleCases": [
+    {
+      "name": "merkle-1",
+      "leaves": ["11", "22", "33", "44", "55"],
+      "leaf": "44"
+    },
+    {
+      "name": "merkle-2",
+      "leaves": ["1"],
+      "leaf": "1"
+    },
+    {
+      "name": "merkle-3",
+      "leaves": ["3", "5", "8", "13", "21", "34"],
+      "leaf": "21"
+    }
+  ]
+}

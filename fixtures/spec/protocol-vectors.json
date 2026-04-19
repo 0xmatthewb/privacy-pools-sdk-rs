@@ -1,0 +1,64 @@
+{
+  "proofFormattingPath": "fixtures/vectors/proof-formatting.json",
+  "signedManifest": {
+    "payloadPath": "fixtures/artifacts/signed-manifest/payload.json",
+    "signaturePath": "fixtures/artifacts/signed-manifest/signature",
+    "publicKeyPath": "fixtures/artifacts/signed-manifest/public-key.hex",
+    "artifactsRoot": "fixtures/artifacts/signed-manifest/artifacts",
+    "expectedVersion": "signed-fixture",
+    "expectedArtifactCount": 1,
+    "expectedFilenames": [
+      "withdraw-fixture.wasm"
+    ]
+  },
+  "artifactBundles": [
+    {
+      "name": "sample-withdraw",
+      "manifestPath": "fixtures/artifacts/sample-proving-manifest.json",
+      "artifactsRoot": "fixtures/artifacts",
+      "circuit": "withdraw",
+      "expectedVersion": "0.1.0-alpha.1",
+      "expectedArtifacts": [
+        {
+          "kind": "wasm",
+          "filename": "sample-artifact.bin",
+          "sha256": "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+        },
+        {
+          "kind": "zkey",
+          "filename": "sample-artifact.bin",
+          "sha256": "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+        },
+        {
+          "kind": "vkey",
+          "filename": "sample-artifact.bin",
+          "sha256": "cd36a390ad623cecbf1bb61d5e3b4e256a8a9c9cd7f7650dd140a95c9e0395b5"
+        }
+      ]
+    },
+    {
+      "name": "browser-withdraw-vkey",
+      "manifestPath": "fixtures/artifacts/browser-verification-manifest.json",
+      "artifactsRoot": "fixtures/artifacts",
+      "circuit": "withdraw",
+      "expectedVersion": "0.1.0-alpha.1",
+      "expectedArtifacts": [
+        {
+          "kind": "vkey",
+          "filename": "browser-verification.vkey.json",
+          "sha256": "0edd1fb5b62a640de98a03716b556a81586e9e88ae617bf19b6d3daa35290977"
+        }
+      ]
+    }
+  ],
+  "errorSemantics": [
+    {
+      "name": "hash-mismatch",
+      "expectedSubstring": "sha256 mismatch"
+    },
+    {
+      "name": "unexpected-signed-artifact",
+      "expectedSubstring": "unexpected artifact bytes supplied"
+    }
+  ]
+}

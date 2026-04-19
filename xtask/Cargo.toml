@@ -11,10 +11,15 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 camino.workspace = true
+hex.workspace = true
+privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../crates/privacy-pools-sdk-artifacts" }
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 uniffi.workspace = true
 
 [dev-dependencies]
+ed25519-dalek.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -5,73 +5,286 @@ on:
     branches: ["main"]
   pull_request:
 
-jobs:
-  rust:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: rustup target add wasm32-unknown-unknown
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo test --doc --workspace
-      - run: cargo install --locked cargo-hack
-      - run: cargo run -p xtask -- examples-check
-      - run: cargo run -p xtask -- feature-check
-      - run: cargo run -p xtask -- package-check
-      - run: cargo run -p xtask -- bindings
-      - run: git diff --exit-code -- bindings/ios/generated bindings/android/generated
-      - run: cargo install --locked cargo-deny cargo-audit
-      - run: cargo deny check bans licenses sources advisories
-      - run: cargo run -p xtask -- dependency-check
+permissions:
+  contents: read
 
-  react-native:
+jobs:
+  rust-core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: rust core assurance
+        run: >
+          cargo run -p xtask -- assurance --profile pr --runtime rust
+          --only-checks
+          rust-fmt,rust-clippy,cargo-test-workspace,cargo-test-doc-workspace,rust-malformed-input-check,rust-secret-hardening-check,rust-verified-proof-safety-check,rust-chain-rejection-checks
+          --out-dir target/assurance-pr-rust-core
+      - name: print rust core findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust-core/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust-core/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-pr-rust-core
+          path: target/assurance-pr-rust-core
+          if-no-files-found: warn
+
+  rust-generated:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: cargo run -p xtask -- react-native-package
-      - run: test -z "$(git status --short --untracked-files=all -- packages/react-native/android/generated packages/react-native/android/src/main/kotlin packages/react-native/ios/generated)"
-      - run: npm pack --dry-run --json
-        working-directory: packages/react-native
+      - name: rust wasm target setup
+        run: rustup target add wasm32-unknown-unknown
+      - name: install rust generated tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: rust-generated
+      - name: rust generated assurance
+        run: >
+          cargo run -p xtask -- assurance --profile pr --runtime rust
+          --only-checks
+          feature-check,compare-rust-goldens-rust,examples-check,bindings-generate,bindings-drift-check
+          --out-dir target/assurance-pr-rust-generated
+      - name: print rust generated findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust-generated/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust-generated/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-pr-rust-generated
+          path: target/assurance-pr-rust-generated
+          if-no-files-found: warn
+
+  rust-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: install rust policy tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: rust-policy
+      - name: select rust policy checks
+        id: rust-policy-checks
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          checks=(
+            package-check
+            dependency-check
+            artifact-fingerprints
+            signed-manifest-sample-check
+            cargo-deny-policy
+          )
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            changed_files="$(git diff --name-only "origin/$BASE_REF...HEAD")"
+            printf '%s\n' "$changed_files"
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^(docs/|README\.md$|RELEASE_CHECKLIST\.md$|SECURITY\.md$|deny\.toml$|security/)'; then
+              checks+=(docs-check)
+            fi
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^\.github/'; then
+              checks+=(zizmor)
+            fi
+          else
+            checks+=(docs-check zizmor)
+          fi
+
+          {
+            printf 'checks='
+            IFS=,
+            printf '%s' "${checks[*]}"
+            printf '\n'
+          } >> "$GITHUB_OUTPUT"
+
+          printf 'selected rust policy checks: %s\n' "${checks[*]}"
+      - name: rust policy assurance
+        env:
+          RUST_POLICY_CHECKS: ${{ steps.rust-policy-checks.outputs.checks }}
+        run: >
+          cargo run -p xtask -- assurance --profile pr --runtime rust
+          --only-checks
+          "$RUST_POLICY_CHECKS"
+          --out-dir target/assurance-pr-rust-policy
+      - name: print rust policy findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust-policy/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust-policy/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-pr-rust-policy
+          path: target/assurance-pr-rust-policy
+          if-no-files-found: warn
+
+  rust:
+    name: rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - rust-core
+      - rust-generated
+      - rust-policy
+    if: always()
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: download rust core assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-core
+          path: target/assurance-merge-inputs/assurance-pr-rust-core
+      - name: download rust generated assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-generated
+          path: target/assurance-merge-inputs/assurance-pr-rust-generated
+      - name: download rust policy assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-policy
+          path: target/assurance-merge-inputs/assurance-pr-rust-policy
+      - name: merge rust assurance
+        run: >
+          cargo run -p xtask -- assurance-merge --profile pr --runtime rust
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-core
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-generated
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-policy
+          --out-dir target/assurance-pr-rust
+      - name: print merged rust findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: assurance-pr-rust
+          path: target/assurance-pr-rust
+
+  sdk-node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - run: npm ci
+        working-directory: packages/sdk
+      - run: cargo run -p xtask -- assurance --profile pr --runtime node --out-dir target/assurance-pr-node
 
   sdk:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
       - run: rustup target add wasm32-unknown-unknown
-      - run: cargo install --locked wasm-bindgen-cli
-      - run: sudo apt-get update && sudo apt-get install -y binaryen
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
       - run: npm ci
         working-directory: packages/sdk
-      - run: npx playwright install --with-deps chromium
-        working-directory: packages/sdk
-      - run: cargo run -p xtask -- sdk-smoke
-      - run: npm pack --dry-run --json
-        working-directory: packages/sdk
+      - name: browser assurance
+        run: cargo run -p xtask -- assurance --profile pr --runtime browser --out-dir target/assurance-pr-browser
+      - name: print browser findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-browser/findings.md ]; then
+            cat target/assurance-pr-browser/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: assurance-pr-browser
+          path: target/assurance-pr-browser
 
-  react-native-sample-app:
+  react-native:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: cargo run -p xtask -- react-native-smoke
+      - run: cargo run -p xtask -- assurance --profile pr --runtime react-native --out-dir target/assurance-pr-react-native

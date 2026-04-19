@@ -1,0 +1,98 @@
+name: Install Rust CI tools
+description: Install pinned Rust CI helper tools for workflow jobs
+
+inputs:
+  profile:
+    description: Installation profile describing the pinned tool set to install
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -euo pipefail
+
+        tools=""
+        verify=""
+
+        case "$PROFILE" in
+          fuzz)
+            tools="cargo-fuzz@0.13.1"
+            verify=$'cargo-fuzz 0.13.1'
+            ;;
+          rust-generated)
+            tools="cargo-hack@0.6.44"
+            verify=$'cargo-hack 0.6.44'
+            ;;
+          rust-policy)
+            tools="cargo-audit@0.22.1,cargo-deny@0.19.4,zizmor@1.24.1"
+            verify=$'cargo-audit 0.22.1\ncargo-deny 0.19.4\nzizmor 1.24.1'
+            ;;
+          browser-pr|release-browser)
+            tools="wasm-bindgen-cli@0.2.118"
+            verify=$'wasm-bindgen 0.2.118'
+            ;;
+          mobile|release-mobile)
+            tools="cargo-ndk@4.1.2"
+            verify=$'cargo-ndk 4.1.2'
+            ;;
+          nightly|release-assurance)
+            tools="cargo-hack@0.6.44,cargo-deny@0.19.4,cargo-audit@0.22.1,cargo-vet@0.10.2,cargo-geiger@0.13.0,cargo-mutants@27.0.0,cargo-cyclonedx@0.5.9,zizmor@1.24.1,wasm-bindgen-cli@0.2.118,cargo-ndk@4.1.2"
+            verify=$'cargo-hack 0.6.44\ncargo-deny 0.19.4\ncargo-audit 0.22.1\ncargo-vet 0.10.2\ncargo-geiger 0.13.0\ncargo-mutants 27.0.0\ncargo-cyclonedx 0.5.9\nzizmor 1.24.1\nwasm-bindgen 0.2.118\ncargo-ndk 4.1.2'
+            ;;
+          release-sbom)
+            tools="cargo-cyclonedx@0.5.9,cargo-auditable@0.7.4"
+            verify=$'cargo-cyclonedx 0.5.9\ncargo-auditable 0.7.4'
+            ;;
+          *)
+            echo "unsupported install-rust-ci-tools profile: $PROFILE" >&2
+            exit 1
+            ;;
+        esac
+
+        {
+          echo "tools=$tools"
+          echo "verify<<EOF"
+          printf '%s\n' "$verify"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # v2.75.16
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      with:
+        tool: ${{ steps.resolve.outputs.tools }}
+        fallback: cargo-binstall
+
+    - shell: bash
+      env:
+        VERIFY: ${{ steps.resolve.outputs.verify }}
+      run: |
+        set -euo pipefail
+
+        while IFS=' ' read -r binary version; do
+          if [[ -z "${binary:-}" ]]; then
+            continue
+          fi
+
+          if [[ "$binary" == "cargo-hack" ]]; then
+            output="$("$binary" hack --version)"
+          elif [[ "$binary" == "cargo-ndk" ]]; then
+            output="$(cargo ndk --version)"
+          elif [[ "$binary" == "cargo-cyclonedx" || "$binary" == "cargo-auditable" ]]; then
+            command -v "$binary" >/dev/null
+            output="$binary installed (pinned $version)"
+          else
+            output="$("$binary" --version)"
+          fi
+          printf '%s\n' "$output"
+
+          if [[ "$output" != *"$version"* ]]; then
+            echo "expected $binary version $version but saw: $output" >&2
+            exit 1
+          fi
+        done <<< "$VERIFY"

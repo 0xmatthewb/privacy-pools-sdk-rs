@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -13,20 +13,32 @@ import process from "node:process";
 const APP_NAME = "PrivacyPoolsRnAppSmoke";
 const PACKAGE_NAME = "com.privacypoolsrnappsmoke";
 const IOS_BUNDLE_ID = "org.reactjs.native.example.PrivacyPoolsRnAppSmoke";
-const SUCCESS_MARKER = "PRIVACY_POOLS_RN_SMOKE_OK";
-const ERROR_MARKER = "PRIVACY_POOLS_RN_SMOKE_ERROR";
-const CLI_VERSION = "18.0.0";
-const RN_VERSION = "0.79.7";
+const REPORT_DIRECTORY = "privacy-pools-smoke";
+const REPORT_FILE_NAME = "report.json";
+const STATUS_FILE_NAME = "report-status.json";
+const EXECUTION_FIXTURE_FILE_NAME = "mobile-execution-fixture.json";
 
 const args = parseArgs(process.argv.slice(2));
 const workspaceRoot = resolve(args.workspace);
 const tarball = resolve(args.tarball);
-const templateRoot = join(workspaceRoot, "examples/react-native-app-smoke");
+const templateRoot = join(
+  workspaceRoot,
+  "examples/react-native-app-smoke/fixture-template",
+);
 const appParent = join(workspaceRoot, "target/react-native-app-smoke", args.platform);
 const appRoot = join(appParent, APP_NAME);
 const npmCache = process.env.npm_config_cache
   ? resolve(process.env.npm_config_cache)
   : join(workspaceRoot, "target/react-native-app-smoke/.npm-cache");
+const totalTimeoutMs = Number.parseInt(
+  process.env.PRIVACY_POOLS_RN_APP_SMOKE_TIMEOUT_MS ??
+    (args.platform === "android" ? "900000" : "600000"),
+  10,
+);
+const idleTimeoutMs = Number.parseInt(
+  process.env.PRIVACY_POOLS_RN_APP_SMOKE_IDLE_TIMEOUT_MS ?? "240000",
+  10,
+);
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.stack ?? error.message : error);
@@ -34,6 +46,9 @@ main().catch((error) => {
 });
 
 async function main() {
+  if (!existsSync(templateRoot)) {
+    throw new Error(`fixture template does not exist: ${templateRoot}`);
+  }
   if (!existsSync(tarball)) {
     throw new Error(`packed React Native SDK tarball does not exist: ${tarball}`);
   }
@@ -42,43 +57,33 @@ async function main() {
   mkdirSync(appParent, { recursive: true });
   mkdirSync(npmCache, { recursive: true });
 
-  run(
-    "npx",
-    [
-      "--yes",
-      `@react-native-community/cli@${CLI_VERSION}`,
-      "init",
-      APP_NAME,
-      "--version",
-      RN_VERSION,
-      "--skip-install",
-    ],
-    { cwd: appParent },
-  );
-
-  overlaySmokeSources();
+  copyTemplateApp();
   installJavaScriptDependencies();
+  copyFixtureAssets();
 
-  if (args.platform === "android") {
-    prepareAndroidProject();
+  const executionServers = await startExecutionFixtureServers();
+  try {
+    writeExecutionFixture(executionServers.fixture);
+
     if (process.env.PRIVACY_POOLS_RN_APP_SMOKE_PREPARE_ONLY === "1") {
       return;
     }
-    runAndroidSmoke();
-  } else if (args.platform === "ios") {
-    prepareIosProject();
-    if (process.env.PRIVACY_POOLS_RN_APP_SMOKE_PREPARE_ONLY === "1") {
-      return;
-    }
-    runIosSmoke();
-  } else {
-    throw new Error(`unsupported platform: ${args.platform}`);
+
+    const report =
+      args.platform === "android"
+        ? runAndroidSmoke()
+        : args.platform === "ios"
+          ? runIosSmoke()
+          : unsupportedPlatform(args.platform);
+    writeReport(report);
+  } finally {
+    await executionServers.stop();
   }
 }
 
 function parseArgs(rawArgs) {
   const [platform, ...rest] = rawArgs;
-  const parsed = { platform, workspace: "", tarball: "" };
+  const parsed = { platform, workspace: "", tarball: "", report: "" };
 
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -86,13 +91,17 @@ function parseArgs(rawArgs) {
       parsed.workspace = rest[++index] ?? "";
     } else if (arg === "--tarball") {
       parsed.tarball = rest[++index] ?? "";
+    } else if (arg === "--report") {
+      parsed.report = rest[++index] ?? "";
     } else {
       throw new Error(`unknown argument: ${arg}`);
     }
   }
 
   if (!parsed.platform || !["ios", "android"].includes(parsed.platform)) {
-    throw new Error("usage: run-smoke.mjs ios|android --workspace <path> --tarball <path>");
+    throw new Error(
+      "usage: run-smoke.mjs ios|android --workspace <path> --tarball <path> [--report <path>]",
+    );
   }
   if (!parsed.workspace || !parsed.tarball) {
     throw new Error("missing --workspace or --tarball");
@@ -101,117 +110,213 @@ function parseArgs(rawArgs) {
   return parsed;
 }
 
-function overlaySmokeSources() {
-  copyTemplate("App.tsx", "App.tsx");
-  copyTemplate("index.js", "index.js");
-  copyTemplate("src/smoke.ts", "src/smoke.ts");
-
-  const appJsonPath = join(appRoot, "app.json");
-  writeJson(appJsonPath, {
-    name: APP_NAME,
-    displayName: "Privacy Pools RN Smoke",
-  });
-
-  const packageJsonPath = join(appRoot, "package.json");
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  packageJson.name = "privacy-pools-rn-app-smoke";
-  packageJson.scripts = {
-    android: "react-native run-android",
-    ios: "react-native run-ios",
-    start: "react-native start",
-    typecheck: "tsc --noEmit --project tsconfig.json",
-  };
-  writeJson(packageJsonPath, packageJson);
+function copyTemplateApp() {
+  cpSync(templateRoot, appRoot, { recursive: true });
 }
 
 function installJavaScriptDependencies() {
-  run("npm", ["install", "--no-package-lock", "--ignore-scripts"], {
+  run("npm", ["ci", "--ignore-scripts"], {
     cwd: appRoot,
   });
   run(
     "npm",
     [
       "install",
-      "--no-package-lock",
       "--ignore-scripts",
-      "--no-save",
       tarball,
     ],
     { cwd: appRoot },
   );
 }
 
-function prepareAndroidProject() {
-  const mainApplicationPath = findFile(
-    join(appRoot, "android/app/src/main/java"),
-    "MainApplication.kt",
+function copyFixtureAssets() {
+  const fixturesRoot = join(workspaceRoot, "fixtures");
+  const androidAssetsRoot = join(
+    appRoot,
+    "android/app/src/main/assets/privacy-pools-fixtures",
   );
-  const packageName = readPackageName(mainApplicationPath);
-  const androidNativeRoot = dirname(mainApplicationPath);
-
-  writeTemplate(
-    "native/android/PrivacyPoolsSmokeFixturesModule.kt",
-    join(androidNativeRoot, "PrivacyPoolsSmokeFixturesModule.kt"),
-    { "{{PACKAGE}}": packageName },
-  );
-  writeTemplate(
-    "native/android/PrivacyPoolsSmokeFixturesPackage.kt",
-    join(androidNativeRoot, "PrivacyPoolsSmokeFixturesPackage.kt"),
-    { "{{PACKAGE}}": packageName },
+  const iosFixturesRoot = join(
+    appRoot,
+    "ios",
+    APP_NAME,
+    "privacy-pools-fixtures",
   );
 
-  let mainApplication = readFileSync(mainApplicationPath, "utf8");
-  if (!mainApplication.includes("PrivacyPoolsSmokeFixturesPackage()")) {
-    mainApplication = mainApplication.replace(
-      "PackageList(this).packages.apply {\n",
-      "PackageList(this).packages.apply {\n              add(PrivacyPoolsSmokeFixturesPackage())\n",
-    );
-    writeFileSync(mainApplicationPath, mainApplication);
+  for (const destination of [androidAssetsRoot, iosFixturesRoot]) {
+    rmSync(destination, { recursive: true, force: true });
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(fixturesRoot, destination, { recursive: true });
   }
 
-  const gradlePropertiesPath = join(appRoot, "android/gradle.properties");
-  let gradleProperties = readFileSync(gradlePropertiesPath, "utf8");
-  gradleProperties = gradleProperties.replace("newArchEnabled=true", "newArchEnabled=false");
-  writeFileSync(gradlePropertiesPath, gradleProperties);
-
-  const assetsRoot = join(appRoot, "android/app/src/main/assets/privacy-pools-fixtures");
-  rmSync(assetsRoot, { recursive: true, force: true });
-  mkdirSync(dirname(assetsRoot), { recursive: true });
-  cpSync(join(workspaceRoot, "fixtures"), assetsRoot, { recursive: true });
+  const requiredFixtures = [
+    join(androidAssetsRoot, "artifacts", "withdraw.vkey.json"),
+    join(iosFixturesRoot, "artifacts", "withdraw.vkey.json"),
+  ];
+  for (const path of requiredFixtures) {
+    if (!existsSync(path)) {
+      throw new Error(`missing smoke fixture asset: ${path}`);
+    }
+  }
 }
 
-function prepareIosProject() {
-  const iosAppRoot = join(appRoot, "ios", APP_NAME);
-  copyTemplate(
-    "native/ios/PrivacyPoolsSmokeFixtures.swift",
-    `ios/${APP_NAME}/PrivacyPoolsSmokeFixtures.swift`,
+async function startExecutionFixtureServers() {
+  const hosts =
+    args.platform === "android"
+      ? { bindHost: "0.0.0.0", publicHost: "10.0.2.2" }
+      : { bindHost: "127.0.0.1", publicHost: "127.0.0.1" };
+  const withdrawalFixture = JSON.parse(
+    readFileSync(
+      join(workspaceRoot, "fixtures", "vectors", "withdrawal-circuit-input.json"),
+      "utf8",
+    ),
   );
-  copyTemplate(
-    "native/ios/PrivacyPoolsSmokeFixtures.m",
-    `ios/${APP_NAME}/PrivacyPoolsSmokeFixtures.m`,
+  const fixtureServerScript = join(
+    workspaceRoot,
+    "packages/sdk/scripts/start-mobile-execution-fixture-servers.mjs",
+  );
+  const child = spawn(
+    "node",
+    [
+      fixtureServerScript,
+      "--platform",
+      args.platform,
+      "--bind-host",
+      hosts.bindHost,
+      "--public-host",
+      hosts.publicHost,
+      "--state-root",
+      String(withdrawalFixture.stateWitness.root),
+      "--asp-root",
+      String(withdrawalFixture.aspWitness.root),
+    ],
+    {
+      cwd: workspaceRoot,
+      env: childEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+    },
   );
 
-  const fixturesRoot = join(iosAppRoot, "privacy-pools-fixtures");
-  rmSync(fixturesRoot, { recursive: true, force: true });
-  cpSync(join(workspaceRoot, "fixtures"), fixturesRoot, { recursive: true });
+  child.stderr.on("data", (chunk) => {
+    process.stderr.write(chunk);
+  });
 
-  patchXcodeProject(join(appRoot, "ios", `${APP_NAME}.xcodeproj/project.pbxproj`));
+  const fixture = await new Promise((resolve, reject) => {
+    let stdout = "";
+    let settled = false;
+
+    const finish = (callback, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      child.stdout.removeAllListeners("data");
+      child.removeAllListeners("exit");
+      child.removeAllListeners("error");
+      callback(value);
+    };
+
+    child.on("error", (error) => {
+      finish(reject, error);
+    });
+
+    child.on("exit", (code, signal) => {
+      finish(
+        reject,
+        new Error(
+          `mobile execution fixture server exited before producing fixture JSON (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+        ),
+      );
+    });
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+      const newlineIndex = stdout.indexOf("\n");
+      if (newlineIndex === -1) {
+        return;
+      }
+
+      const line = stdout.slice(0, newlineIndex).trim();
+      if (!line) {
+        return;
+      }
+
+      try {
+        finish(resolve, JSON.parse(line));
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
+  });
+
+  return {
+    fixture,
+    async stop() {
+      if (child.exitCode != null || child.signalCode != null) {
+        return;
+      }
+
+      child.kill("SIGTERM");
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          child.kill("SIGKILL");
+        }, 5_000);
+        child.once("exit", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+    },
+  };
+}
+
+function writeExecutionFixture(fixture) {
+  const destination =
+    args.platform === "android"
+      ? join(
+          appRoot,
+          "android/app/src/main/assets/privacy-pools-fixtures/vectors",
+          EXECUTION_FIXTURE_FILE_NAME,
+        )
+      : join(
+          appRoot,
+          "ios",
+          APP_NAME,
+          "privacy-pools-fixtures",
+          "vectors",
+          EXECUTION_FIXTURE_FILE_NAME,
+        );
+  mkdirSync(dirname(destination), { recursive: true });
+  writeJson(destination, fixture);
 }
 
 function runAndroidSmoke() {
-  run("./gradlew", [":app:installRelease", "-PreactNativeArchitectures=x86_64", "--stacktrace"], {
-    cwd: join(appRoot, "android"),
-  });
-  run("adb", ["logcat", "-c"], { cwd: appRoot });
-  run("adb", ["shell", "am", "force-stop", PACKAGE_NAME], { cwd: appRoot });
+  run(
+    "./gradlew",
+    [":app:installRelease", "-PreactNativeArchitectures=x86_64", "--stacktrace"],
+    { cwd: join(appRoot, "android") },
+  );
+  resetAndroidAppState();
   run("adb", ["shell", "am", "start", "-W", "-n", `${PACKAGE_NAME}/.MainActivity`], {
     cwd: appRoot,
   });
-  waitForAndroidMarker();
+  return waitForAndroidReport();
+}
+
+function resetAndroidAppState() {
+  runAllowFailure("adb", ["shell", "am", "force-stop", PACKAGE_NAME], { cwd: appRoot });
+  runAllowFailure("adb", ["shell", "pm", "clear", PACKAGE_NAME], { cwd: appRoot });
+  runAllowFailure("adb", ["shell", "rm", "-rf", androidReportRoot()], { cwd: appRoot });
+}
+
+function waitForAndroidReport() {
+  const statusPath = androidStatusPath();
+  const reportPath = androidReportPath();
+  return waitForReport(statusPath, reportPath, "android");
 }
 
 function runIosSmoke() {
   runPods();
+
   const udid = selectIosSimulator();
   runAllowFailure("xcrun", ["simctl", "boot", udid], { cwd: appRoot });
   run("xcrun", ["simctl", "bootstatus", udid, "-b"], { cwd: appRoot });
@@ -243,8 +348,84 @@ function runIosSmoke() {
     "Build/Products/Release-iphonesimulator",
     `${APP_NAME}.app`,
   );
+  runAllowFailure("xcrun", ["simctl", "terminate", udid, IOS_BUNDLE_ID], { cwd: appRoot });
+  runAllowFailure("xcrun", ["simctl", "uninstall", udid, IOS_BUNDLE_ID], { cwd: appRoot });
   run("xcrun", ["simctl", "install", udid, appBundle], { cwd: appRoot });
-  waitForIosMarker(udid);
+  return waitForIosReport(udid);
+}
+
+function waitForIosReport(udid) {
+  run("xcrun", ["simctl", "launch", udid, IOS_BUNDLE_ID], { cwd: appRoot });
+
+  const containerPath = capture("xcrun", [
+    "simctl",
+    "get_app_container",
+    udid,
+    IOS_BUNDLE_ID,
+    "data",
+  ], { cwd: appRoot }).trim();
+  const statusPath = join(
+    containerPath,
+    "Library",
+    "Application Support",
+    REPORT_DIRECTORY,
+    STATUS_FILE_NAME,
+  );
+  const reportPath = join(
+    containerPath,
+    "Library",
+    "Application Support",
+    REPORT_DIRECTORY,
+    REPORT_FILE_NAME,
+  );
+  return waitForReport(statusPath, reportPath, "ios");
+}
+
+function waitForReport(statusPath, reportPath, platform) {
+  const startedAt = Date.now();
+  let lastUpdateAt = startedAt;
+  let lastFingerprint = "";
+
+  while (Date.now() - startedAt < totalTimeoutMs) {
+    const status =
+      platform === "android"
+        ? readAndroidJson(statusPath)
+        : readHostJson(statusPath);
+    if (status?.updatedAt && Number.isFinite(status.updatedAt)) {
+      lastUpdateAt = Math.max(lastUpdateAt, Number(status.updatedAt));
+    }
+
+    const fingerprint = JSON.stringify(status ?? {});
+    if (status && fingerprint !== lastFingerprint) {
+      const detail = status.message ? ` (${status.message})` : "";
+      console.log(`[${platform}] smoke status: ${status.status}${detail}`);
+      lastFingerprint = fingerprint;
+    }
+
+    if (status?.status === "success") {
+      const report =
+        platform === "android"
+          ? readAndroidJson(reportPath)
+          : readHostJson(reportPath);
+      if (!report) {
+        throw new Error(`${platform} smoke reported success without ${reportPath}`);
+      }
+      return report;
+    }
+    if (status?.status === "error") {
+      throw new Error(status.message ?? `${platform} smoke app reported failure`);
+    }
+    if (Date.now() - lastUpdateAt > idleTimeoutMs) {
+      throw new Error(
+        `${platform} smoke stopped updating ${statusPath} for ${idleTimeoutMs}ms`,
+      );
+    }
+    sleep(2_000);
+  }
+
+  throw new Error(
+    `timed out waiting for ${platform} report at ${statusPath} after ${totalTimeoutMs}ms`,
+  );
 }
 
 function runPods() {
@@ -258,61 +439,6 @@ function runPods() {
   run("pod", ["install"], { cwd: iosRoot });
 }
 
-function waitForAndroidMarker() {
-  const deadline = Date.now() + 240_000;
-  let lastLog = "";
-
-  while (Date.now() < deadline) {
-    const log = capture("adb", ["logcat", "-d"], { cwd: appRoot });
-    lastLog = log;
-    if (log.includes(SUCCESS_MARKER)) {
-      return;
-    }
-    if (log.includes(ERROR_MARKER)) {
-      throw new Error(logTail(log));
-    }
-    sleep(2_000);
-  }
-
-  throw new Error(`timed out waiting for ${SUCCESS_MARKER}\n${logTail(lastLog)}`);
-}
-
-function waitForIosMarker(udid) {
-  run("xcrun", ["simctl", "launch", udid, IOS_BUNDLE_ID], { cwd: appRoot });
-
-  const deadline = Date.now() + 240_000;
-  let lastLog = "";
-  while (Date.now() < deadline) {
-    const log = capture(
-      "xcrun",
-      [
-        "simctl",
-        "spawn",
-        udid,
-        "log",
-        "show",
-        "--style",
-        "compact",
-        "--last",
-        "5m",
-        "--predicate",
-        `eventMessage CONTAINS "${SUCCESS_MARKER}" OR eventMessage CONTAINS "${ERROR_MARKER}"`,
-      ],
-      { cwd: appRoot },
-    );
-    lastLog = log;
-    if (log.includes(SUCCESS_MARKER)) {
-      return;
-    }
-    if (log.includes(ERROR_MARKER)) {
-      throw new Error(logTail(log));
-    }
-    sleep(2_000);
-  }
-
-  throw new Error(`timed out waiting for ${SUCCESS_MARKER}\n${logTail(lastLog)}`);
-}
-
 function selectIosSimulator() {
   if (process.env.IOS_SMOKE_UDID) {
     return process.env.IOS_SMOKE_UDID;
@@ -322,8 +448,8 @@ function selectIosSimulator() {
     cwd: appRoot,
   })).devices;
   const allDevices = Object.values(devices).flat();
-  const booted = allDevices.find((device) =>
-    device.name?.startsWith("iPhone") && device.state === "Booted"
+  const booted = allDevices.find(
+    (device) => device.name?.startsWith("iPhone") && device.state === "Booted",
   );
   const available = allDevices.find((device) => device.name?.startsWith("iPhone"));
   const selected = booted ?? available;
@@ -334,86 +460,76 @@ function selectIosSimulator() {
   return selected.udid;
 }
 
-function patchXcodeProject(projectPath) {
-  let project = readFileSync(projectPath, "utf8");
-  if (project.includes("PrivacyPoolsSmokeFixtures.swift")) {
+function writeReport(report) {
+  if (!args.report) {
     return;
   }
 
-  project = project.replace(
-    "/* Begin PBXBuildFile section */\n",
-    `/* Begin PBXBuildFile section */
-\t\tE90000000000000000000001 /* PrivacyPoolsSmokeFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000002 /* PrivacyPoolsSmokeFixtures.swift */; };
-\t\tE90000000000000000000003 /* PrivacyPoolsSmokeFixtures.m in Sources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000004 /* PrivacyPoolsSmokeFixtures.m */; };
-\t\tE90000000000000000000005 /* privacy-pools-fixtures in Resources */ = {isa = PBXBuildFile; fileRef = E90000000000000000000006 /* privacy-pools-fixtures */; };
-`,
-  );
-  project = project.replace(
-    "/* Begin PBXFileReference section */\n",
-    `/* Begin PBXFileReference section */
-\t\tE90000000000000000000002 /* PrivacyPoolsSmokeFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyPoolsSmokeFixtures.swift; sourceTree = "<group>"; };
-\t\tE90000000000000000000004 /* PrivacyPoolsSmokeFixtures.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = PrivacyPoolsSmokeFixtures.m; sourceTree = "<group>"; };
-\t\tE90000000000000000000006 /* privacy-pools-fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "privacy-pools-fixtures"; sourceTree = "<group>"; };
-`,
-  );
-  project = project.replace(
-    /(\t{4}[A-F0-9]+ \/\* AppDelegate\.swift \*\/,\n)/,
-    `$1\t\t\t\tE90000000000000000000002 /* PrivacyPoolsSmokeFixtures.swift */,\n\t\t\t\tE90000000000000000000004 /* PrivacyPoolsSmokeFixtures.m */,\n\t\t\t\tE90000000000000000000006 /* privacy-pools-fixtures */,\n`,
-  );
-  project = project.replace(
-    /(\t{4}[A-F0-9]+ \/\* AppDelegate\.swift in Sources \*\/,\n)/,
-    `$1\t\t\t\tE90000000000000000000001 /* PrivacyPoolsSmokeFixtures.swift in Sources */,\n\t\t\t\tE90000000000000000000003 /* PrivacyPoolsSmokeFixtures.m in Sources */,\n`,
-  );
-  project = project.replace(
-    /(\t{4}[A-F0-9]+ \/\* LaunchScreen\.storyboard in Resources \*\/,\n)/,
-    `$1\t\t\t\tE90000000000000000000005 /* privacy-pools-fixtures in Resources */,\n`,
-  );
-
-  writeFileSync(projectPath, project);
+  const reportPath = resolve(args.report);
+  mkdirSync(dirname(reportPath), { recursive: true });
+  writeJson(reportPath, report);
 }
 
-function copyTemplate(source, destination) {
-  const destinationPath = join(appRoot, destination);
-  mkdirSync(dirname(destinationPath), { recursive: true });
-  cpSync(join(templateRoot, source), destinationPath);
-}
-
-function writeTemplate(source, destination, replacements) {
-  let contents = readFileSync(join(templateRoot, source), "utf8");
-  for (const [from, to] of Object.entries(replacements)) {
-    contents = contents.split(from).join(to);
+function readHostJson(path) {
+  if (!existsSync(path)) {
+    return null;
   }
-  mkdirSync(dirname(destination), { recursive: true });
-  writeFileSync(destination, contents);
+
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `failed to parse JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function readAndroidJson(path) {
+  const result = spawnSync("adb", ["shell", "cat", path], {
+    cwd: appRoot,
+    env: childEnv(),
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    return null;
+  }
+
+  const payload = normalizeShellOutput(result.stdout);
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload);
+  } catch (error) {
+    throw new Error(
+      `failed to parse Android JSON at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function normalizeShellOutput(contents) {
+  return contents.replace(/\r/g, "").trim();
+}
+
+function androidReportRoot() {
+  return `/sdcard/Android/data/${PACKAGE_NAME}/files/${REPORT_DIRECTORY}`;
+}
+
+function androidStatusPath() {
+  return `${androidReportRoot()}/${STATUS_FILE_NAME}`;
+}
+
+function androidReportPath() {
+  return `${androidReportRoot()}/${REPORT_FILE_NAME}`;
 }
 
 function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function findFile(root, filename) {
-  const result = spawnSync("find", [root, "-name", filename, "-type", "f"], {
-    encoding: "utf8",
-  });
-  if (result.status !== 0) {
-    throw new Error(result.stderr.trim() || `failed to find ${filename}`);
-  }
-
-  const first = result.stdout.trim().split("\n").find(Boolean);
-  if (!first) {
-    throw new Error(`could not find ${filename} under ${root}`);
-  }
-
-  return first;
-}
-
-function readPackageName(path) {
-  const contents = readFileSync(path, "utf8");
-  const match = contents.match(/^package\s+([^\s]+)/m);
-  if (!match) {
-    throw new Error(`could not read package name from ${path}`);
-  }
-  return match[1];
+function unsupportedPlatform(platform) {
+  throw new Error(`unsupported platform: ${platform}`);
 }
 
 function run(command, commandArgs, options) {
@@ -465,8 +581,4 @@ function childEnv() {
 
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function logTail(log) {
-  return log.split("\n").slice(-80).join("\n");
 }

@@ -10,18 +10,35 @@
     "directory": "packages/sdk"
   },
   "type": "module",
-  "main": "./src/node/index.mjs",
-  "browser": "./src/browser/index.mjs",
-  "types": "./src/index.d.ts",
+  "main": "./src/node/safe.mjs",
+  "browser": "./src/browser/safe.mjs",
+  "types": "./src/safe.d.ts",
   "exports": {
     ".": {
+      "types": "./src/safe.d.ts",
+      "node": "./src/node/safe.mjs",
+      "browser": "./src/browser/safe.mjs",
+      "default": "./src/node/safe.mjs"
+    },
+    "./testing": {
       "types": "./src/index.d.ts",
-      "node": "./src/node/index.mjs",
-      "browser": "./src/browser/index.mjs",
-      "default": "./src/node/index.mjs"
+      "node": "./src/node/testing.mjs",
+      "browser": "./src/browser/testing.mjs",
+      "default": "./src/node/testing.mjs"
+    },
+    "./debug": {
+      "types": "./src/debug.d.ts",
+      "node": "./src/node/debug.mjs",
+      "browser": "./src/browser/debug.mjs",
+      "default": "./src/node/debug.mjs"
     },
     "./worker": {
-      "default": "./src/browser/worker.mjs"
+      "default": "./src/browser/worker-safe.mjs"
+    },
+    "./experimental-threaded": {
+      "types": "./src/experimental-threaded.d.ts",
+      "browser": "./src/browser/experimental-threaded.mjs",
+      "default": "./src/browser/experimental-threaded.mjs"
     }
   },
   "scripts": {
@@ -29,18 +46,26 @@
     "build:native:release": "node ./scripts/build-native.mjs --release",
     "build:web": "node ./scripts/build-web.mjs",
     "build:web:debug": "node ./scripts/build-web.mjs --debug",
+    "build:web:experimental-threaded": "node ./scripts/build-web.mjs --experimental-threaded",
     "build:web:release": "node ./scripts/build-web.mjs --release",
-    "check:generated": "npm run build:web && node ./scripts/check-generated.mjs",
+    "check:generated": "npm run build:web && node ./scripts/check-generated.mjs --mode pr-safe",
+    "compare:rust:stateful:node": "node ./scripts/compare-rust-stateful.mjs",
+    "compare:rust:stateful:react-native": "PRIVACY_POOLS_STATEFUL_RUNTIME=react-native node ./scripts/compare-rust-stateful.mjs",
     "compare:v1-npm": "node ./scripts/compare-v1-npm.mjs",
+    "compare:v1-rust": "node ./scripts/compare-v1-rust.mjs",
     "test": "npm run test:ci",
-    "test:browser": "playwright test",
-    "test:ci": "npm run build:native && npm run check:generated && npm run test:node && npm run test:browser",
-    "test:node": "node --test ./test/*.test.mjs"
+    "test:browser": "npm run test:browser:smoke",
+    "test:browser:all": "npm run build:web:debug && npm run test:browser:core && npm run test:browser:direct && npm run test:browser:worker",
+    "test:browser:core": "node --test ./test/browser.test.mjs",
+    "test:browser:smoke": "node --test ./test/browser-smoke.test.mjs",
+    "test:browser:pr-fail-closed": "node --test ./test/browser-pr-fail-closed.test.mjs",
+    "test:browser:direct": "node --test ./test/browser-direct-execution.test.mjs",
+    "test:browser:worker": "playwright test ./test/browser-worker.playwright.mjs",
+    "test:ci": "npm run build:native && npm run check:generated && npm run test:node && npm run test:browser:all",
+    "test:node": "node --test ./test/facade.test.mjs ./test/node.test.mjs ./test/surface.test.mjs"
   },
   "files": [
     "src",
-    "scripts",
-    "test",
     "README.md",
     "package.json",
     "privacy_pools_sdk_node.node"

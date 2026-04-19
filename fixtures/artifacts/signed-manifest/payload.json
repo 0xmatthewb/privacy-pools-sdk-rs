@@ -1,0 +1,19 @@
+{
+  "manifest": {
+    "version": "signed-fixture",
+    "artifacts": [
+      {
+        "circuit": "withdraw",
+        "kind": "wasm",
+        "filename": "withdraw-fixture.wasm",
+        "sha256": "ef51c8d9a9574e4b206fbcd2f4acbb3c87a03e79d239c7a15fb3817cd6ae1f0f"
+      }
+    ]
+  },
+  "metadata": {
+    "ceremony": "fixture ceremony",
+    "build": "fixture build",
+    "repository": "https://github.com/0xmatthewb/privacy-pools-sdk-rs",
+    "commit": "abcdef0"
+  }
+}
