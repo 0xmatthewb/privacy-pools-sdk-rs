@@ -753,6 +753,21 @@ mod tests {
     }
 
     #[test]
+    fn rejects_verification_key_projective_zero_z_coordinate() {
+        let fixture = generate_bn254_fixture();
+        let mut vkey: Value =
+            serde_json::from_str(&fixture.vkey_json).expect("vkey fixture parses");
+        let alpha_x = vkey["vk_alpha_1"][0].clone();
+        let alpha_y = vkey["vk_alpha_1"][1].clone();
+        vkey["vk_alpha_1"] = json!([alpha_x, alpha_y, "0"]);
+        let vkey_json = serde_json::to_vec(&vkey).expect("vkey serializes");
+
+        let error = PreparedVerifier::from_vkey_bytes(&vkey_json)
+            .expect_err("verification key z = 0 should fail");
+        assert!(matches!(error, VerifierError::InvalidVerificationKey(message) if message.contains("z must not be zero")));
+    }
+
+    #[test]
     fn rejects_wrong_curve_metadata() {
         let fixture = generate_bn254_fixture();
         let verifier =

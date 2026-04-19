@@ -290,6 +290,79 @@ test("browser module worker proves and verifies through Chromium", async ({ page
   }
 });
 
+test("experimental threaded browser client falls back cleanly without cross-origin isolation", async ({
+  page,
+}) => {
+  markSlowOnCiLinux();
+  const moduleServer = createStaticServer(packageRoot);
+  const artifactServer = createStaticServer(fixturesRoot, { cors: true });
+
+  await moduleServer.start();
+  await artifactServer.start();
+
+  try {
+    await page.goto(`${moduleServer.origin}/`);
+
+    const fallbackResult = await page.evaluate(
+      async ({
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        artifactsRoot,
+      }) => {
+        const threaded = await import("/src/browser/experimental-threaded.mjs");
+        const capabilities = threaded.getExperimentalThreadedRuntimeCapabilities();
+        const initialization = await threaded.initializeExperimentalThreadedProving({
+          threadCount: 2,
+        });
+        const sdk = await threaded.createExperimentalThreadedBrowserClient({
+          threadCount: 2,
+        });
+
+        try {
+          const commitment = await sdk.getCommitment(
+            withdrawalFixture.existingValue,
+            withdrawalFixture.label,
+            cryptoFixture.depositSecrets.nullifier,
+            cryptoFixture.depositSecrets.secret,
+          );
+          const session = await sdk.prepareWithdrawalCircuitSession(
+            withdrawalProvingManifest,
+            artifactsRoot,
+          );
+
+          return {
+            capabilities,
+            initialization,
+            commitmentHash: commitment.hash,
+            sessionHandle: session.handle,
+          };
+        } finally {
+          await sdk.dispose();
+        }
+      },
+      {
+        cryptoFixture,
+        withdrawalFixture,
+        withdrawalProvingManifest,
+        artifactsRoot: `${artifactServer.origin}/artifacts/`,
+      },
+    );
+
+    expect(fallbackResult.capabilities.threadedProvingAvailable).toBe(false);
+    expect(fallbackResult.initialization.threadedProvingEnabled).toBe(false);
+    expect(fallbackResult.initialization.fallback).toBe("stable-single-threaded");
+    expect(fallbackResult.initialization.reason).toMatch(
+      /SharedArrayBuffer|cross-origin isolation/i,
+    );
+    expect(fallbackResult.commitmentHash).toBe(cryptoFixture.commitment.hash);
+    expect(fallbackResult.sessionHandle).toMatch(/^browser-withdraw-session-/);
+  } finally {
+    await artifactServer.stop();
+    await moduleServer.stop();
+  }
+});
+
 test("experimental threaded browser client matches stable proof invariants", async ({
   page,
 }) => {

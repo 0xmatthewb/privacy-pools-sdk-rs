@@ -2005,6 +2005,53 @@ fn command_stdout(program: &str, args: &[&str], error_context: &str) -> Result<S
         .to_owned())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn benchmark_args_require_device_metadata_when_writing_a_report() {
+        let error = BenchmarkArgs::parse(vec![
+            "--manifest".to_owned(),
+            "manifest.json".to_owned(),
+            "--artifacts-root".to_owned(),
+            "artifacts".to_owned(),
+            "--report-json".to_owned(),
+            "report.json".to_owned(),
+        ])
+        .expect_err("report output without device metadata must fail");
+
+        assert!(error
+            .to_string()
+            .contains("--device-label is required when --report-json is set"));
+    }
+
+    #[test]
+    fn audit_parity_report_args_require_cases_json() {
+        let error = AuditParityReportArgs::parse(vec![
+            "--commitment-manifest".to_owned(),
+            "commitment.json".to_owned(),
+            "--withdrawal-manifest".to_owned(),
+            "withdrawal.json".to_owned(),
+            "--artifacts-root".to_owned(),
+            "artifacts".to_owned(),
+            "--report-json".to_owned(),
+            "report.json".to_owned(),
+        ])
+        .expect_err("missing cases json must fail");
+
+        assert!(error.to_string().contains("--cases-json is required"));
+    }
+
+    #[test]
+    fn parse_backend_rejects_unknown_profiles() {
+        let error = parse_backend("fast").expect_err("unknown backend profile must fail");
+        assert!(error
+            .to_string()
+            .contains("unsupported backend profile: fast"));
+    }
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }

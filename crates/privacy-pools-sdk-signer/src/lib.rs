@@ -177,3 +177,45 @@ impl SignerAdapter for ExternalSigner {
         self.kind
     }
 }
+
+#[cfg(all(test, feature = "local-mnemonic"))]
+mod tests {
+    use super::*;
+    use alloy_primitives::{address, bytes, U256};
+
+    fn sample_request(chain_id: u64) -> FinalizedTransactionRequest {
+        FinalizedTransactionRequest {
+            kind: privacy_pools_sdk_core::TransactionKind::Withdraw,
+            chain_id,
+            from: address!("1111111111111111111111111111111111111111"),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        }
+    }
+
+    #[test]
+    fn malformed_mnemonic_returns_error() {
+        let error = LocalMnemonicSigner::from_phrase_nth("not a bip39 mnemonic", 0).unwrap_err();
+        assert!(matches!(error, SignerError::Local(_)));
+    }
+
+    #[test]
+    fn transaction_chain_id_zero_is_rejected() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+
+        let error = signer
+            .sign_transaction_request(&sample_request(0))
+            .expect_err("chain_id = 0 must fail closed");
+        assert!(matches!(error, SignerError::InvalidChainId));
+    }
+}

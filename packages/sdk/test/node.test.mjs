@@ -5,6 +5,7 @@ import { generateKeyPairSync, createHash, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildPoseidon } from "circomlibjs";
 
 import {
   PrivacyPoolsSdkClient,
@@ -20,6 +21,7 @@ import {
 } from "../src/node/debug.mjs";
 import {
   EXECUTION_FIXTURE,
+  EXECUTION_SIGNER_MNEMONIC,
   signFinalizedTransactionRequest,
   signFinalizedTransactionRequestWithWrongSigner,
   strictExecutionPolicy,
@@ -71,6 +73,8 @@ const compatibilityShapes = JSON.parse(
 );
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BN254_SCALAR_FIELD =
+  21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 test("node runtime reports capabilities", () => {
   assert.deepEqual(getRuntimeCapabilities(), {
@@ -95,6 +99,69 @@ test("node derives master key handles from mnemonic bytes", async () => {
   );
   assert.match(handle, UUID_V4_RE);
   assert.equal(await sdk.removeSecretHandle(handle), true);
+});
+
+test("node execution signing matches Rust and viem transaction encodings", async () => {
+  const legacyRequest = {
+    kind: "withdraw",
+    chainId: EXECUTION_FIXTURE.chainId,
+    from: EXECUTION_FIXTURE.caller,
+    to: EXECUTION_FIXTURE.poolAddress,
+    nonce: Number(EXECUTION_FIXTURE.nonce),
+    gasLimit: Number(EXECUTION_FIXTURE.estimatedGas),
+    value: "0",
+    data: "0x1234",
+    gasPrice: EXECUTION_FIXTURE.gasPrice.toString(),
+    maxFeePerGas: null,
+    maxPriorityFeePerGas: null,
+  };
+  const eip1559Request = {
+    ...legacyRequest,
+    kind: "relay",
+    to: EXECUTION_FIXTURE.entrypointAddress,
+    gasPrice: null,
+    maxFeePerGas: (EXECUTION_FIXTURE.gasPrice + 2n).toString(),
+    maxPriorityFeePerGas: "1",
+  };
+
+  for (const request of [legacyRequest, eip1559Request]) {
+    const rustSigned = await signFinalizedTransactionRequestWithRustExample(request);
+    const viemSigned = await signFinalizedTransactionRequest(request);
+    assert.equal(
+      rustSigned,
+      viemSigned,
+      `Rust signer output must match viem for ${request.kind}`,
+    );
+  }
+});
+
+test("node addon matches circomlibjs poseidon precommitments across 1k random pairs", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const poseidon = await buildPoseidon();
+  let seed = 0x1234_5678_9abcn;
+
+  const nextFieldElement = () => {
+    seed =
+      (seed * 6364136223846793005n + 1442695040888963407n) % BN254_SCALAR_FIELD;
+    return seed === 0n ? 1n : seed;
+  };
+
+  for (let index = 0; index < 1000; index += 1) {
+    const nullifier = nextFieldElement();
+    const secret = nextFieldElement();
+    const commitment = await sdk.getCommitment(
+      "1",
+      "1",
+      nullifier.toString(),
+      secret.toString(),
+    );
+    const expected = poseidon.F.toString(poseidon([nullifier, secret]));
+    assert.equal(
+      commitment.precommitmentHash,
+      expected,
+      `poseidon precommitment mismatch at sample ${index}`,
+    );
+  }
 });
 
 test("node addon matches reference crypto vectors", async () => {
@@ -489,6 +556,44 @@ test("node addon preflights, finalizes, and submits execution handles", async ()
       () => dangerouslyExportFinalizedPreflightedTransaction(finalizedHandle),
       /execution handle|not found|unknown/i,
     );
+  } finally {
+    await sdk.dispose();
+    await rpcServer.stop();
+  }
+});
+
+test("node addon falls back to legacy fee pricing when 1559 RPC methods are unavailable", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const rpcServer = await startExecutionRpcFixtureServer({
+    stateRoot: withdrawalFixture.stateWitness.root,
+    aspRoot: withdrawalFixture.aspWitness.root,
+  });
+
+  try {
+    const artifactsRoot = join(fixturesRoot, "artifacts");
+    const { verifiedWithdrawalHandle } = await buildExecutionHandleFixtures(
+      sdk,
+      artifactsRoot,
+    );
+    const preflightedHandle =
+      await sdk.preflightVerifiedWithdrawalTransactionWithHandle(
+        EXECUTION_FIXTURE.chainId,
+        EXECUTION_FIXTURE.poolAddress,
+        rpcServer.url,
+        strictExecutionPolicy(),
+        verifiedWithdrawalHandle,
+      );
+    const finalizedHandle = await sdk.finalizePreflightedTransactionHandle(
+      rpcServer.url,
+      preflightedHandle,
+    );
+    const finalized = await dangerouslyExportFinalizedPreflightedTransaction(
+      finalizedHandle,
+    );
+
+    assert.equal(finalized.request.gasPrice, EXECUTION_FIXTURE.gasPrice.toString());
+    assert.equal(finalized.request.maxFeePerGas, null);
+    assert.equal(finalized.request.maxPriorityFeePerGas, null);
   } finally {
     await sdk.dispose();
     await rpcServer.stop();
@@ -1041,6 +1146,50 @@ async function startExecutionRpcFixtureServer(options) {
       });
     },
   };
+}
+
+async function signFinalizedTransactionRequestWithRustExample(request) {
+  const args = [
+    "run",
+    "--quiet",
+    "-p",
+    "privacy-pools-sdk-signer",
+    "--example",
+    "sign-finalized-request",
+    "--features",
+    "local-mnemonic",
+    "--",
+    EXECUTION_SIGNER_MNEMONIC,
+    JSON.stringify(request),
+  ];
+  const child = spawn("cargo", args, {
+    cwd: workspaceRoot,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+
+  const exitCode = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(
+      `Rust signer example failed with code ${exitCode}: ${stderr.trim() || stdout.trim()}`,
+    );
+  }
+
+  return stdout.trim();
 }
 
 function validRelayDataHex() {

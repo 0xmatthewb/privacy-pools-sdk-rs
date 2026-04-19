@@ -29,6 +29,8 @@ alloy-network.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
 alloy-signer-local = { workspace = true, optional = true }
 privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [lints]
