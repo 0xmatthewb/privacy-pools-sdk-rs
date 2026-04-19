@@ -902,38 +902,17 @@ mod tests {
         ArtifactBytes, ArtifactDescriptor, ArtifactKind, ArtifactManifest,
     };
     use privacy_pools_sdk_core::{CommitmentCircuitInput, parse_decimal_field};
+    use num_bigint::BigUint;
     use serde_json::Value;
+    use std::fs;
 
-    #[test]
-    fn stable_backend_is_arkworks() {
-        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
-        assert_eq!(engine.backend(), ProverBackend::Arkworks);
-    }
-
-    #[test]
-    fn generic_prove_requires_witness_function() {
-        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
-        let request = ProvingRequest {
-            circuit: "withdraw".to_owned(),
-            input_json: "{}".to_owned(),
-            artifact_version: "0.1.0-alpha.1".to_owned(),
-            zkey_path: PathBuf::from("/tmp/withdraw.zkey"),
-        };
-
-        assert!(matches!(
-            engine.prove(&request),
-            Err(ProverError::WitnessFunctionRequired)
-        ));
-    }
-
-    #[test]
-    fn serializes_withdrawal_input_for_default_witness_backends() {
+    fn withdrawal_fixture_input() -> WithdrawalCircuitInput {
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../fixtures/vectors/withdrawal-circuit-input.json"
         ))
         .unwrap();
 
-        let input = WithdrawalCircuitInput {
+        WithdrawalCircuitInput {
             withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
                 .unwrap(),
             state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
@@ -971,7 +950,102 @@ mod tests {
                 .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
                 .collect(),
             asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
+        }
+    }
+
+    fn read_wtns_values(path: &PathBuf) -> Vec<String> {
+        let bytes = fs::read(path).unwrap();
+        let mut cursor = 0usize;
+
+        fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> u32 {
+            let end = *cursor + 4;
+            let value = u32::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+            *cursor = end;
+            value
+        }
+
+        fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> u64 {
+            let end = *cursor + 8;
+            let value = u64::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+            *cursor = end;
+            value
+        }
+
+        assert_eq!(&bytes[..4], b"wtns");
+        cursor += 4;
+        assert_eq!(read_u32_le(&bytes, &mut cursor), 2);
+
+        let section_count = read_u32_le(&bytes, &mut cursor);
+        let mut field_bytes = None;
+        let mut witness_count = None;
+        let mut witness_values = None;
+
+        for _ in 0..section_count {
+            let section_id = read_u32_le(&bytes, &mut cursor);
+            let section_len = read_u64_le(&bytes, &mut cursor) as usize;
+            let section_start = cursor;
+            let section_end = section_start + section_len;
+
+            match section_id {
+                1 => {
+                    let n8 = read_u32_le(&bytes, &mut cursor) as usize;
+                    cursor += n8;
+                    let n_witness = read_u32_le(&bytes, &mut cursor) as usize;
+                    field_bytes = Some(n8);
+                    witness_count = Some(n_witness);
+                }
+                2 => {
+                    let n8 = field_bytes.expect("wtns header precedes witness section");
+                    let n_witness =
+                        witness_count.expect("wtns header declares witness count first");
+                    let mut values = Vec::with_capacity(n_witness);
+                    for _ in 0..n_witness {
+                        let end = cursor + n8;
+                        values.push(BigUint::from_bytes_le(&bytes[cursor..end]).to_string());
+                        cursor = end;
+                    }
+                    witness_values = Some(values);
+                }
+                _ => {
+                    cursor = section_end;
+                }
+            }
+
+            assert_eq!(cursor, section_end);
+        }
+
+        witness_values.expect("wtns witness section present")
+    }
+
+    #[test]
+    fn stable_backend_is_arkworks() {
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
+        assert_eq!(engine.backend(), ProverBackend::Arkworks);
+    }
+
+    #[test]
+    fn generic_prove_requires_witness_function() {
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
+        let request = ProvingRequest {
+            circuit: "withdraw".to_owned(),
+            input_json: "{}".to_owned(),
+            artifact_version: "0.1.0-alpha.1".to_owned(),
+            zkey_path: PathBuf::from("/tmp/withdraw.zkey"),
         };
+
+        assert!(matches!(
+            engine.prove(&request),
+            Err(ProverError::WitnessFunctionRequired)
+        ));
+    }
+
+    #[test]
+    fn serializes_withdrawal_input_for_default_witness_backends() {
+        let input = withdrawal_fixture_input();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
 
         let normalized: Value =
             serde_json::from_str(&serialize_withdrawal_circuit_input(&input).unwrap()).unwrap();
@@ -1045,54 +1119,20 @@ mod tests {
 
     #[test]
     fn compiled_withdraw_witness_generates_values_from_reference_input() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../fixtures/vectors/withdrawal-circuit-input.json"
-        ))
-        .unwrap();
-
-        let input = WithdrawalCircuitInput {
-            withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
-                .unwrap(),
-            state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
-                .unwrap(),
-            state_tree_depth: fixture["stateWitness"]["depth"].as_u64().unwrap() as usize,
-            asp_root: parse_decimal_field(fixture["aspWitness"]["root"].as_str().unwrap()).unwrap(),
-            asp_tree_depth: fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
-            context: parse_decimal_field(fixture["expected"]["context"].as_str().unwrap()).unwrap(),
-            label: parse_decimal_field(fixture["label"].as_str().unwrap()).unwrap(),
-            existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
-                .unwrap(),
-            existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            state_siblings: fixture["stateWitness"]["siblings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
-                .collect(),
-            state_index: fixture["stateWitness"]["index"].as_u64().unwrap() as usize,
-            asp_siblings: fixture["aspWitness"]["siblings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
-                .collect(),
-            asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
-        };
-
+        let input = withdrawal_fixture_input();
         let witness = generate_withdrawal_witness(&input).unwrap();
         assert!(!witness.is_empty());
         assert_eq!(witness[0], "1");
+    }
+
+    #[test]
+    fn compiled_withdraw_witness_matches_snarkjs_wtns_golden() {
+        let witness = generate_withdrawal_witness(&withdrawal_fixture_input()).unwrap();
+        let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/withdrawal-witness-golden.wtns");
+        let golden = read_wtns_values(&golden_path);
+
+        assert_eq!(witness, golden);
     }
 
     #[test]

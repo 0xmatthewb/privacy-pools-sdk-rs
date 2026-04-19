@@ -16,7 +16,7 @@ use privacy_pools_sdk_core::{
     CircuitMerkleWitness, FieldElement, MerkleProof, parse_decimal_field,
 };
 use privacy_pools_sdk_crypto::poseidon_hash;
-use std::sync::LazyLock;
+use std::{cell::RefCell, sync::LazyLock};
 use thiserror::Error;
 
 pub const DEFAULT_CIRCUIT_DEPTH: usize = 32;
@@ -28,11 +28,16 @@ static SNARK_SCALAR_FIELD_MODULUS: LazyLock<FieldElement> = LazyLock::new(|| {
     )
     .unwrap_or(U256::ZERO)
 });
+thread_local! {
+    static LEAN_HASH_ERROR: RefCell<Option<TreeError>> = const { RefCell::new(None) };
+}
 
 #[derive(Debug, Error)]
 pub enum TreeError {
     #[error("leaf not found in the leaves array")]
     LeafNotFound,
+    #[error("invalid lean hash input length: expected 64 bytes, got {actual}")]
+    InvalidLeanHashInput { actual: usize },
     #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
     InvalidCircuitWitnessShape { expected: usize, actual: usize },
     #[error("circuit witness index {index} exceeds circuit index bit width {depth}")]
@@ -66,7 +71,7 @@ pub fn generate_merkle_proof(
         .copied()
         .map(field_to_bytes)
         .collect::<Vec<_>>();
-    let tree = LeanIMT::<32>::new(&leaf_bytes, lean_poseidon_hash)?;
+    let tree = with_lean_hash_error(|| LeanIMT::<32>::new(&leaf_bytes, lean_poseidon_hash))??;
     let leaf_index = tree
         .index_of(&field_to_bytes(leaf))
         .ok_or(TreeError::LeafNotFound)?;
@@ -85,7 +90,8 @@ pub fn verify_merkle_proof(proof: &MerkleProof) -> bool {
         index: proof.index,
         siblings: proof.siblings.iter().copied().map(field_to_bytes).collect(),
     };
-    LeanIMT::<32>::verify_proof(&lean, lean_poseidon_hash)
+    with_lean_hash_error(|| LeanIMT::<32>::verify_proof(&lean, lean_poseidon_hash))
+        .unwrap_or(false)
 }
 
 pub fn to_circuit_witness(
@@ -171,22 +177,44 @@ fn from_lean_proof(proof: LeanMerkleProof<32>) -> MerkleProof {
     }
 }
 
-fn lean_poseidon_hash(input: &[u8]) -> [u8; 32] {
+fn with_lean_hash_error<T>(operation: impl FnOnce() -> T) -> Result<T, TreeError> {
+    LEAN_HASH_ERROR.with(|slot| {
+        *slot.borrow_mut() = None;
+    });
+    let value = operation();
+    let error = LEAN_HASH_ERROR.with(|slot| slot.borrow_mut().take());
+    match error {
+        Some(error) => Err(error),
+        None => Ok(value),
+    }
+}
+
+fn try_lean_poseidon_hash(input: &[u8]) -> Result<[u8; 32], TreeError> {
     if input.len() != 64 {
-        return [0_u8; 32];
+        return Err(TreeError::InvalidLeanHashInput {
+            actual: input.len(),
+        });
     }
 
     let left = U256::from_be_slice(&input[..32]);
     let right = U256::from_be_slice(&input[32..64]);
-    if ensure_canonical_field(left, "left").is_err()
-        || ensure_canonical_field(right, "right").is_err()
-    {
-        return [0_u8; 32];
-    }
+    ensure_canonical_field(left, "left")?;
+    ensure_canonical_field(right, "right")?;
+    Ok(field_to_bytes(poseidon_hash(&[left, right])?))
+}
 
-    match poseidon_hash(&[left, right]) {
-        Ok(value) => field_to_bytes(value),
-        Err(_) => [0_u8; 32],
+fn lean_poseidon_hash(input: &[u8]) -> [u8; 32] {
+    match try_lean_poseidon_hash(input) {
+        Ok(value) => value,
+        Err(error) => {
+            LEAN_HASH_ERROR.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                if slot.is_none() {
+                    *slot = Some(error);
+                }
+            });
+            [0_u8; 32]
+        }
     }
 }
 

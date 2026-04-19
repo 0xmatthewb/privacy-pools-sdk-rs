@@ -4,7 +4,8 @@ use libfuzzer_sys::fuzz_target;
 use privacy_pools_sdk_core::ProofBundle;
 use privacy_pools_sdk_verifier::PreparedVerifier;
 
-const WITHDRAW_VKEY_JSON: &[u8] = include_bytes!("../../fixtures/artifacts/withdraw.vkey.json");
+const VALID_VKEY_JSON: &[u8] =
+    include_bytes!("../../fixtures/artifacts/browser-verification.vkey.json");
 const VALID_PROOF_BUNDLE_JSON: &[u8] = br#"{
   "proof": {
     "pi_a": [
@@ -50,12 +51,20 @@ fn mutated_fixture_bytes(seed: &[u8], fixture: &[u8]) -> Vec<u8> {
 fuzz_target!(|data: &[u8]| {
     let split = data.len() / 2;
     let (vkey_seed, proof_seed) = data.split_at(split);
-    let vkey_bytes = mutated_fixture_bytes(vkey_seed, WITHDRAW_VKEY_JSON);
+    let vkey_bytes = mutated_fixture_bytes(vkey_seed, VALID_VKEY_JSON);
     let proof_bytes = mutated_fixture_bytes(proof_seed, VALID_PROOF_BUNDLE_JSON);
 
+    let verifier = PreparedVerifier::from_vkey_bytes(VALID_VKEY_JSON).expect("valid vkey parses");
+    let valid_proof =
+        serde_json::from_slice::<ProofBundle>(VALID_PROOF_BUNDLE_JSON).expect("valid proof parses");
+
+    if proof_bytes != VALID_PROOF_BUNDLE_JSON
+        && let Ok(proof) = serde_json::from_slice::<ProofBundle>(&proof_bytes)
+    {
+        assert!(!matches!(verifier.verify(&proof), Ok(true)));
+    }
+
     if let Ok(verifier) = PreparedVerifier::from_vkey_bytes(&vkey_bytes) {
-        if let Ok(proof) = serde_json::from_slice::<ProofBundle>(&proof_bytes) {
-            let _ = verifier.verify(&proof);
-        }
+        let _ = verifier.verify(&valid_proof);
     }
 });
