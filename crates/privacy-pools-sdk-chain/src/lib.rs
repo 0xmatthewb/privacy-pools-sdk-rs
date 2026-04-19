@@ -72,6 +72,12 @@ static WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
     ))
     .expect("withdraw verification key should declare nPublic")
 });
+static RAGEQUIT_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
+    parse_vkey_public_signal_count(include_str!(
+        "../../../fixtures/artifacts/commitment.vkey.json"
+    ))
+    .expect("ragequit verification key should declare nPublic")
+});
 
 #[derive(Debug, Error)]
 pub enum ChainError {
@@ -310,23 +316,19 @@ impl FinalizationClient for HttpExecutionClient {
     }
 
     async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
-        match self.provider.estimate_eip1559_fees().await {
-            Ok(fees) => Ok(FeeParameters {
-                gas_price: None,
-                max_fee_per_gas: Some(fees.max_fee_per_gas),
-                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
-            }),
-            Err(_) => self
-                .provider
+        let eip1559_fees = self
+            .provider
+            .estimate_eip1559_fees()
+            .await
+            .map(|fees| (fees.max_fee_per_gas, fees.max_priority_fee_per_gas))
+            .map_err(|error| error.to_string());
+        fee_parameters_from_quotes(eip1559_fees, async {
+            self.provider
                 .get_gas_price()
                 .await
-                .map(|gas_price| FeeParameters {
-                    gas_price: Some(gas_price),
-                    max_fee_per_gas: None,
-                    max_priority_fee_per_gas: None,
-                })
-                .map_err(|error| ChainError::Transport(error.to_string())),
-        }
+                .map_err(|error| error.to_string())
+        })
+        .await
     }
 
     async fn submit_raw_transaction(
@@ -414,23 +416,19 @@ impl FinalizationClient for LocalSignerExecutionClient {
     }
 
     async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
-        match self.provider.estimate_eip1559_fees().await {
-            Ok(fees) => Ok(FeeParameters {
-                gas_price: None,
-                max_fee_per_gas: Some(fees.max_fee_per_gas),
-                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
-            }),
-            Err(_) => self
-                .provider
+        let eip1559_fees = self
+            .provider
+            .estimate_eip1559_fees()
+            .await
+            .map(|fees| (fees.max_fee_per_gas, fees.max_priority_fee_per_gas))
+            .map_err(|error| error.to_string());
+        fee_parameters_from_quotes(eip1559_fees, async {
+            self.provider
                 .get_gas_price()
                 .await
-                .map(|gas_price| FeeParameters {
-                    gas_price: Some(gas_price),
-                    max_fee_per_gas: None,
-                    max_priority_fee_per_gas: None,
-                })
-                .map_err(|error| ChainError::Transport(error.to_string())),
-        }
+                .map_err(|error| error.to_string())
+        })
+        .await
     }
 
     async fn submit_raw_transaction(
@@ -558,6 +556,11 @@ pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainEr
 }
 
 pub fn ragequit_public_signals(proof: &ProofBundle) -> Result<[U256; 4], ChainError> {
+    ensure_public_signal_count(
+        "ragequit",
+        *RAGEQUIT_VKEY_PUBLIC_SIGNAL_COUNT,
+        RAGEQUIT_PUBLIC_SIGNAL_COUNT,
+    )?;
     let public_signals = proof
         .public_signals
         .iter()
@@ -1384,6 +1387,30 @@ fn block_id_for_consistency(consistency: ReadConsistency) -> BlockId {
     }
 }
 
+async fn fee_parameters_from_quotes<G>(
+    eip1559_fees: Result<(u128, u128), String>,
+    gas_price: G,
+) -> Result<FeeParameters, ChainError>
+where
+    G: std::future::Future<Output = Result<u128, String>>,
+{
+    match eip1559_fees {
+        Ok((max_fee_per_gas, max_priority_fee_per_gas)) => Ok(FeeParameters {
+            gas_price: None,
+            max_fee_per_gas: Some(max_fee_per_gas),
+            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
+        }),
+        Err(_) => gas_price
+            .await
+            .map(|gas_price| FeeParameters {
+                gas_price: Some(gas_price),
+                max_fee_per_gas: None,
+                max_priority_fee_per_gas: None,
+            })
+            .map_err(ChainError::Transport),
+    }
+}
+
 fn enforce_fee_cap(
     max_fee_quote_wei: Option<u128>,
     fees: &FeeParameters,
@@ -1997,6 +2024,77 @@ mod tests {
                 &proof,
             ),
             Err(ChainError::InvalidRagequitPublicSignals(8))
+        ));
+    }
+
+    #[test]
+    fn rejects_ragequit_verification_key_public_signal_drift() {
+        let drifted_vkey = include_str!("../../../fixtures/artifacts/commitment.vkey.json")
+            .replacen("\"nPublic\": 4", "\"nPublic\": 5", 1);
+        let actual = parse_vkey_public_signal_count(&drifted_vkey).unwrap();
+        let error =
+            ensure_public_signal_count("ragequit", actual, RAGEQUIT_PUBLIC_SIGNAL_COUNT).unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::PublicSignalCountDrift {
+                circuit,
+                expected,
+                actual
+            } if circuit == "ragequit"
+                && expected == RAGEQUIT_PUBLIC_SIGNAL_COUNT
+                && actual == RAGEQUIT_PUBLIC_SIGNAL_COUNT + 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_legacy_fee_quotes_when_eip1559_is_unavailable() {
+        let fees =
+            fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async { Ok(42) })
+                .await
+                .unwrap();
+
+        assert_eq!(
+            fees,
+            FeeParameters {
+                gas_price: Some(42),
+                max_fee_per_gas: None,
+                max_priority_fee_per_gas: None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_transport_error_when_fee_quote_fallbacks_fail() {
+        let error = fee_parameters_from_quotes(
+            Err("1559 unsupported".to_owned()),
+            async { Err("legacy fee quote unavailable".to_owned()) },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::Transport(message) if message == "legacy fee quote unavailable"
+        ));
+    }
+
+    #[test]
+    fn rejects_fee_quotes_above_configured_cap() {
+        let error = enforce_fee_cap(
+            Some(10),
+            &FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(11),
+                max_priority_fee_per_gas: Some(2),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::FeeQuoteExceedsCap { field, quoted, cap }
+                if field == "max_fee_per_gas" && quoted == 11 && cap == 10
         ));
     }
 
