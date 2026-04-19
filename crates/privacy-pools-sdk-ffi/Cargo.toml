@@ -23,6 +23,7 @@ local-signer-client = ["privacy-pools-sdk/local-signer-client"]
 alloy-primitives = { workspace = true, features = ["serde"] }
 hex.workspace = true
 privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

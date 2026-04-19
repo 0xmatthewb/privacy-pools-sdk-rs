@@ -3487,6 +3487,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "privacy-pools-sdk",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.18",

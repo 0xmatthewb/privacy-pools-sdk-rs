@@ -40,7 +40,7 @@ use std::{
     },
 };
 use uuid::Uuid;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -545,14 +545,14 @@ pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
         .map_err(to_napi_error)
 }
 
-fn derive_master_keys_from_utf8_bytes(mut mnemonic: Vec<u8>) -> NapiResult<String> {
+fn derive_master_keys_from_utf8_bytes(mnemonic: Vec<u8>) -> NapiResult<String> {
+    let mnemonic = Zeroizing::new(mnemonic);
     let result = (|| {
         let phrase = std::str::from_utf8(&mnemonic)
             .map_err(|error| to_napi_error(anyhow!(error.to_string())))?;
         let keys = SDK.generate_master_keys(phrase).map_err(to_napi_error)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys)).map_err(to_napi_error)
     })();
-    mnemonic.zeroize();
     result
 }
 
@@ -1929,6 +1929,7 @@ pub fn checkpoint_recovery(events_json: String, policy_json: String) -> NapiResu
 
 #[napi]
 pub fn derive_recovery_keyset(mnemonic: String, policy_json: String) -> NapiResult<String> {
+    ensure_recovery_secret_exports_enabled().map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))
         .map_err(to_napi_error)?;
@@ -1944,6 +1945,7 @@ pub fn recover_account_state(
     pools_json: String,
     policy_json: String,
 ) -> NapiResult<String> {
+    ensure_recovery_secret_exports_enabled().map_err(to_napi_error)?;
     let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
         &pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
@@ -1965,6 +1967,7 @@ pub fn recover_account_state_with_keyset(
     pools_json: String,
     policy_json: String,
 ) -> NapiResult<String> {
+    ensure_recovery_secret_exports_enabled().map_err(to_napi_error)?;
     let keyset = parse_json::<JsRecoveryKeyset>(&keyset_json)
         .and_then(|keyset| from_js_recovery_keyset(&keyset))
         .map_err(to_napi_error)?;
@@ -2002,6 +2005,18 @@ where
         );
     }
     serde_json::from_str(value).context("failed to parse JSON payload")
+}
+
+fn ensure_recovery_secret_exports_enabled() -> Result<()> {
+    #[cfg(not(feature = "dangerous-key-export"))]
+    {
+        bail!("recovery secret export requires the dangerous-key-export feature");
+    }
+
+    #[cfg(feature = "dangerous-key-export")]
+    {
+        Ok(())
+    }
 }
 
 fn to_json_string(value: &impl Serialize) -> Result<String> {
@@ -2908,5 +2923,58 @@ fn to_js_recovered_account_state(state: &RecoveredAccountState) -> JsRecoveredAc
             .iter()
             .map(to_js_spendable_scope)
             .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_mnemonic() -> &'static str {
+        "test test test test test test test test test test test junk"
+    }
+
+    fn recovery_policy_json() -> String {
+        r#"{"compatibilityMode":"strict","failClosed":true}"#.to_owned()
+    }
+
+    fn clear_registries() {
+        SECRET_HANDLE_REGISTRY.write().unwrap().clear();
+        VERIFIED_PROOF_HANDLE_REGISTRY.write().unwrap().clear();
+        EXECUTION_HANDLE_REGISTRY.write().unwrap().clear();
+        WITHDRAWAL_SESSION_REGISTRY.write().unwrap().clear();
+        COMMITMENT_SESSION_REGISTRY.write().unwrap().clear();
+    }
+
+    #[test]
+    fn secret_handle_registry_stays_bounded() {
+        clear_registries();
+
+        for _ in 0..(MAX_SECRET_HANDLES + 8) {
+            register_secret_handle(SecretHandleEntry::MasterKeys(
+                SDK.generate_master_keys(test_mnemonic()).unwrap(),
+            ))
+            .unwrap();
+        }
+
+        assert_eq!(SECRET_HANDLE_REGISTRY.read().unwrap().len(), MAX_SECRET_HANDLES);
+        clear_registries();
+    }
+
+    #[cfg(not(feature = "dangerous-key-export"))]
+    #[test]
+    fn recovery_secret_exports_fail_closed_without_dangerous_key_export() {
+        let error = derive_recovery_keyset(test_mnemonic().to_owned(), recovery_policy_json())
+            .expect_err("safe builds must not export recovery secrets");
+
+        assert!(error.reason.contains("dangerous-key-export"));
+    }
+
+    #[test]
+    fn parse_json_with_limit_rejects_oversized_payloads() {
+        let payload = "0".repeat(MAX_CONTROL_JSON_INPUT_BYTES + 1);
+        let error = parse_json::<serde_json::Value>(&payload).unwrap_err();
+
+        assert!(error.to_string().contains("exceeds maximum size"));
     }
 }

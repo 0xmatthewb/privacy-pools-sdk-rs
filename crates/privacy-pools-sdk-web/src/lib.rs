@@ -43,7 +43,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 #[cfg(all(target_arch = "wasm32", feature = "threaded"))]
 pub use wasm_bindgen_rayon::init_thread_pool;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -745,13 +745,13 @@ pub fn import_master_keys_handle_json(master_keys_json: &str) -> Result<String> 
     register_secret_handle(SecretHandleEntry::MasterKeys(keys))
 }
 
-fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<String> {
+fn derive_master_keys_handle_from_utf8_bytes(mnemonic: Vec<u8>) -> Result<String> {
+    let mnemonic = Zeroizing::new(mnemonic);
     let result = (|| {
         let phrase = std::str::from_utf8(&mnemonic)?;
         let keys = privacy_pools_sdk_crypto::generate_master_keys(phrase)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys))
     })();
-    mnemonic.zeroize();
     result
 }
 
@@ -1004,7 +1004,20 @@ pub fn checkpoint_recovery_json(events_json: &str, policy_json: &str) -> Result<
     to_json_string(&to_js_recovery_checkpoint(&checkpoint))
 }
 
+fn ensure_recovery_secret_exports_enabled() -> Result<()> {
+    #[cfg(not(feature = "dangerous-key-export"))]
+    {
+        bail!("recovery secret export requires the dangerous-key-export feature");
+    }
+
+    #[cfg(feature = "dangerous-key-export")]
+    {
+        Ok(())
+    }
+}
+
 pub fn derive_recovery_keyset_json(mnemonic: &str, policy_json: &str) -> Result<String> {
+    ensure_recovery_secret_exports_enabled()?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
     let keyset = privacy_pools_sdk_recovery::derive_recovery_keyset(mnemonic, policy)?;
@@ -1016,6 +1029,7 @@ pub fn recover_account_state_json(
     pools_json: &str,
     policy_json: &str,
 ) -> Result<String> {
+    ensure_recovery_secret_exports_enabled()?;
     let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
         pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
@@ -1032,6 +1046,7 @@ pub fn recover_account_state_with_keyset_json(
     pools_json: &str,
     policy_json: &str,
 ) -> Result<String> {
+    ensure_recovery_secret_exports_enabled()?;
     let keyset = parse_json::<JsRecoveryKeyset>(keyset_json)
         .and_then(|keyset| from_js_recovery_keyset(&keyset))?;
     let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
@@ -4021,6 +4036,7 @@ mod tests {
         assert!(status.reason.contains("browser proving"));
     }
 
+    #[cfg(feature = "dangerous-key-export")]
     #[test]
     fn derives_reference_keys() {
         let json =

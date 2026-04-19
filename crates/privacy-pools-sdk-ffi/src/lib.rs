@@ -38,8 +38,11 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use zeroize::Zeroize;
+use serde::de::DeserializeOwned;
+use zeroize::Zeroizing;
 
+const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
 const MAX_SECRET_HANDLES: usize = 512;
 const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
 const MAX_EXECUTION_HANDLES: usize = 256;
@@ -76,6 +79,8 @@ pub enum FfiError {
     HandleAlreadyRegistered(String),
     #[error("registry `{registry}` is full (max {max_entries})")]
     RegistryFull { registry: String, max_entries: u64 },
+    #[error("chain id mismatch: expected {expected}, got {actual}")]
+    ChainIdMismatch { expected: u64, actual: u64 },
     #[error("secret handle not found: {0}")]
     SecretHandleNotFound(String),
     #[error("verified proof handle not found: {0}")]
@@ -614,9 +619,28 @@ static SDK_RUNTIME: LazyLock<Result<tokio::runtime::Runtime, String>> = LazyLock
         .map_err(|error| error.to_string())
 });
 
+fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T, FfiError>
+where
+    T: DeserializeOwned,
+{
+    if value.len() > max_bytes {
+        return Err(FfiError::PayloadTooLarge(format!(
+            "JSON payload exceeds maximum size: {} > {} bytes",
+            value.len(),
+            max_bytes
+        )));
+    }
+
+    serde_json::from_str(value).map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
-    serde_json::from_str(manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))
+    parse_json_with_limit(manifest_json, MAX_ARTIFACT_JSON_INPUT_BYTES).map_err(|error| {
+        match error {
+            FfiError::OperationFailed(message) => FfiError::InvalidManifest(message),
+            other => other,
+        }
+    })
 }
 
 fn parse_address(value: &str) -> Result<Address, FfiError> {
@@ -655,13 +679,19 @@ fn sdk_runtime() -> Result<&'static tokio::runtime::Runtime, FfiError> {
         .map_err(|error| FfiError::OperationFailed(error.clone()))
 }
 
-fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
-    while registry.len() >= capacity {
-        let Some(handle) = registry.keys().min().cloned() else {
-            break;
-        };
-        registry.remove(&handle);
+fn ensure_registry_capacity<T>(
+    registry: &HashMap<String, T>,
+    registry_name: &str,
+    capacity: usize,
+) -> Result<(), FfiError> {
+    if registry.len() >= capacity {
+        return Err(FfiError::RegistryFull {
+            registry: registry_name.to_owned(),
+            max_entries: capacity as u64,
+        });
     }
+
+    Ok(())
 }
 
 fn map_signer_error(error: SignerError) -> FfiError {
@@ -683,6 +713,10 @@ fn map_crypto_error(error: privacy_pools_sdk::crypto::CryptoError) -> FfiError {
 
 fn map_chain_error(error: privacy_pools_sdk::chain::ChainError) -> FfiError {
     match error {
+        privacy_pools_sdk::chain::ChainError::ChainIdMismatch { expected, actual }
+        | privacy_pools_sdk::chain::ChainError::PlannedChainIdMismatch { expected, actual } => {
+            FfiError::ChainIdMismatch { expected, actual }
+        }
         privacy_pools_sdk::chain::ChainError::InvalidRelayData(message) => {
             FfiError::InvalidRelayData(message)
         }
@@ -889,7 +923,7 @@ fn register_secret_handle(entry: SecretHandleEntry) -> Result<String, FfiError> 
     let mut registry = SECRET_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
+    ensure_registry_capacity(&registry, "secret_handles", MAX_SECRET_HANDLES)?;
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -925,7 +959,11 @@ fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<Str
     let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
+    ensure_registry_capacity(
+        &registry,
+        "verified_proof_handles",
+        MAX_VERIFIED_PROOF_HANDLES,
+    )?;
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -961,7 +999,7 @@ fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String, FfiE
     let mut registry = EXECUTION_HANDLE_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
+    ensure_registry_capacity(&registry, "execution_handles", MAX_EXECUTION_HANDLES)?;
     registry.insert(handle.clone(), entry);
     Ok(handle)
 }
@@ -1007,7 +1045,11 @@ fn register_withdrawal_session(
     let mut registry = WITHDRAWAL_SESSION_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+    ensure_registry_capacity(
+        &registry,
+        "withdrawal_sessions",
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+    )?;
     registry.insert(handle, session);
     Ok(ffi)
 }
@@ -1046,7 +1088,11 @@ fn register_commitment_session(
     let mut registry = COMMITMENT_SESSION_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
+    ensure_registry_capacity(
+        &registry,
+        "commitment_sessions",
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+    )?;
     registry.insert(handle, session);
     Ok(ffi)
 }
@@ -2280,7 +2326,8 @@ pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     })
 }
 
-fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<String, FfiError> {
+fn derive_master_keys_handle_from_utf8_bytes(mnemonic: Vec<u8>) -> Result<String, FfiError> {
+    let mnemonic = Zeroizing::new(mnemonic);
     let result = (|| {
         let phrase = std::str::from_utf8(&mnemonic)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
@@ -2289,7 +2336,6 @@ fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<St
             .map_err(map_crypto_error)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys))
     })();
-    mnemonic.zeroize();
     result
 }
 
@@ -3052,8 +3098,7 @@ pub fn start_prepare_withdrawal_execution_job(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiAsyncJobHandle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let pool_address = parse_address(&pool_address)?;
@@ -3100,8 +3145,7 @@ pub fn prepare_withdrawal_execution(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiPreparedTransactionExecution, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -3134,8 +3178,7 @@ pub fn start_prepare_relay_execution_job(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiAsyncJobHandle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let entrypoint_address = parse_address(&entrypoint_address)?;
@@ -3182,8 +3225,7 @@ pub fn prepare_relay_execution(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiPreparedTransactionExecution, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -3702,8 +3744,7 @@ pub fn verify_artifact_bytes(
     kind: String,
     bytes: Vec<u8>,
 ) -> Result<FfiArtifactVerification, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let kind = parse_artifact_kind(&kind)?;
     let version = manifest.version.clone();
     let descriptor = manifest
@@ -3762,8 +3803,7 @@ pub fn get_artifact_statuses(
     artifacts_root: String,
     circuit: String,
 ) -> Result<Vec<FfiArtifactStatus>, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let version = manifest.version.clone();
     let statuses = sdk().artifact_statuses(&manifest, PathBuf::from(artifacts_root), &circuit);
 
@@ -3779,8 +3819,7 @@ pub fn resolve_verified_artifact_bundle(
     artifacts_root: String,
     circuit: String,
 ) -> Result<FfiResolvedArtifactBundle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .resolve_verified_artifact_bundle(&manifest, PathBuf::from(artifacts_root), &circuit)
         .map_err(map_artifact_error)?;
@@ -3831,7 +3870,7 @@ mod tests {
         HANDLE_REGISTRY_TEST_MUTEX
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("handle registry test mutex")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn vector() -> Value {
@@ -3849,6 +3888,113 @@ mod tests {
             }
             Err(other) => panic!("expected disabled-operation error, found {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_json_with_limit_rejects_oversized_payloads() {
+        let oversized = "x".repeat(MAX_CONTROL_JSON_INPUT_BYTES + 1);
+        let error = parse_json_with_limit::<Value>(&oversized, MAX_CONTROL_JSON_INPUT_BYTES)
+            .expect_err("oversized control payload should be rejected");
+        assert!(matches!(error, FfiError::PayloadTooLarge(_)));
+    }
+
+    #[test]
+    fn registry_capacity_rejects_when_full() {
+        let registry = (0..MAX_SECRET_HANDLES)
+            .map(|index| (index.to_string(), ()))
+            .collect::<HashMap<_, _>>();
+        let error = ensure_registry_capacity(&registry, "secret_handles", MAX_SECRET_HANDLES)
+            .expect_err("full registries should fail closed");
+        assert!(matches!(
+            error,
+            FfiError::RegistryFull {
+                ref registry,
+                max_entries
+            } if registry == "secret_handles" && max_entries == MAX_SECRET_HANDLES as u64
+        ));
+    }
+
+    #[test]
+    fn chain_id_mismatches_map_to_typed_ffi_errors() {
+        let error = map_chain_error(privacy_pools_sdk::chain::ChainError::ChainIdMismatch {
+            expected: 1,
+            actual: 2,
+        });
+        assert!(matches!(
+            error,
+            FfiError::ChainIdMismatch {
+                expected: 1,
+                actual: 2
+            }
+        ));
+    }
+
+    fn dangerous_exports_disabled<T>() -> Result<T, FfiError> {
+        Err(FfiError::OperationFailed(
+            "dangerous export helpers are disabled".to_owned(),
+        ))
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_master_keys_for_test(handle: String) -> Result<FfiMasterKeys, FfiError> {
+        dangerously_export_master_keys(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_master_keys_for_test(_handle: String) -> Result<FfiMasterKeys, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_commitment_preimage_for_test(handle: String) -> Result<FfiCommitment, FfiError> {
+        dangerously_export_commitment_preimage(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_commitment_preimage_for_test(_handle: String) -> Result<FfiCommitment, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiPreflightedTransaction, FfiError> {
+        dangerously_export_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_finalized_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
+        dangerously_export_finalized_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_finalized_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_submitted_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
+        dangerously_export_submitted_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_submitted_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
     }
 
     const EXECUTION_TEST_MNEMONIC: &str =
@@ -4609,6 +4755,8 @@ mod tests {
             "simulated": report.simulated,
             "estimated_gas": report.estimated_gas,
             "mode": report.mode,
+            "read_consistency": report.read_consistency,
+            "max_fee_quote_wei": report.max_fee_quote_wei,
             "code_hash_checks": report.code_hash_checks.iter().map(|check| {
                 json!({
                     "address": check.address,
@@ -4871,7 +5019,7 @@ mod tests {
         let master_keys_handle =
             derive_master_keys_handle(crypto_fixture["mnemonic"].as_str().unwrap().to_owned())
                 .unwrap();
-        let exported_master_keys = dangerously_export_master_keys(master_keys_handle.clone());
+        let exported_master_keys = export_master_keys_for_test(master_keys_handle.clone());
         let deposit_handle = generate_deposit_secrets_handle(
             master_keys_handle.clone(),
             crypto_fixture["scope"].as_str().unwrap().to_owned(),
@@ -4890,7 +5038,7 @@ mod tests {
             deposit_handle.clone(),
         )
         .unwrap();
-        let exported_commitment = dangerously_export_commitment_preimage(commitment_handle.clone());
+        let exported_commitment = export_commitment_preimage_for_test(commitment_handle.clone());
 
         assert_uuid_v4(&deposit_handle);
         assert_uuid_v4(&withdrawal_handle);
@@ -5030,11 +5178,11 @@ mod tests {
         );
 
         let exported_preflighted_result =
-            dangerously_export_preflighted_transaction(preflighted_handle.clone());
+            export_preflighted_transaction_for_test(preflighted_handle.clone());
         let exported_finalized_result =
-            dangerously_export_finalized_preflighted_transaction(finalized_handle.clone());
+            export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
         let exported_submitted_result =
-            dangerously_export_submitted_preflighted_transaction(submitted_handle.clone());
+            export_submitted_preflighted_transaction_for_test(submitted_handle.clone());
         let (exported_preflighted, exported_finalized, exported_submitted) =
             if cfg!(feature = "dangerous-exports") {
                 (
@@ -5216,7 +5364,7 @@ mod tests {
         )
         .unwrap();
         assert_uuid_v4(&preflighted_handle);
-        let preflighted = dangerously_export_preflighted_transaction(preflighted_handle.clone());
+        let preflighted = export_preflighted_transaction_for_test(preflighted_handle.clone());
         if cfg!(feature = "dangerous-exports") {
             assert_ffi_shape(
                 "preflightedTransaction",
@@ -5233,7 +5381,7 @@ mod tests {
         .unwrap();
         assert_uuid_v4(&finalized_handle);
         let finalized =
-            dangerously_export_finalized_preflighted_transaction(finalized_handle.clone());
+            export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
         let submitted_handle = if cfg!(feature = "dangerous-exports") {
             let finalized = finalized.unwrap();
             assert_ffi_shape(
@@ -5259,7 +5407,7 @@ mod tests {
             );
 
             let submitted =
-                dangerously_export_submitted_preflighted_transaction(submitted_handle.clone())
+                export_submitted_preflighted_transaction_for_test(submitted_handle.clone())
                     .unwrap();
             assert_ffi_shape(
                 "submittedPreflightedTransaction",
