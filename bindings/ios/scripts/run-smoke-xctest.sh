@@ -11,10 +11,20 @@ PACKAGE_LIB="$SMOKE_DIR/lib"
 PACKAGE_TESTS="$SMOKE_DIR/Tests/PrivacyPoolsSdkSmokeTests"
 FIXTURES_DIR="$PACKAGE_TESTS/Fixtures"
 XCFRAMEWORK="$IOS_DIR/build/PrivacyPoolsSdkFFI.xcframework"
-SIMULATOR_LIB="$XCFRAMEWORK/ios-arm64-simulator/libprivacy_pools_sdk_ffi.a"
+LIB_NAME="libprivacy_pools_sdk_ffi.a"
+IOS_REPORT_PATH="$SMOKE_DIR/report.json"
+IOS_XCODEBUILD_LOG="$SMOKE_DIR/xcodebuild.log"
+EXECUTION_FIXTURE_PATH="$FIXTURES_DIR/vectors/mobile-execution-fixture.json"
 
-if [[ ! -d "$XCFRAMEWORK" ]]; then
-  "$IOS_DIR/scripts/build-xcframework.sh"
+"$IOS_DIR/scripts/build-xcframework.sh"
+
+if [[ -f "$XCFRAMEWORK/ios-arm64_x86_64-simulator/$LIB_NAME" ]]; then
+  SIMULATOR_LIB="$XCFRAMEWORK/ios-arm64_x86_64-simulator/$LIB_NAME"
+elif [[ -f "$XCFRAMEWORK/ios-arm64-simulator/$LIB_NAME" ]]; then
+  SIMULATOR_LIB="$XCFRAMEWORK/ios-arm64-simulator/$LIB_NAME"
+else
+  echo "failed to locate simulator library in $XCFRAMEWORK"
+  exit 1
 fi
 
 rm -rf "$SMOKE_DIR"
@@ -35,6 +45,43 @@ MODULEMAP
 cp -R "$ROOT_DIR/fixtures/artifacts" "$FIXTURES_DIR/artifacts"
 cp -R "$ROOT_DIR/fixtures/circuits" "$FIXTURES_DIR/circuits"
 cp -R "$ROOT_DIR/fixtures/vectors" "$FIXTURES_DIR/vectors"
+
+STATE_ROOT="$(
+  node - <<'EOF'
+const fs = require("node:fs");
+const fixture = JSON.parse(fs.readFileSync("fixtures/vectors/withdrawal-circuit-input.json", "utf8"));
+process.stdout.write(String(fixture.stateWitness.root));
+EOF
+)"
+ASP_ROOT="$(
+  node - <<'EOF'
+const fs = require("node:fs");
+const fixture = JSON.parse(fs.readFileSync("fixtures/vectors/withdrawal-circuit-input.json", "utf8"));
+process.stdout.write(String(fixture.aspWitness.root));
+EOF
+)"
+node "$ROOT_DIR/packages/sdk/scripts/start-mobile-execution-fixture-servers.mjs" \
+  --platform ios \
+  --bind-host 127.0.0.1 \
+  --public-host 127.0.0.1 \
+  --state-root "$STATE_ROOT" \
+  --asp-root "$ASP_ROOT" \
+  > "$EXECUTION_FIXTURE_PATH" &
+EXECUTION_FIXTURE_PID=$!
+cleanup() {
+  kill "$EXECUTION_FIXTURE_PID" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+for _ in $(seq 1 50); do
+  if [[ -s "$EXECUTION_FIXTURE_PATH" ]]; then
+    break
+  fi
+  sleep 0.2
+done
+if [[ ! -s "$EXECUTION_FIXTURE_PATH" ]]; then
+  echo "failed to start iOS mobile execution fixture servers"
+  exit 1
+fi
 
 if [[ -z "${IOS_SMOKE_DESTINATION:-}" ]]; then
   IOS_SMOKE_DEVICE="$(
@@ -66,7 +113,10 @@ let package = Package(
             path: "Sources/PrivacyPoolsSdkFFI",
             publicHeadersPath: "include",
             linkerSettings: [
-                .unsafeFlags(["-L$PACKAGE_LIB", "-lprivacy_pools_sdk_ffi"])
+                .unsafeFlags([
+                    "-Xlinker", "-force_load",
+                    "-Xlinker", "$PACKAGE_LIB/$LIB_NAME"
+                ])
             ]
         ),
         .target(
@@ -84,150 +134,81 @@ let package = Package(
 )
 SWIFT
 
-cat > "$PACKAGE_TESTS/PrivacyPoolsSdkSmokeTests.swift" <<'SWIFT'
-import Foundation
-import PrivacyPoolsSdk
-import XCTest
+cp "$IOS_DIR/scripts/PrivacyPoolsSdkSmokeTests.swift" \
+  "$PACKAGE_TESTS/PrivacyPoolsSdkSmokeTests.swift"
 
-final class PrivacyPoolsSdkSmokeTests: XCTestCase {
-    func testProvesAndVerifiesCommitmentAndWithdrawalInAppProcess() throws {
-        let fixturesRoot = try copyFixturesToAppStorage()
-        let artifactsRoot = fixturesRoot.appendingPathComponent("artifacts").path
-        let crypto = try readJSONObject("vectors/crypto-compatibility.json")
-        let withdrawalFixture = try readJSONObject("vectors/withdrawal-circuit-input.json")
-        let withdrawalManifest = try readText("artifacts/withdrawal-proving-manifest.json")
-        let commitmentManifest = try readText("artifacts/commitment-proving-manifest.json")
-        let depositSecrets = try XCTUnwrap(crypto["depositSecrets"] as? [String: Any])
-
-        let commitment = try PrivacyPoolsSdkClient.commitment(
-            value: try string(withdrawalFixture, "existingValue"),
-            label: try string(withdrawalFixture, "label"),
-            nullifier: try string(depositSecrets, "nullifier"),
-            secret: try string(depositSecrets, "secret")
-        )
-
-        let commitmentSession = try PrivacyPoolsSdkClient.prepareCommitmentCircuitSession(
-            manifestJson: commitmentManifest,
-            artifactsRoot: artifactsRoot
-        )
-        let commitmentProof = try PrivacyPoolsSdkClient.commitmentProof(
-            backendProfile: "stable",
-            sessionHandle: commitmentSession.handle,
-            request: FfiCommitmentWitnessRequest(commitment: commitment)
-        )
-        XCTAssertEqual(commitmentProof.backend, "arkworks")
-        XCTAssertTrue(try PrivacyPoolsSdkClient.verifyCommitment(
-            backendProfile: "stable",
-            sessionHandle: commitmentSession.handle,
-            proof: commitmentProof.proof
-        ))
-        XCTAssertTrue(try PrivacyPoolsSdkClient.removeCommitmentCircuitSession(
-            handle: commitmentSession.handle
-        ))
-        XCTAssertThrowsError(try PrivacyPoolsSdkClient.verifyCommitment(
-            backendProfile: "stable",
-            sessionHandle: commitmentSession.handle,
-            proof: commitmentProof.proof
-        ))
-
-        let withdrawalSession = try PrivacyPoolsSdkClient.prepareWithdrawalCircuitSession(
-            manifestJson: withdrawalManifest,
-            artifactsRoot: artifactsRoot
-        )
-        let withdrawalProof = try PrivacyPoolsSdkClient.withdrawalProof(
-            backendProfile: "stable",
-            sessionHandle: withdrawalSession.handle,
-            request: try withdrawalRequest(
-                commitment: commitment,
-                crypto: crypto,
-                fixture: withdrawalFixture
-            )
-        )
-        XCTAssertEqual(withdrawalProof.backend, "arkworks")
-        XCTAssertTrue(try PrivacyPoolsSdkClient.verifyWithdrawal(
-            backendProfile: "stable",
-            sessionHandle: withdrawalSession.handle,
-            proof: withdrawalProof.proof
-        ))
-        XCTAssertTrue(try PrivacyPoolsSdkClient.removeWithdrawalCircuitSession(
-            handle: withdrawalSession.handle
-        ))
-        XCTAssertThrowsError(try PrivacyPoolsSdkClient.verifyWithdrawal(
-            backendProfile: "stable",
-            sessionHandle: withdrawalSession.handle,
-            proof: withdrawalProof.proof
-        ))
-    }
-
-    private func withdrawalRequest(
-        commitment: FfiCommitment,
-        crypto: [String: Any],
-        fixture: [String: Any]
-    ) throws -> FfiWithdrawalWitnessRequest {
-        FfiWithdrawalWitnessRequest(
-            commitment: commitment,
-            withdrawal: FfiWithdrawal(
-                processooor: "0x1111111111111111111111111111111111111111",
-                data: Data([0x12, 0x34])
-            ),
-            scope: try string(crypto, "scope"),
-            withdrawalAmount: try string(fixture, "withdrawalAmount"),
-            stateWitness: try circuitWitness(fixture, "stateWitness"),
-            aspWitness: try circuitWitness(fixture, "aspWitness"),
-            newNullifier: try string(fixture, "newNullifier"),
-            newSecret: try string(fixture, "newSecret")
-        )
-    }
-
-    private func circuitWitness(
-        _ fixture: [String: Any],
-        _ key: String
-    ) throws -> FfiCircuitMerkleWitness {
-        let value = try XCTUnwrap(fixture[key] as? [String: Any])
-        return FfiCircuitMerkleWitness(
-            root: try string(value, "root"),
-            leaf: try string(value, "leaf"),
-            index: UInt64(try int(value, "index")),
-            siblings: try XCTUnwrap(value["siblings"] as? [String]),
-            depth: UInt64(try int(value, "depth"))
-        )
-    }
-
-    private func copyFixturesToAppStorage() throws -> URL {
-        let source = try XCTUnwrap(Bundle.module.resourceURL)
-            .appendingPathComponent("Fixtures", isDirectory: true)
-        let destination = FileManager.default.temporaryDirectory
-            .appendingPathComponent("privacy-pools-sdk-fixtures", isDirectory: true)
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.copyItem(at: source, to: destination)
-        return destination
-    }
-
-    private func readText(_ path: String) throws -> String {
-        let url = try XCTUnwrap(Bundle.module.resourceURL)
-            .appendingPathComponent("Fixtures", isDirectory: true)
-            .appendingPathComponent(path)
-        return try String(contentsOf: url, encoding: .utf8)
-    }
-
-    private func readJSONObject(_ path: String) throws -> [String: Any] {
-        let data = try Data(readText(path).utf8)
-        return try XCTUnwrap(
-            JSONSerialization.jsonObject(with: data) as? [String: Any]
-        )
-    }
-
-    private func string(_ object: [String: Any], _ key: String) throws -> String {
-        try XCTUnwrap(object[key] as? String)
-    }
-
-    private func int(_ object: [String: Any], _ key: String) throws -> Int {
-        try XCTUnwrap(object[key] as? Int)
-    }
-}
-SWIFT
-
+set +e
 (cd "$SMOKE_DIR" && xcodebuild test \
   -scheme PrivacyPoolsSdkIOSSmoke \
   -destination "$IOS_SMOKE_DESTINATION" \
-  -skipPackagePluginValidation)
+  -skipPackagePluginValidation | tee "$IOS_XCODEBUILD_LOG")
+XCODEBUILD_STATUS=$?
+set -e
+
+REPORT_LINE="$(grep '^PRIVACY_POOLS_IOS_NATIVE_REPORT=' "$IOS_XCODEBUILD_LOG" | tail -n 1 || true)"
+if [[ -n "$REPORT_LINE" ]]; then
+  printf '%s\n' "${REPORT_LINE#PRIVACY_POOLS_IOS_NATIVE_REPORT=}" > "$IOS_REPORT_PATH"
+elif [[ ! -f "$IOS_REPORT_PATH" ]]; then
+  node - "$IOS_REPORT_PATH" "$XCODEBUILD_STATUS" <<'EOF'
+const fs = require("node:fs");
+const path = process.argv[2];
+const status = Number(process.argv[3] ?? "1");
+fs.writeFileSync(
+  path,
+  `${JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    runtime: "native",
+    platform: "ios",
+    surface: "native",
+    smoke: {
+      backend: "unknown",
+      commitmentVerified: false,
+      withdrawalVerified: false,
+      executionSubmitted: false,
+      signedManifestVerified: false,
+      wrongSignedManifestPublicKeyRejected: false,
+      tamperedSignedManifestArtifactsRejected: false,
+      tamperedProofRejected: false,
+      handleKindMismatchRejected: false,
+      staleVerifiedProofHandleRejected: false,
+      staleCommitmentSessionRejected: false,
+      staleWithdrawalSessionRejected: false,
+      wrongRootRejected: false,
+      wrongChainIdRejected: false,
+      wrongCodeHashRejected: false,
+      wrongSignerRejected: false
+    },
+    parity: {
+      totalChecks: 1,
+      passed: 0,
+      failed: 1,
+      failedChecks: [`missing ios native smoke report marker (xcodebuild exit ${status})`]
+    },
+    benchmark: {
+      artifactResolutionMs: 0,
+      bundleVerificationMs: 0,
+      sessionPreloadMs: 0,
+      firstInputPreparationMs: 0,
+      firstWitnessGenerationMs: 0,
+      firstProofGenerationMs: 0,
+      firstVerificationMs: 0,
+      firstProveAndVerifyMs: 0,
+      iterations: 1,
+      warmup: 0,
+      peakResidentMemoryBytes: null,
+      samples: [{
+        inputPreparationMs: 0,
+        witnessGenerationMs: 0,
+        proofGenerationMs: 0,
+        verificationMs: 0,
+        proveAndVerifyMs: 0
+      }]
+    }
+  }, null, 2)}\n`,
+);
+EOF
+fi
+
+if [[ "$XCODEBUILD_STATUS" -ne 0 ]]; then
+  exit "$XCODEBUILD_STATUS"
+fi

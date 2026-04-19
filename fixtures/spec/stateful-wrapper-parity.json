@@ -1,0 +1,20 @@
+{
+  "sessionLifecycle": {
+    "cryptoFixturePath": "fixtures/vectors/crypto-compatibility.json",
+    "withdrawalFixturePath": "fixtures/vectors/withdrawal-circuit-input.json",
+    "artifactsRoot": "fixtures/artifacts",
+    "withdrawalManifestPath": "fixtures/artifacts/withdrawal-proving-manifest.json",
+    "expected": {
+      "withdrawalCircuit": "withdraw",
+      "withdrawalPublicSignals": 8
+    }
+  },
+  "executionLifecycle": {
+    "withdrawal": {
+      "processooor": "$entrypointAddress",
+      "data": "0x000000000000000000000000222222222222222222222222222222222222222200000000000000000000000033333333333333333333333333333333333333330000000000000000000000000000000000000000000000000000000000000019"
+    },
+    "signingMnemonic": "test test test test test test test test test test test junk",
+    "wrongSigningMnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+  }
+}

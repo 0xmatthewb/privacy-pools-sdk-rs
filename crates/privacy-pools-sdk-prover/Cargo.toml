@@ -19,7 +19,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["native-witness"]
 native-witness = ["circom-prover/rustwitness", "dep:rust-witness"]
-rapidsnark = ["circom-prover/rapidsnark"]
 
 [dependencies]
 ark-bls12-381.workspace = true
@@ -39,7 +38,6 @@ rand.workspace = true
 rust-witness = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -7,6 +7,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+const MAX_SIGNED_MANIFEST_PAYLOAD_BYTES: usize = 128 * 1024;
+const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_TOTAL_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactKind {
@@ -23,6 +27,12 @@ pub struct ArtifactDescriptor {
     pub sha256: String,
 }
 
+/// Unsigned artifact manifest metadata.
+///
+/// Production callers should prefer the signed-manifest verification entrypoints
+/// such as [`verify_signed_manifest_artifact_bytes`] and
+/// [`verify_signed_manifest_artifact_files`] with a pinned Ed25519 public key.
+/// Bare `ArtifactManifest` loading is intended for CI and local test flows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactManifest {
     pub version: String,
@@ -48,6 +58,28 @@ pub struct SignedArtifactManifest {
     pub payload: SignedArtifactManifestPayload,
     pub signature: String,
     pub public_key: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignedManifestArtifactBytes {
+    pub filename: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedSignedArtifactManifest {
+    payload: SignedArtifactManifestPayload,
+    artifact_count: usize,
+}
+
+impl VerifiedSignedArtifactManifest {
+    pub fn payload(&self) -> &SignedArtifactManifestPayload {
+        &self.payload
+    }
+
+    pub fn artifact_count(&self) -> usize {
+        self.artifact_count
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +192,12 @@ pub enum ArtifactError {
     InvalidSignedManifest(String),
     #[error("artifact manifest signature verification failed")]
     InvalidManifestSignature,
+    #[error("artifact payload `{field}` exceeds the configured byte cap: {actual} > {max}")]
+    PayloadTooLarge {
+        field: &'static str,
+        actual: usize,
+        max: usize,
+    },
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -362,6 +400,11 @@ pub fn verify_signed_manifest_bytes(
     signature_hex: &str,
     public_key_hex: &str,
 ) -> Result<SignedArtifactManifestPayload, ArtifactError> {
+    ensure_size_cap(
+        "signed_manifest_payload",
+        payload_json.len(),
+        MAX_SIGNED_MANIFEST_PAYLOAD_BYTES,
+    )?;
     let signature_bytes = decode_fixed_hex::<64>(signature_hex)?;
     let public_key_bytes = decode_fixed_hex::<32>(public_key_hex)?;
     let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
@@ -374,6 +417,81 @@ pub fn verify_signed_manifest_bytes(
 
     serde_json::from_slice(payload_json)
         .map_err(|error| ArtifactError::InvalidSignedManifest(error.to_string()))
+}
+
+pub fn verify_signed_manifest_artifact_bytes(
+    payload_json: &[u8],
+    signature_hex: &str,
+    public_key_hex: &str,
+    artifacts: impl IntoIterator<Item = SignedManifestArtifactBytes>,
+) -> Result<VerifiedSignedArtifactManifest, ArtifactError> {
+    let payload = verify_signed_manifest_bytes(payload_json, signature_hex, public_key_hex)?;
+    let mut supplied = HashMap::new();
+    let mut total_bytes = 0_usize;
+    for artifact in artifacts {
+        ensure_size_cap("artifact", artifact.bytes.len(), MAX_ARTIFACT_BYTES)?;
+        total_bytes = total_bytes.saturating_add(artifact.bytes.len());
+        if supplied.insert(artifact.filename, artifact.bytes).is_some() {
+            return Err(ArtifactError::InvalidSignedManifest(
+                "duplicate artifact filename supplied".to_owned(),
+            ));
+        }
+    }
+    ensure_size_cap("artifact_total", total_bytes, MAX_TOTAL_ARTIFACT_BYTES)?;
+
+    for descriptor in &payload.manifest.artifacts {
+        let bytes = supplied.remove(&descriptor.filename).ok_or_else(|| {
+            ArtifactError::MissingArtifactFile(PathBuf::from(&descriptor.filename))
+        })?;
+        verify_artifact_bytes(descriptor, &bytes)?;
+    }
+
+    if let Some(filename) = supplied.into_keys().next() {
+        return Err(ArtifactError::InvalidSignedManifest(format!(
+            "unexpected artifact bytes supplied for {filename}"
+        )));
+    }
+
+    let artifact_count = payload.manifest.artifacts.len();
+    Ok(VerifiedSignedArtifactManifest {
+        payload,
+        artifact_count,
+    })
+}
+
+pub fn verify_signed_manifest_artifact_files(
+    payload_json: &[u8],
+    signature_hex: &str,
+    public_key_hex: &str,
+    root: impl AsRef<Path>,
+) -> Result<VerifiedSignedArtifactManifest, ArtifactError> {
+    let payload = verify_signed_manifest_bytes(payload_json, signature_hex, public_key_hex)?;
+    let mut total_bytes = 0_usize;
+
+    for descriptor in &payload.manifest.artifacts {
+        let path = payload.manifest.resolve_path(root.as_ref(), descriptor);
+        if !path.exists() {
+            return Err(ArtifactError::MissingArtifactFile(path));
+        }
+        let bytes = fs::read(&path)?;
+        ensure_size_cap("artifact", bytes.len(), MAX_ARTIFACT_BYTES)?;
+        total_bytes = total_bytes.saturating_add(bytes.len());
+        verify_artifact_bytes(descriptor, &bytes)?;
+    }
+    ensure_size_cap("artifact_total", total_bytes, MAX_TOTAL_ARTIFACT_BYTES)?;
+
+    let artifact_count = payload.manifest.artifacts.len();
+    Ok(VerifiedSignedArtifactManifest {
+        payload,
+        artifact_count,
+    })
+}
+
+fn ensure_size_cap(field: &'static str, actual: usize, max: usize) -> Result<(), ArtifactError> {
+    if actual > max {
+        return Err(ArtifactError::PayloadTooLarge { field, actual, max });
+    }
+    Ok(())
 }
 
 fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], ArtifactError> {
@@ -420,6 +538,7 @@ pub fn artifact_statuses(
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+    use proptest::prelude::*;
     use std::path::PathBuf;
 
     #[test]
@@ -467,6 +586,48 @@ mod tests {
         let verified =
             verify_signed_manifest_bytes(&payload_json, &signature_hex, &public_key_hex).unwrap();
         assert_eq!(verified, payload);
+
+        let verified_artifacts = verify_signed_manifest_artifact_bytes(
+            &payload_json,
+            &signature_hex,
+            &public_key_hex,
+            [SignedManifestArtifactBytes {
+                filename: "withdraw.wasm".to_owned(),
+                bytes: b"artifact bytes".to_vec(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(verified_artifacts.payload(), &payload);
+        assert_eq!(verified_artifacts.artifact_count(), 1);
+
+        let artifact_root = tempfile::tempdir().unwrap();
+        fs::write(
+            artifact_root.path().join("withdraw.wasm"),
+            b"artifact bytes",
+        )
+        .unwrap();
+        let verified_files = verify_signed_manifest_artifact_files(
+            &payload_json,
+            &signature_hex,
+            &public_key_hex,
+            artifact_root.path(),
+        )
+        .unwrap();
+        assert_eq!(verified_files.payload(), &payload);
+        assert_eq!(verified_files.artifact_count(), 1);
+
+        assert!(matches!(
+            verify_signed_manifest_artifact_bytes(
+                &payload_json,
+                &signature_hex,
+                &public_key_hex,
+                [SignedManifestArtifactBytes {
+                    filename: "withdraw.wasm".to_owned(),
+                    bytes: b"modified artifact bytes".to_vec(),
+                }],
+            ),
+            Err(ArtifactError::HashMismatch { .. })
+        ));
 
         let mut modified_payload = payload_json.clone();
         modified_payload.push(b' ');
@@ -777,5 +938,77 @@ mod tests {
                 kind: ArtifactKind::Wasm,
             } if circuit == "withdraw"
         ));
+    }
+
+    proptest! {
+        #[test]
+        fn artifact_hash_validation_accepts_only_matching_bytes(
+            bytes in prop::collection::vec(any::<u8>(), 0..512),
+        ) {
+            let descriptor = ArtifactDescriptor {
+                circuit: "withdraw".to_owned(),
+                kind: ArtifactKind::Wasm,
+                filename: "withdraw.wasm".to_owned(),
+                sha256: hex::encode(Sha256::digest(&bytes)),
+            };
+
+            prop_assert!(verify_artifact_bytes(&descriptor, &bytes).is_ok());
+
+            let mut modified = bytes.clone();
+            modified.push(1);
+            let hash_mismatch = matches!(
+                verify_artifact_bytes(&descriptor, &modified),
+                Err(ArtifactError::HashMismatch { .. })
+            );
+            prop_assert!(hash_mismatch);
+        }
+
+        #[test]
+        fn signed_manifest_artifact_validation_rejects_unexpected_artifacts(
+            required in prop::collection::vec(any::<u8>(), 0..128),
+            unexpected in prop::collection::vec(any::<u8>(), 0..128),
+        ) {
+            let payload = SignedArtifactManifestPayload {
+                manifest: ArtifactManifest {
+                    version: "property".to_owned(),
+                    artifacts: vec![ArtifactDescriptor {
+                        circuit: "withdraw".to_owned(),
+                        kind: ArtifactKind::Wasm,
+                        filename: "withdraw.wasm".to_owned(),
+                        sha256: hex::encode(Sha256::digest(&required)),
+                    }],
+                },
+                metadata: ArtifactManifestMetadata {
+                    ceremony: None,
+                    build: None,
+                    repository: None,
+                    commit: None,
+                },
+            };
+            let payload_json = serde_json::to_vec(&payload).expect("payload serializes");
+            let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+            let signature = signing_key.sign(&payload_json);
+            let signature_hex = hex::encode(signature.to_bytes());
+            let public_key_hex = hex::encode(signing_key.verifying_key().to_bytes());
+
+            let error = verify_signed_manifest_artifact_bytes(
+                &payload_json,
+                &signature_hex,
+                &public_key_hex,
+                [
+                    SignedManifestArtifactBytes {
+                        filename: "withdraw.wasm".to_owned(),
+                        bytes: required,
+                    },
+                    SignedManifestArtifactBytes {
+                        filename: "unexpected.wasm".to_owned(),
+                        bytes: unexpected,
+                    },
+                ],
+            )
+            .expect_err("unexpected artifacts are rejected");
+
+            prop_assert!(matches!(error, ArtifactError::InvalidSignedManifest(_)));
+        }
     }
 }

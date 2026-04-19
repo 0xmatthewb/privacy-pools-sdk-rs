@@ -1,0 +1,23 @@
+[safe_exports]
+browser = [
+  "BrowserRuntimeUnavailableError",
+  "clearBrowserCircuitSessionCache",
+  "supportsExperimentalThreadedBrowserProving",
+  "initializeExperimentalThreadedBrowserProving",
+]
+node = []
+dts = [
+  "BrowserRuntimeUnavailableError",
+  "clearBrowserCircuitSessionCache",
+  "supportsExperimentalThreadedBrowserProving",
+  "initializeExperimentalThreadedBrowserProving",
+]
+react_native = [
+  "waitForPrepareRelayExecutionJob",
+  "waitForPrepareWithdrawalExecutionJob",
+  "waitForProveWithdrawalJob",
+]
+
+[error_variants]
+web = ["OperationFailed"]
+node = ["OperationFailed"]

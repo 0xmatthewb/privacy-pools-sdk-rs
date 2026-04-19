@@ -1,0 +1,225 @@
+name: reference-benchmarks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/reference-benchmarks.yml"
+      - ".github/actions/install-rust-ci-tools/**"
+      - "bindings/**"
+      - "crates/**"
+      - "examples/react-native-app-smoke/**"
+      - "fixtures/**"
+      - "packages/react-native/**"
+      - "packages/sdk/**"
+      - "xtask/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    continue-on-error: true
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on:
+      - self-hosted
+      - reference-desktop
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - run: rustup target add wasm32-unknown-unknown
+      - name: install browser release tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: release-browser
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: npx playwright install chromium
+        working-directory: packages/sdk
+      - run: npm run build:native:release
+        working-directory: packages/sdk
+      - run: npm run build:web:release
+        working-directory: packages/sdk
+      - run: node ./scripts/build-web.mjs --release --experimental-threaded
+        working-directory: packages/sdk
+      - run: mkdir -p target/reference-benchmarks/benchmarks
+      - run: |
+          cargo run --locked --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
+            --manifest fixtures/artifacts/withdrawal-proving-manifest.json \
+            --artifacts-root fixtures/artifacts \
+            --backend stable \
+            --warmup 1 \
+            --iterations 3 \
+            --report-json target/reference-benchmarks/benchmarks/rust-desktop-stable.json \
+            --device-label desktop \
+            --device-model reference-desktop
+      - run: |
+          node ./packages/sdk/scripts/benchmark-node.mjs \
+            --report target/reference-benchmarks/benchmarks/node-desktop-stable.json \
+            --device-label desktop \
+            --device-model reference-desktop \
+            --device-class desktop-reference \
+            --iterations 3
+      - run: |
+          node ./packages/sdk/scripts/benchmark-browser.mjs \
+            --report target/reference-benchmarks/benchmarks/browser-desktop-stable.json \
+            --device-label desktop \
+            --device-model reference-desktop \
+            --device-class desktop-reference \
+            --iterations 3
+      - run: |
+          node ./packages/sdk/scripts/benchmark-browser.mjs \
+            --report target/reference-benchmarks/benchmarks/browser-desktop-threaded.json \
+            --device-label desktop \
+            --device-model reference-desktop \
+            --device-class desktop-reference \
+            --iterations 3 \
+            --threaded
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reference-benchmarks-desktop
+          path: target/reference-benchmarks/benchmarks
+
+  react-native-ios:
+    continue-on-error: true
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on:
+      - self-hosted
+      - reference-ios
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+      - run: cargo run -p xtask -- react-native-package --release --with-ios-native
+      - run: bindings/ios/scripts/run-smoke-xctest.sh
+      - run: cargo run -p xtask -- react-native-app-smoke-ios
+      - run: |
+          node ./packages/sdk/scripts/benchmark-react-native-report.mjs \
+            --input target/react-native-app-smoke/ios-app-report.json \
+            --report target/reference-benchmarks/benchmarks/react-native-ios-stable.json \
+            --device-label ios \
+            --device-model reference-ios-device \
+            --device-class ios-reference
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reference-benchmarks-ios
+          path: target/reference-benchmarks/benchmarks/react-native-ios-stable.json
+
+  react-native-android:
+    continue-on-error: true
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on:
+      - self-hosted
+      - reference-android
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6
+        with:
+          gradle-version: "8.10.2"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+      - name: enable kvm access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android
+      - run: yes | sdkmanager --licenses
+      - run: sdkmanager "ndk;27.1.12297006"
+      - name: install mobile release tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: release-mobile
+      - run: |
+          NDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.1.12297006"
+          echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> "$GITHUB_ENV"
+      - run: cargo run -p xtask -- react-native-package --release --with-android-native
+      - uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          script: cd "$GITHUB_WORKSPACE/bindings/android" && gradle connectedDebugAndroidTest --stacktrace && cd "$GITHUB_WORKSPACE" && cargo run -p xtask -- react-native-app-smoke-android
+      - run: |
+          node ./packages/sdk/scripts/benchmark-react-native-report.mjs \
+            --input target/react-native-app-smoke/android-app-report.json \
+            --report target/reference-benchmarks/benchmarks/react-native-android-stable.json \
+            --device-label android \
+            --device-model reference-android-device \
+            --device-class android-reference
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reference-benchmarks-android
+          path: target/reference-benchmarks/benchmarks/react-native-android-stable.json
+
+  bundle:
+    continue-on-error: true
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    needs:
+      - desktop
+      - react-native-ios
+      - react-native-android
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: reference-benchmarks-desktop
+          path: target/reference-benchmarks/benchmarks
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: reference-benchmarks-ios
+          path: target/reference-benchmarks/benchmarks
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: reference-benchmarks-android
+          path: target/reference-benchmarks/benchmarks
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: reference-benchmarks-stable
+          path: target/reference-benchmarks

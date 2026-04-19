@@ -1,0 +1,7 @@
+# Default ownership for the repository. Tighten this into teams or per-surface
+# paths as the maintainer set grows.
+* @0xmatthewb
+
+# Keep workflow and ownership changes under explicit maintainer review.
+/.github/CODEOWNERS @0xmatthewb
+/.github/workflows/ @0xmatthewb

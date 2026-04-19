@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -215,6 +216,7 @@ test("Circuits returns only manifest-verified artifact bytes", async () => {
       artifactsRoot: server.rootUrl,
       withdrawalManifestJson: withdrawalProvingManifest,
       commitmentManifestJson: commitmentProvingManifest,
+      allowUnsignedArtifactsForTesting: true,
     });
     const artifacts = await circuits.downloadArtifacts();
     assert.ok(artifacts.withdraw.wasm instanceof Uint8Array);
@@ -223,6 +225,110 @@ test("Circuits returns only manifest-verified artifact bytes", async () => {
     assert.ok(artifacts.commitment.wasm instanceof Uint8Array);
     assert.ok(await circuits.getWasm(nodeEntry.CircuitName.Withdraw));
     assert.ok(await circuits.getVerificationKey(nodeEntry.CircuitName.Commitment));
+  } finally {
+    await server.stop();
+  }
+});
+
+test("Circuits rejects unsigned manifests unless the test-only override is enabled", async () => {
+  const circuits = new nodeEntry.Circuits({
+    artifactsRoot: "http://127.0.0.1:1/artifacts/",
+    withdrawalManifestJson: withdrawalProvingManifest,
+  });
+
+  await assert.rejects(
+    () => circuits.downloadArtifacts(),
+    /allowUnsignedArtifactsForTesting/i,
+  );
+});
+
+test("Circuits accepts signed manifests on the trusted path", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const withdrawalFixture = createSignedManifestFixture("withdraw", privateKey, publicKey);
+  const commitmentFixture = createSignedManifestFixture("commitment", privateKey, publicKey);
+  const server = createFixtureServer({
+    overrides: new Map(
+      [...withdrawalFixture.artifacts, ...commitmentFixture.artifacts].map((artifact) => [
+        `artifacts/${artifact.filename}`,
+        artifact.bytes,
+      ]),
+    ),
+  });
+  await server.start();
+
+  try {
+    const circuits = new nodeEntry.Circuits({
+      artifactsRoot: server.rootUrl,
+      withdrawalSignedManifestJson: withdrawalFixture.envelopeJson,
+      commitmentSignedManifestJson: commitmentFixture.envelopeJson,
+      signedManifestPublicKey: withdrawalFixture.publicKeyHex,
+    });
+    const artifacts = await circuits.downloadArtifacts();
+    assert.ok(artifacts.withdraw.wasm instanceof Uint8Array);
+    assert.ok(artifacts.commitment.wasm instanceof Uint8Array);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("Circuits rejects signed manifests with the wrong public key", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const wrongPublicKey = generateKeyPairSync("ed25519").publicKey;
+  const withdrawalFixture = createSignedManifestFixture("withdraw", privateKey, publicKey);
+  const commitmentFixture = createSignedManifestFixture("commitment", privateKey, publicKey);
+  const server = createFixtureServer({
+    overrides: new Map(
+      [...withdrawalFixture.artifacts, ...commitmentFixture.artifacts].map((artifact) => [
+        `artifacts/${artifact.filename}`,
+        artifact.bytes,
+      ]),
+    ),
+  });
+  await server.start();
+
+  try {
+    for (const entry of [nodeEntry, browserEntry]) {
+      const circuits = new entry.Circuits({
+        artifactsRoot: server.rootUrl,
+        withdrawalSignedManifestJson: withdrawalFixture.envelopeJson,
+        commitmentSignedManifestJson: commitmentFixture.envelopeJson,
+        signedManifestPublicKey: ed25519RawPublicKeyHex(wrongPublicKey),
+      });
+      await assert.rejects(() => circuits.downloadArtifacts(), /signature/i);
+    }
+  } finally {
+    await server.stop();
+  }
+});
+
+test("Circuits rejects tampered signed-manifest artifact bytes", async () => {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  const withdrawalFixture = createSignedManifestFixture("withdraw", privateKey, publicKey);
+  const commitmentFixture = createSignedManifestFixture("commitment", privateKey, publicKey);
+  const server = createFixtureServer({
+    overrides: new Map([
+      [
+        `artifacts/${withdrawalFixture.artifacts[0].filename}`,
+        Buffer.from("tampered withdraw facade test artifact"),
+      ],
+      [
+        `artifacts/${commitmentFixture.artifacts[0].filename}`,
+        commitmentFixture.artifacts[0].bytes,
+      ],
+    ]),
+  });
+  await server.start();
+
+  try {
+    for (const entry of [nodeEntry, browserEntry]) {
+      const circuits = new entry.Circuits({
+        artifactsRoot: server.rootUrl,
+        withdrawalSignedManifestJson: withdrawalFixture.envelopeJson,
+        commitmentSignedManifestJson: commitmentFixture.envelopeJson,
+        signedManifestPublicKey: withdrawalFixture.publicKeyHex,
+      });
+      await assert.rejects(() => circuits.downloadArtifacts(), /sha256|hash/i);
+    }
   } finally {
     await server.stop();
   }
@@ -237,6 +343,7 @@ test("PrivacyPoolSDK commitment facade proves and verifies with Rust backend", a
       artifactsRoot: server.rootUrl,
       withdrawalManifestJson: withdrawalProvingManifest,
       commitmentManifestJson: commitmentProvingManifest,
+      allowUnsignedArtifactsForTesting: true,
     });
     const sdk = new nodeEntry.PrivacyPoolSDK(circuits);
     const proof = await sdk.proveCommitment(
@@ -293,9 +400,11 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _commitment: 11n,
                 _label: 12n,
                 _value: 13n,
-                _merkleRoot: 14n,
+                _precommitmentHash: 14n,
               },
               blockNumber: 10n,
+              transactionIndex: 0,
+              logIndex: 0,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000010",
             },
@@ -310,6 +419,8 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _newCommitment: 7n,
               },
               blockNumber: 12n,
+              transactionIndex: 1,
+              logIndex: 2,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000012",
             },
@@ -325,6 +436,8 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _value: 23n,
               },
               blockNumber: 14n,
+              transactionIndex: 3,
+              logIndex: 4,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000014",
             },
@@ -471,6 +584,87 @@ test("contract and recovery facade wrappers use Rust-backed bindings", async () 
   assert.equal(checkpoint.commitmentsSeen, 2);
 });
 
+test("data service preserves zero-valued event fields and rejects missing ones", async () => {
+  const poolAddress = "0x1234567890123456789012345678901234567890";
+  const pool = { chainId: 1, address: poolAddress };
+
+  for (const entry of [nodeEntry, browserEntry]) {
+    const fakeClient = {
+      getBlockNumber: async () => 20n,
+      getLogs: async ({ event }) => {
+        if (event.name !== "Deposited") {
+          return [];
+        }
+        return [
+          {
+            args: {
+              _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              _commitment: 11n,
+              _label: 12n,
+              _value: 0n,
+              _precommitmentHash: 14n,
+            },
+            blockNumber: 10n,
+            transactionIndex: 0,
+            logIndex: 0,
+            transactionHash:
+              "0x0000000000000000000000000000000000000000000000000000000000000010",
+          },
+          {
+            args: {
+              _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              _commitment: 21n,
+              _label: 22n,
+              _precommitmentHash: 24n,
+            },
+            blockNumber: 11n,
+            transactionIndex: 0,
+            logIndex: 1,
+            transactionHash:
+              "0x0000000000000000000000000000000000000000000000000000000000000011",
+          },
+        ];
+      },
+    };
+    const dataService = new entry.DataService(
+      [
+        {
+          chainId: 1,
+          rpcUrl: "http://127.0.0.1:8545",
+          startBlock: 10n,
+          client: fakeClient,
+        },
+      ],
+      new Map([[1, { blockChunkSize: 20, concurrency: 1, retryOnFailure: false }]]),
+    );
+
+    await assert.rejects(
+      () => dataService.getDeposits(pool),
+      /missing deposit value/,
+    );
+
+    fakeClient.getLogs = async () => [
+      {
+        args: {
+          _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          _commitment: 11n,
+          _label: 12n,
+          _value: 0n,
+          _precommitmentHash: 14n,
+        },
+        blockNumber: 10n,
+        transactionIndex: 0,
+        logIndex: 0,
+        transactionHash:
+          "0x0000000000000000000000000000000000000000000000000000000000000010",
+      },
+    ];
+
+    const deposits = await dataService.getDeposits(pool);
+    assert.equal(deposits[0].value, 0n);
+  }
+});
+
 function readFixtureText(path) {
   return readFileSync(join(fixturesRoot, path), "utf8");
 }
@@ -479,18 +673,12 @@ function readFixtureJson(path) {
   return JSON.parse(readFixtureText(path));
 }
 
-async function buildStrictRecoveryPool(entry) {
-  const masterKeys = await entry.generateMasterKeys(cryptoFixture.mnemonic);
-  const depositSecrets = await entry.generateDepositSecrets(
-    masterKeys,
-    cryptoFixture.scope,
-    0n,
-  );
-  const commitment = await entry.getCommitment(
+async function buildStrictRecoveryPool(_entry) {
+  const commitment = await nodeEntry.getCommitment(
     withdrawalFixture.existingValue,
     cryptoFixture.label,
-    depositSecrets.nullifier,
-    depositSecrets.secret,
+    cryptoFixture.depositSecrets.nullifier,
+    cryptoFixture.depositSecrets.secret,
   );
   return [
     {
@@ -502,6 +690,8 @@ async function buildStrictRecoveryPool(entry) {
           value: withdrawalFixture.existingValue,
           precommitmentHash: commitment.preimage.precommitment.hash,
           blockNumber: 10,
+          transactionIndex: 0,
+          logIndex: 0,
           transactionHash:
             "0x0000000000000000000000000000000000000000000000000000000000000001",
         },
@@ -528,12 +718,13 @@ function proofWithPublicSignalCount(count) {
   };
 }
 
-function createFixtureServer() {
+function createFixtureServer(options = {}) {
+  const overrides = options.overrides ?? new Map();
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const filename = url.pathname.replace(/^\/+/, "");
     try {
-      const bytes = readFileSync(join(fixturesRoot, filename));
+      const bytes = overrides.get(filename) ?? readFileSync(join(fixturesRoot, filename));
       response.statusCode = 200;
       response.setHeader("content-type", "application/octet-stream");
       response.end(bytes);
@@ -562,4 +753,50 @@ function createFixtureServer() {
       });
     },
   };
+}
+
+function createSignedManifestFixture(circuit, privateKey, publicKey) {
+  const artifacts = [{
+    circuit,
+    kind: "wasm",
+    filename: `signed-${circuit}.wasm`,
+    bytes: Buffer.from(`signed ${circuit} facade test artifact`),
+  }];
+  const payload = {
+    manifest: {
+      version: "signed-facade-test",
+      artifacts: artifacts.map((artifact) => ({
+        circuit: artifact.circuit,
+        kind: artifact.kind,
+        filename: artifact.filename,
+        sha256: createHash("sha256").update(artifact.bytes).digest("hex"),
+      })),
+    },
+    metadata: {
+      build: "facade-test",
+      repository: "0xbow/privacy-pools-sdk-rs",
+      commit: "abcdef0",
+    },
+  };
+  const payloadJson = JSON.stringify(payload);
+  return {
+    artifacts,
+    publicKeyHex: Buffer.from(
+      publicKey.export({ format: "der", type: "spki" }),
+    )
+      .subarray(-32)
+      .toString("hex"),
+    envelopeJson: JSON.stringify({
+      payloadJson,
+      signatureHex: sign(null, Buffer.from(payloadJson), privateKey).toString("hex"),
+    }),
+  };
+}
+
+function ed25519RawPublicKeyHex(publicKey) {
+  return Buffer.from(
+    publicKey.export({ format: "der", type: "spki" }),
+  )
+    .subarray(-32)
+    .toString("hex");
 }

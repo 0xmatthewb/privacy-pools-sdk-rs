@@ -1,7 +1,7 @@
 use alloy_consensus::{
     Transaction as ConsensusTransaction, TxEnvelope, transaction::SignerRecoverable,
 };
-use alloy_eips::Decodable2718;
+use alloy_eips::{BlockId, Decodable2718};
 use alloy_network::{Ethereum, ReceiptResponse};
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
@@ -10,10 +10,14 @@ use alloy_sol_types::{SolCall, SolValue, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_core::{
     CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FinalizedTransactionRequest,
-    FormattedGroth16Proof, ProofBundle, RootCheck, RootRead, RootReadKind, TransactionKind,
-    TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32, parse_decimal_field,
+    FormattedGroth16Proof, ProofBundle, ReadConsistency, RootCheck, RootRead, RootReadKind,
+    TransactionKind, TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32,
+    parse_decimal_field,
 };
+#[cfg(feature = "local-signer-client")]
 use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
+use serde_json::Value;
+use std::sync::LazyLock;
 use thiserror::Error;
 use url::Url;
 
@@ -59,6 +63,21 @@ sol! {
 }
 
 const ROOT_HISTORY_SIZE: u32 = 64;
+pub const WITHDRAW_PUBLIC_SIGNAL_COUNT: usize = 8;
+pub const RAGEQUIT_PUBLIC_SIGNAL_COUNT: usize = 4;
+
+static WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
+    parse_vkey_public_signal_count(include_str!(
+        "../../../fixtures/artifacts/withdraw.vkey.json"
+    ))
+    .expect("withdraw verification key should declare nPublic")
+});
+static RAGEQUIT_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
+    parse_vkey_public_signal_count(include_str!(
+        "../../../fixtures/artifacts/commitment.vkey.json"
+    ))
+    .expect("ragequit verification key should declare nPublic")
+});
 
 #[derive(Debug, Error)]
 pub enum ChainError {
@@ -68,6 +87,14 @@ pub enum ChainError {
     InvalidWithdrawPublicSignals(usize),
     #[error("ragequit proof must contain exactly 4 public signals, got {0}")]
     InvalidRagequitPublicSignals(usize),
+    #[error(
+        "{circuit} verification key expects {actual} public signals but formatter expects {expected}"
+    )]
+    PublicSignalCountDrift {
+        circuit: &'static str,
+        expected: usize,
+        actual: usize,
+    },
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
         field: &'static str,
@@ -142,6 +169,14 @@ pub enum ChainError {
         expected: String,
         actual: String,
     },
+    #[error("quoted fee `{field}` exceeds configured cap: quoted {quoted}, cap {cap}")]
+    FeeQuoteExceedsCap {
+        field: &'static str,
+        quoted: u128,
+        cap: u128,
+    },
+    #[error("dynamic-fee field {field} missing from FinalizedTransactionRequest")]
+    MissingDynamicFeeField { field: &'static str },
     #[error("rpc request failed: {0}")]
     Transport(String),
 }
@@ -156,7 +191,11 @@ pub struct FeeParameters {
 #[async_trait]
 pub trait ExecutionClient: Send + Sync {
     async fn chain_id(&self) -> Result<u64, ChainError>;
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError>;
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError>;
     async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError>;
     async fn simulate_transaction(
         &self,
@@ -188,6 +227,7 @@ pub struct HttpExecutionClient {
     provider: DynProvider<Ethereum>,
 }
 
+#[cfg(feature = "local-signer-client")]
 pub struct LocalSignerExecutionClient {
     provider: DynProvider<Ethereum>,
     caller: Address,
@@ -202,6 +242,7 @@ impl HttpExecutionClient {
     }
 }
 
+#[cfg(feature = "local-signer-client")]
 impl LocalSignerExecutionClient {
     pub fn new(rpc_url: &str, signer: &LocalMnemonicSigner) -> Result<Self, ChainError> {
         let url = Url::parse(rpc_url).map_err(|_| ChainError::InvalidRpcUrl(rpc_url.to_owned()))?;
@@ -209,7 +250,7 @@ impl LocalSignerExecutionClient {
 
         Ok(Self {
             provider: ProviderBuilder::new()
-                .wallet(signer.dangerously_clone_private_key_signer())
+                .wallet(signer.clone_private_key_signer_for_local_client())
                 .connect_http(url)
                 .erased(),
             caller,
@@ -226,10 +267,15 @@ impl ExecutionClient for HttpExecutionClient {
             .map_err(|error| ChainError::Transport(error.to_string()))
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         let code = self
             .provider
             .get_code_at(address)
+            .block_id(block_id_for_consistency(consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         Ok(keccak256(code))
@@ -239,6 +285,7 @@ impl ExecutionClient for HttpExecutionClient {
         let output = self
             .provider
             .call(root_read_request(read))
+            .block(block_id_for_consistency(read.consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         decode_root_response(&output)
@@ -271,23 +318,19 @@ impl FinalizationClient for HttpExecutionClient {
     }
 
     async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
-        match self.provider.estimate_eip1559_fees().await {
-            Ok(fees) => Ok(FeeParameters {
-                gas_price: None,
-                max_fee_per_gas: Some(fees.max_fee_per_gas),
-                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
-            }),
-            Err(_) => self
-                .provider
+        let eip1559_fees = self
+            .provider
+            .estimate_eip1559_fees()
+            .await
+            .map(|fees| (fees.max_fee_per_gas, fees.max_priority_fee_per_gas))
+            .map_err(|error| error.to_string());
+        fee_parameters_from_quotes(eip1559_fees, async {
+            self.provider
                 .get_gas_price()
                 .await
-                .map(|gas_price| FeeParameters {
-                    gas_price: Some(gas_price),
-                    max_fee_per_gas: None,
-                    max_priority_fee_per_gas: None,
-                })
-                .map_err(|error| ChainError::Transport(error.to_string())),
-        }
+                .map_err(|error| error.to_string())
+        })
+        .await
     }
 
     async fn submit_raw_transaction(
@@ -314,6 +357,7 @@ impl FinalizationClient for HttpExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl ExecutionClient for LocalSignerExecutionClient {
     async fn chain_id(&self) -> Result<u64, ChainError> {
         self.provider
@@ -322,10 +366,15 @@ impl ExecutionClient for LocalSignerExecutionClient {
             .map_err(|error| ChainError::Transport(error.to_string()))
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         let code = self
             .provider
             .get_code_at(address)
+            .block_id(block_id_for_consistency(consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         Ok(keccak256(code))
@@ -335,6 +384,7 @@ impl ExecutionClient for LocalSignerExecutionClient {
         let output = self
             .provider
             .call(root_read_request(read))
+            .block(block_id_for_consistency(read.consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         decode_root_response(&output)
@@ -358,6 +408,7 @@ impl ExecutionClient for LocalSignerExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl FinalizationClient for LocalSignerExecutionClient {
     async fn next_nonce(&self, caller: Address) -> Result<u64, ChainError> {
         self.provider
@@ -367,23 +418,19 @@ impl FinalizationClient for LocalSignerExecutionClient {
     }
 
     async fn fee_parameters(&self) -> Result<FeeParameters, ChainError> {
-        match self.provider.estimate_eip1559_fees().await {
-            Ok(fees) => Ok(FeeParameters {
-                gas_price: None,
-                max_fee_per_gas: Some(fees.max_fee_per_gas),
-                max_priority_fee_per_gas: Some(fees.max_priority_fee_per_gas),
-            }),
-            Err(_) => self
-                .provider
+        let eip1559_fees = self
+            .provider
+            .estimate_eip1559_fees()
+            .await
+            .map(|fees| (fees.max_fee_per_gas, fees.max_priority_fee_per_gas))
+            .map_err(|error| error.to_string());
+        fee_parameters_from_quotes(eip1559_fees, async {
+            self.provider
                 .get_gas_price()
                 .await
-                .map(|gas_price| FeeParameters {
-                    gas_price: Some(gas_price),
-                    max_fee_per_gas: None,
-                    max_priority_fee_per_gas: None,
-                })
-                .map_err(|error| ChainError::Transport(error.to_string())),
-        }
+                .map_err(|error| error.to_string())
+        })
+        .await
     }
 
     async fn submit_raw_transaction(
@@ -410,6 +457,7 @@ impl FinalizationClient for LocalSignerExecutionClient {
 }
 
 #[async_trait]
+#[cfg(feature = "local-signer-client")]
 impl SubmissionClient for LocalSignerExecutionClient {
     fn caller(&self) -> Address {
         self.caller
@@ -493,6 +541,11 @@ pub fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof
 }
 
 pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainError> {
+    ensure_public_signal_count(
+        "withdraw",
+        *WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT,
+        WITHDRAW_PUBLIC_SIGNAL_COUNT,
+    )?;
     let public_signals = proof
         .public_signals
         .iter()
@@ -505,6 +558,11 @@ pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainEr
 }
 
 pub fn ragequit_public_signals(proof: &ProofBundle) -> Result<[U256; 4], ChainError> {
+    ensure_public_signal_count(
+        "ragequit",
+        *RAGEQUIT_VKEY_PUBLIC_SIGNAL_COUNT,
+        RAGEQUIT_PUBLIC_SIGNAL_COUNT,
+    )?;
     let public_signals = proof
         .public_signals
         .iter()
@@ -561,29 +619,36 @@ fn bn254_scalar_field_modulus() -> U256 {
     .expect("valid BN254 scalar field modulus")
 }
 
-pub fn state_root_read(pool_address: Address) -> RootRead {
+pub fn state_root_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
     }
 }
 
-pub fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead {
+pub fn asp_root_read(
+    entrypoint_address: Address,
+    pool_address: Address,
+    consistency: ReadConsistency,
+) -> RootRead {
     RootRead {
         kind: RootReadKind::Asp,
         contract_address: entrypoint_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IEntrypoint::latestRootCall {}.abi_encode()),
     }
 }
 
-fn pool_entrypoint_read(pool_address: Address) -> RootRead {
+fn pool_entrypoint_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::ENTRYPOINTCall {}.abi_encode()),
     }
 }
@@ -638,6 +703,8 @@ pub fn plan_relay_transaction(
 
     parse_relay_data(&withdrawal.data)?;
 
+    // Relay enforces a non-zero withdrawn value at the contract boundary,
+    // while direct withdraw and ragequit flows intentionally allow zero values.
     let public_signals = withdraw_public_signals(proof)?;
     if public_signals[2].is_zero() {
         return Err(ChainError::RelayRequiresNonZeroWithdrawValue);
@@ -707,6 +774,37 @@ fn parse_relay_data(data: &Bytes) -> Result<RelayDataAbi, ChainError> {
     Ok(relay_data)
 }
 
+#[doc(hidden)]
+pub fn decode_relay_data(data: &Bytes) -> Result<(), ChainError> {
+    parse_relay_data(data).map(|_| ())
+}
+
+fn ensure_public_signal_count(
+    circuit: &'static str,
+    actual: usize,
+    expected: usize,
+) -> Result<(), ChainError> {
+    if actual != expected {
+        return Err(ChainError::PublicSignalCountDrift {
+            circuit,
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn parse_vkey_public_signal_count(vkey_json: &str) -> Result<usize, ChainError> {
+    let json: Value = serde_json::from_str(vkey_json)
+        .map_err(|error| ChainError::InvalidRelayData(error.to_string()))?;
+    let count = json.get("nPublic").and_then(Value::as_u64).ok_or_else(|| {
+        ChainError::InvalidRelayData("verification key missing nPublic".to_owned())
+    })?;
+    usize::try_from(count).map_err(|_| {
+        ChainError::InvalidRelayData("verification key nPublic exceeds usize".to_owned())
+    })
+}
+
 pub async fn preflight_withdrawal<C: ExecutionClient>(
     client: &C,
     plan: &TransactionPlan,
@@ -716,7 +814,8 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
     policy: &ExecutionPolicy,
 ) -> Result<ExecutionPreflightReport, ChainError> {
     ensure_non_zero_address(pool_address, "pool address")?;
-    let entrypoint_address = read_pool_entrypoint_address(client, pool_address).await?;
+    let entrypoint_address =
+        read_pool_entrypoint_address(client, pool_address, policy.read_consistency).await?;
 
     preflight_transaction(
         client,
@@ -726,7 +825,7 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
         policy,
         vec![
             (
-                state_root_read(pool_address),
+                state_root_read(pool_address, policy.read_consistency),
                 expected_state_root,
                 ChainError::StateRootMismatch {
                     expected: expected_state_root,
@@ -734,7 +833,7 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
                 },
             ),
             (
-                asp_root_read(entrypoint_address, pool_address),
+                asp_root_read(entrypoint_address, pool_address, policy.read_consistency),
                 expected_asp_root,
                 ChainError::AspRootMismatch {
                     expected: expected_asp_root,
@@ -761,7 +860,13 @@ pub async fn preflight_relay<C: ExecutionClient>(
 ) -> Result<ExecutionPreflightReport, ChainError> {
     ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
     ensure_non_zero_address(pool_address, "pool address")?;
-    verify_pool_entrypoint_address(client, pool_address, entrypoint_address).await?;
+    verify_pool_entrypoint_address(
+        client,
+        pool_address,
+        entrypoint_address,
+        policy.read_consistency,
+    )
+    .await?;
     preflight_transaction(
         client,
         plan,
@@ -770,7 +875,7 @@ pub async fn preflight_relay<C: ExecutionClient>(
         policy,
         vec![
             (
-                state_root_read(pool_address),
+                state_root_read(pool_address, policy.read_consistency),
                 expected_state_root,
                 ChainError::StateRootMismatch {
                     expected: expected_state_root,
@@ -778,7 +883,7 @@ pub async fn preflight_relay<C: ExecutionClient>(
                 },
             ),
             (
-                asp_root_read(entrypoint_address, pool_address),
+                asp_root_read(entrypoint_address, pool_address, policy.read_consistency),
                 expected_asp_root,
                 ChainError::AspRootMismatch {
                     expected: expected_asp_root,
@@ -790,6 +895,26 @@ pub async fn preflight_relay<C: ExecutionClient>(
             (pool_address, policy.expected_pool_code_hash),
             (entrypoint_address, policy.expected_entrypoint_code_hash),
         ],
+    )
+    .await
+}
+
+pub async fn preflight_ragequit<C: ExecutionClient>(
+    client: &C,
+    plan: &TransactionPlan,
+    pool_address: Address,
+    policy: &ExecutionPolicy,
+) -> Result<ExecutionPreflightReport, ChainError> {
+    ensure_non_zero_address(pool_address, "pool address")?;
+
+    preflight_transaction(
+        client,
+        plan,
+        TransactionKind::Ragequit,
+        pool_address,
+        policy,
+        vec![],
+        vec![(pool_address, policy.expected_pool_code_hash)],
     )
     .await
 }
@@ -811,7 +936,14 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
 
     let mut code_hash_checks = Vec::with_capacity(report.code_hash_checks.len());
     for check in &report.code_hash_checks {
-        let actual_code_hash = client.code_hash(check.address).await?;
+        if report.mode.is_strict() && check.expected_code_hash.is_none() {
+            return Err(ChainError::MissingCodeHashExpectation {
+                address: check.address,
+            });
+        }
+        let actual_code_hash = client
+            .code_hash(check.address, report.read_consistency)
+            .await?;
         let matches_expected = if let Some(expected_code_hash) = check.expected_code_hash {
             if expected_code_hash != actual_code_hash {
                 return Err(ChainError::CodeHashMismatch {
@@ -844,15 +976,26 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                     "relay preflight report is missing a pool state root check".to_owned(),
                 )
             })?;
-        verify_pool_entrypoint_address(client, pool_address, report.target).await?;
+        verify_pool_entrypoint_address(
+            client,
+            pool_address,
+            report.target,
+            report.read_consistency,
+        )
+        .await?;
     }
 
     let mut root_checks = Vec::with_capacity(report.root_checks.len());
     for check in &report.root_checks {
         match check.kind {
             RootReadKind::PoolState => {
-                let actual_root =
-                    verify_known_pool_root(client, check.pool_address, check.expected_root).await?;
+                let actual_root = verify_known_pool_root(
+                    client,
+                    check.pool_address,
+                    check.expected_root,
+                    report.read_consistency,
+                )
+                .await?;
                 root_checks.push(RootCheck {
                     kind: check.kind,
                     contract_address: check.contract_address,
@@ -867,6 +1010,7 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                     kind: check.kind,
                     contract_address: check.contract_address,
                     pool_address: check.pool_address,
+                    consistency: report.read_consistency,
                     call_data: root_call_data(
                         check.kind,
                         check.contract_address,
@@ -904,6 +1048,9 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        read_consistency: report.read_consistency,
+        max_fee_quote_wei: report.max_fee_quote_wei,
+        mode: report.mode,
         code_hash_checks,
         root_checks,
     })
@@ -917,6 +1064,7 @@ pub async fn finalize_transaction<C: FinalizationClient>(
     let refreshed_preflight = reconfirm_preflight(client, plan, report).await?;
     let fees = client.fee_parameters().await?;
     let nonce = client.next_nonce(refreshed_preflight.caller).await?;
+    enforce_fee_cap(refreshed_preflight.max_fee_quote_wei, &fees)?;
 
     Ok((
         refreshed_preflight.clone(),
@@ -941,8 +1089,15 @@ pub async fn submit_signed_transaction<C: FinalizationClient>(
     request: &FinalizedTransactionRequest,
     encoded_tx: &[u8],
 ) -> Result<TransactionReceiptSummary, ChainError> {
-    validate_signed_transaction(encoded_tx, request)?;
+    validate_signed_transaction_request(encoded_tx, request)?;
     client.submit_raw_transaction(encoded_tx).await
+}
+
+pub fn validate_signed_transaction_request(
+    encoded_tx: &[u8],
+    request: &FinalizedTransactionRequest,
+) -> Result<(), ChainError> {
+    validate_signed_transaction(encoded_tx, request)
 }
 
 async fn preflight_transaction<C: ExecutionClient>(
@@ -976,7 +1131,7 @@ async fn preflight_transaction<C: ExecutionClient>(
             return Err(ChainError::MissingCodeHashExpectation { address });
         }
 
-        let actual_code_hash = client.code_hash(address).await?;
+        let actual_code_hash = client.code_hash(address, policy.read_consistency).await?;
         let matches_expected = if let Some(expected_code_hash) = expected_code_hash {
             if expected_code_hash != actual_code_hash {
                 return Err(ChainError::CodeHashMismatch {
@@ -1002,8 +1157,13 @@ async fn preflight_transaction<C: ExecutionClient>(
     for (read, expected_root, mismatch_error) in root_reads {
         match read.kind {
             RootReadKind::PoolState => {
-                let actual_root =
-                    verify_known_pool_root(client, read.pool_address, expected_root).await?;
+                let actual_root = verify_known_pool_root(
+                    client,
+                    read.pool_address,
+                    expected_root,
+                    read.consistency,
+                )
+                .await?;
                 root_checks.push(RootCheck {
                     kind: read.kind,
                     contract_address: read.contract_address,
@@ -1048,6 +1208,9 @@ async fn preflight_transaction<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        read_consistency: policy.read_consistency,
+        max_fee_quote_wei: policy.max_fee_quote_wei,
+        mode: policy.mode,
         code_hash_checks,
         root_checks,
     })
@@ -1096,20 +1259,26 @@ fn root_call_data(kind: RootReadKind, _contract_address: Address, pool_address: 
     }
 }
 
-fn current_root_index_read(pool_address: Address) -> RootRead {
+fn current_root_index_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::currentRootIndexCall {}.abi_encode()),
     }
 }
 
-fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
+fn historical_state_root_read(
+    pool_address: Address,
+    index: u32,
+    consistency: ReadConsistency,
+) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(
             IPrivacyPool::rootsCall {
                 index: U256::from(index),
@@ -1122,9 +1291,10 @@ fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
 async fn read_pool_entrypoint_address<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
+    consistency: ReadConsistency,
 ) -> Result<Address, ChainError> {
     let encoded = client
-        .read_root(&pool_entrypoint_read(pool_address))
+        .read_root(&pool_entrypoint_read(pool_address, consistency))
         .await?;
     let address = decode_address_word(encoded)?;
     ensure_non_zero_address(address, "pool entrypoint address")?;
@@ -1135,8 +1305,9 @@ async fn verify_pool_entrypoint_address<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
     expected_entrypoint: Address,
+    consistency: ReadConsistency,
 ) -> Result<(), ChainError> {
-    let actual_entrypoint = read_pool_entrypoint_address(client, pool_address).await?;
+    let actual_entrypoint = read_pool_entrypoint_address(client, pool_address, consistency).await?;
     if actual_entrypoint != expected_entrypoint {
         return Err(ChainError::EntrypointMismatch {
             pool: pool_address,
@@ -1168,8 +1339,11 @@ async fn verify_known_pool_root<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
     expected_root: U256,
+    consistency: ReadConsistency,
 ) -> Result<U256, ChainError> {
-    let current_root = client.read_root(&state_root_read(pool_address)).await?;
+    let current_root = client
+        .read_root(&state_root_read(pool_address, consistency))
+        .await?;
     if current_root == expected_root {
         return Ok(actual_known_root(expected_root));
     }
@@ -1183,14 +1357,18 @@ async fn verify_known_pool_root<C: ExecutionClient>(
 
     let current_index = decode_root_index(
         client
-            .read_root(&current_root_index_read(pool_address))
+            .read_root(&current_root_index_read(pool_address, consistency))
             .await?,
     )?;
     let mut index = current_index;
 
     for _ in 0..ROOT_HISTORY_SIZE {
         let historical_root = client
-            .read_root(&historical_state_root_read(pool_address, index))
+            .read_root(&historical_state_root_read(
+                pool_address,
+                index,
+                consistency,
+            ))
             .await?;
         if historical_root == expected_root {
             return Ok(actual_known_root(expected_root));
@@ -1202,6 +1380,76 @@ async fn verify_known_pool_root<C: ExecutionClient>(
         expected: expected_root,
         actual: current_root,
     })
+}
+
+fn block_id_for_consistency(consistency: ReadConsistency) -> BlockId {
+    match consistency {
+        ReadConsistency::Latest => BlockId::latest(),
+        ReadConsistency::Finalized => BlockId::finalized(),
+    }
+}
+
+async fn fee_parameters_from_quotes<G>(
+    eip1559_fees: Result<(u128, u128), String>,
+    gas_price: G,
+) -> Result<FeeParameters, ChainError>
+where
+    G: std::future::Future<Output = Result<u128, String>>,
+{
+    match eip1559_fees {
+        Ok((max_fee_per_gas, max_priority_fee_per_gas)) => Ok(FeeParameters {
+            gas_price: None,
+            max_fee_per_gas: Some(max_fee_per_gas),
+            max_priority_fee_per_gas: Some(max_priority_fee_per_gas),
+        }),
+        Err(_) => gas_price
+            .await
+            .map(|gas_price| FeeParameters {
+                gas_price: Some(gas_price),
+                max_fee_per_gas: None,
+                max_priority_fee_per_gas: None,
+            })
+            .map_err(ChainError::Transport),
+    }
+}
+
+fn enforce_fee_cap(
+    max_fee_quote_wei: Option<u128>,
+    fees: &FeeParameters,
+) -> Result<(), ChainError> {
+    let Some(cap) = max_fee_quote_wei else {
+        return Ok(());
+    };
+
+    if let Some(gas_price) = fees.gas_price
+        && gas_price > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "gas_price",
+            quoted: gas_price,
+            cap,
+        });
+    }
+    if let Some(max_fee_per_gas) = fees.max_fee_per_gas
+        && max_fee_per_gas > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "max_fee_per_gas",
+            quoted: max_fee_per_gas,
+            cap,
+        });
+    }
+    if let Some(max_priority_fee_per_gas) = fees.max_priority_fee_per_gas
+        && max_priority_fee_per_gas > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "max_priority_fee_per_gas",
+            quoted: max_priority_fee_per_gas,
+            cap,
+        });
+    }
+
+    Ok(())
 }
 
 fn actual_known_root(root: U256) -> U256 {
@@ -1302,15 +1550,34 @@ fn validate_signed_transaction(
                     actual: "legacy".to_owned(),
                 });
             }
+            let max_fee_per_gas =
+                request
+                    .max_fee_per_gas
+                    .ok_or(ChainError::MissingDynamicFeeField {
+                        field: "max_fee_per_gas",
+                    })?;
+            let max_priority_fee_per_gas =
+                request
+                    .max_priority_fee_per_gas
+                    .ok_or(ChainError::MissingDynamicFeeField {
+                        field: "max_priority_fee_per_gas",
+                    })?;
+            let actual_max_priority_fee_per_gas = transaction.max_priority_fee_per_gas().ok_or(
+                ChainError::SignedTransactionFieldMismatch {
+                    field: "max_priority_fee_per_gas",
+                    expected: max_priority_fee_per_gas.to_string(),
+                    actual: "none".to_owned(),
+                },
+            )?;
             compare_signed_field(
                 "max_fee_per_gas",
-                request.max_fee_per_gas.unwrap_or_default(),
+                max_fee_per_gas,
                 transaction.max_fee_per_gas(),
             )?;
             compare_signed_field(
                 "max_priority_fee_per_gas",
-                request.max_priority_fee_per_gas.unwrap_or_default(),
-                transaction.max_priority_fee_per_gas().unwrap_or_default(),
+                max_priority_fee_per_gas,
+                actual_max_priority_fee_per_gas,
             )?;
         }
     }
@@ -1418,6 +1685,7 @@ mod tests {
     use super::*;
     use alloy_primitives::{address, b256, bytes};
     use privacy_pools_sdk_core::ExecutionPolicyMode;
+    #[cfg(feature = "local-signer-client")]
     use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
     use serde_json::Value;
 
@@ -1440,13 +1708,37 @@ mod tests {
         )
     }
 
+    fn state_root_read(pool_address: Address) -> RootRead {
+        super::state_root_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead {
+        super::asp_root_read(entrypoint_address, pool_address, ReadConsistency::Latest)
+    }
+
+    fn pool_entrypoint_read(pool_address: Address) -> RootRead {
+        super::pool_entrypoint_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn current_root_index_read(pool_address: Address) -> RootRead {
+        super::current_root_index_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
+        super::historical_state_root_read(pool_address, index, ReadConsistency::Latest)
+    }
+
     #[async_trait]
     impl ExecutionClient for MockExecutionClient {
         async fn chain_id(&self) -> Result<u64, ChainError> {
             Ok(self.chain_id)
         }
 
-        async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+        async fn code_hash(
+            &self,
+            address: Address,
+            _consistency: ReadConsistency,
+        ) -> Result<B256, ChainError> {
             self.code_hashes
                 .get(&address)
                 .copied()
@@ -1475,7 +1767,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_current_root_for_pool_state_reads() {
+    fn state_root_read_calls_current_root_on_pool() {
         let pool = address!("0987654321098765432109876543210987654321");
         let read = state_root_read(pool);
         let asp_read = asp_root_read(address!("1234567890123456789012345678901234567890"), pool);
@@ -1598,6 +1890,32 @@ mod tests {
         assert!(matches!(
             error,
             ChainError::NonCanonicalProofField { field, .. } if field == "piA[0]"
+        ));
+    }
+
+    #[test]
+    fn rejects_withdrawal_proof_when_planning_ragequit_transaction() {
+        let withdrawal_proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+
+        assert!(matches!(
+            plan_ragequit_transaction(
+                1,
+                address!("0987654321098765432109876543210987654321"),
+                &withdrawal_proof,
+            ),
+            Err(ChainError::InvalidRagequitPublicSignals(8))
         ));
     }
 
@@ -1727,6 +2045,75 @@ mod tests {
                 &proof,
             ),
             Err(ChainError::InvalidRagequitPublicSignals(8))
+        ));
+    }
+
+    #[test]
+    fn rejects_ragequit_verification_key_public_signal_drift() {
+        let drifted_vkey = include_str!("../../../fixtures/artifacts/commitment.vkey.json")
+            .replacen("\"nPublic\": 4", "\"nPublic\": 5", 1);
+        let actual = parse_vkey_public_signal_count(&drifted_vkey).unwrap();
+        let error = ensure_public_signal_count("ragequit", actual, RAGEQUIT_PUBLIC_SIGNAL_COUNT)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::PublicSignalCountDrift {
+                circuit,
+                expected,
+                actual
+            } if circuit == "ragequit"
+                && expected == RAGEQUIT_PUBLIC_SIGNAL_COUNT
+                && actual == RAGEQUIT_PUBLIC_SIGNAL_COUNT + 1
+        ));
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_legacy_fee_quotes_when_eip1559_is_unavailable() {
+        let fees = fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async { Ok(42) })
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fees,
+            FeeParameters {
+                gas_price: Some(42),
+                max_fee_per_gas: None,
+                max_priority_fee_per_gas: None,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn returns_transport_error_when_fee_quote_fallbacks_fail() {
+        let error = fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async {
+            Err("legacy fee quote unavailable".to_owned())
+        })
+        .await
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::Transport(message) if message == "legacy fee quote unavailable"
+        ));
+    }
+
+    #[test]
+    fn rejects_fee_quotes_above_configured_cap() {
+        let error = enforce_fee_cap(
+            Some(10),
+            &FeeParameters {
+                gas_price: None,
+                max_fee_per_gas: Some(11),
+                max_priority_fee_per_gas: Some(2),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ChainError::FeeQuoteExceedsCap { field, quoted, cap }
+                if field == "max_fee_per_gas" && quoted == 11 && cap == 10
         ));
     }
 
@@ -2013,6 +2400,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy)
@@ -2096,6 +2485,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2116,6 +2507,170 @@ mod tests {
                 .iter()
                 .all(|check| check.matches_expected.is_none())
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_wrong_chain_id_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 2,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy).await,
+            Err(ChainError::ChainIdMismatch { expected, actual })
+                if expected == 1 && actual == 2
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejects_pool_code_hash_mismatch_during_withdrawal_preflight() {
+        let pool = address!("0987654321098765432109876543210987654321");
+        let entrypoint = address!("1234567890123456789012345678901234567890");
+        let state_root = U256::from(123_u64);
+        let asp_root = U256::from(999_u64);
+        let proof = ProofBundle {
+            proof: privacy_pools_sdk_core::SnarkJsProof {
+                pi_a: ["123".to_owned(), "123".to_owned()],
+                pi_b: [
+                    ["69".to_owned(), "123".to_owned()],
+                    ["12".to_owned(), "123".to_owned()],
+                ],
+                pi_c: ["12".to_owned(), "828".to_owned()],
+                protocol: "groth16".to_owned(),
+                curve: "bn128".to_owned(),
+            },
+            public_signals: vec!["911".to_owned(); 8],
+        };
+        let plan = plan_withdrawal_transaction(
+            1,
+            pool,
+            &Withdrawal {
+                processor: address!("1111111111111111111111111111111111111111"),
+                data: bytes!("1234"),
+            },
+            &proof,
+        )
+        .unwrap();
+        let client = MockExecutionClient {
+            chain_id: 1,
+            code_hashes: std::collections::HashMap::from([
+                (
+                    pool,
+                    b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+                ),
+                (
+                    entrypoint,
+                    b256!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                ),
+            ]),
+            roots: std::collections::HashMap::from([
+                (
+                    (pool, pool_entrypoint_read(pool).call_data),
+                    U256::from_be_slice(entrypoint.as_slice()),
+                ),
+                ((pool, state_root_read(pool).call_data), state_root),
+                ((pool, current_root_index_read(pool).call_data), U256::ZERO),
+                (
+                    (pool, historical_state_root_read(pool, 0).call_data),
+                    state_root,
+                ),
+                (
+                    (entrypoint, asp_root_read(entrypoint, pool).call_data),
+                    asp_root,
+                ),
+            ]),
+            estimated_gas: 420_000,
+        };
+        let policy = ExecutionPolicy {
+            expected_chain_id: 1,
+            caller: address!("9999999999999999999999999999999999999999"),
+            expected_pool_code_hash: Some(b256!(
+                "1111111111111111111111111111111111111111111111111111111111111111"
+            )),
+            expected_entrypoint_code_hash: Some(b256!(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
+        };
+
+        assert!(matches!(
+            preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy).await,
+            Err(ChainError::CodeHashMismatch { address, expected, actual })
+                if address == pool
+                    && expected
+                        == b256!("1111111111111111111111111111111111111111111111111111111111111111")
+                    && actual
+                        == b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        ));
     }
 
     #[tokio::test]
@@ -2201,6 +2756,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         let report =
@@ -2287,6 +2844,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2372,6 +2931,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2436,6 +2997,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2501,6 +3064,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2595,6 +3160,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2681,6 +3248,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2750,6 +3319,8 @@ mod tests {
             expected_pool_code_hash: None,
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2843,6 +3414,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
         };
         let report = preflight_relay(
             &valid_client,
@@ -2888,6 +3461,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_trailing_bytes() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2918,6 +3492,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_fee_model() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2953,6 +3528,57 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
+    #[test]
+    fn signing_eip1559_without_max_fee_returns_typed_error() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: None,
+            max_fee_per_gas: Some(10),
+            max_priority_fee_per_gas: Some(2),
+        };
+
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        assert_eq!(
+            signed,
+            signer.sign_transaction_request(&request).unwrap(),
+            "valid dynamic-fee signing bytes must stay stable for previously-valid inputs"
+        );
+        validate_signed_transaction(&signed, &request).unwrap();
+
+        let missing_max_fee = FinalizedTransactionRequest {
+            max_fee_per_gas: None,
+            ..request.clone()
+        };
+        assert!(matches!(
+            validate_signed_transaction(&signed, &missing_max_fee),
+            Err(ChainError::MissingDynamicFeeField { field }) if field == "max_fee_per_gas"
+        ));
+
+        let missing_priority_fee = FinalizedTransactionRequest {
+            max_priority_fee_per_gas: None,
+            ..request
+        };
+        assert!(matches!(
+            validate_signed_transaction(&signed, &missing_priority_fee),
+            Err(ChainError::MissingDynamicFeeField { field })
+                if field == "max_priority_fee_per_gas"
+        ));
+    }
+
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_chain_id() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -2986,6 +3612,42 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
+    #[test]
+    fn rejects_signed_transactions_with_wrong_signer() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let wrong_signer = LocalMnemonicSigner::from_phrase_nth(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: Some(1),
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
+        };
+        let signed = wrong_signer.sign_transaction_request(&request).unwrap();
+
+        assert!(matches!(
+            validate_signed_transaction(&signed, &request),
+            Err(ChainError::SignedTransactionSignerMismatch { expected, actual })
+                if expected == signer.address() && actual == wrong_signer.address()
+        ));
+    }
+
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_target() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -3021,6 +3683,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_nonce() {
         let signer = LocalMnemonicSigner::from_phrase_nth(
@@ -3054,6 +3717,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "local-signer-client")]
     #[test]
     fn rejects_signed_transactions_with_wrong_gas_limit() {
         let signer = LocalMnemonicSigner::from_phrase_nth(

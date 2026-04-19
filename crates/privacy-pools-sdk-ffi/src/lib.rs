@@ -1,29 +1,57 @@
 use alloy_primitives::{Address, B256, U256};
+#[cfg(feature = "local-mnemonic")]
+use privacy_pools_sdk::signer::LocalMnemonicSigner;
 use privacy_pools_sdk::{
-    FinalizedTransactionExecution, PreparedTransactionExecution, PrivacyPoolsSdk,
-    SubmittedTransactionExecution,
-    artifacts::{ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle},
+    FinalizedPreflightedTransaction, FinalizedTransactionExecution, PreflightedTransaction,
+    PreparedTransactionExecution, PrivacyPoolsSdk, SdkError, SubmittedPreflightedTransaction,
+    SubmittedTransactionExecution, VerifiedCommitmentProof, VerifiedRagequitProof,
+    VerifiedWithdrawalProof,
+    artifacts::{
+        ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle,
+        SignedManifestArtifactBytes,
+    },
     core::{
-        CircuitMerkleWitness, CodeHashCheck, Commitment, CommitmentCircuitInput,
-        CommitmentWitnessRequest, ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
+        CircuitMerkleWitness, CodeHashCheck, CommitmentCircuitInput, CommitmentWitnessRequest,
+        ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
         FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
-        RootCheck, RootReadKind, SnarkJsProof, TransactionPlan, TransactionReceiptSummary,
-        Withdrawal, WithdrawalCircuitInput, WithdrawalWitnessRequest,
+        RagequitExecutionConfig, ReadConsistency, RelayExecutionConfig, RootCheck, RootReadKind,
+        SnarkJsProof, TransactionPlan, TransactionReceiptSummary, Withdrawal,
+        WithdrawalCircuitInput, WithdrawalExecutionConfig, WithdrawalWitnessRequest,
+        limits::{
+            LimitError, MAX_ARTIFACT_JSON_INPUT_BYTES, MAX_CIRCUIT_SESSIONS_PER_TYPE,
+            MAX_CONTROL_JSON_INPUT_BYTES, MAX_EXECUTION_HANDLES, MAX_SECRET_HANDLES,
+            MAX_VERIFIED_PROOF_HANDLES, parse_json_with_limit as parse_json_with_limit_capped,
+        },
+        wire::{
+            WireCircuitMerkleWitness, WireCommitment, WireCommitmentCircuitInput,
+            WireCommitmentWitnessRequest, WireWithdrawal, WireWithdrawalCircuitInput,
+            WireWithdrawalWitnessRequest,
+        },
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
-    recovery::{CompatibilityMode, PoolEvent, RecoveryPolicy},
-    signer::{ExternalSigner, LocalMnemonicSigner, SignerAdapter, SignerKind},
+    recovery::{CompatibilityMode, PoolEvent, RecoveryError, RecoveryPolicy},
+    signer::{ExternalSigner, SignerAdapter, SignerError, SignerKind},
 };
+use privacy_pools_sdk_bindings_core::parsers::{
+    parse_artifact_kind as parse_binding_artifact_kind,
+    parse_backend_profile as parse_binding_backend_profile,
+    parse_compatibility_mode as parse_binding_compatibility_mode,
+};
+use privacy_pools_sdk_bindings_core::{BindingCoreError, EvictionPolicy, HandleRegistry};
+use serde::de::DeserializeOwned;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     future::Future,
     path::PathBuf,
     str::FromStr,
     sync::{
-        Arc, LazyLock, Mutex, RwLock,
+        Arc, Condvar, LazyLock, Mutex, RwLock,
         atomic::{AtomicU64, Ordering},
     },
 };
+use zeroize::Zeroizing;
+
+const MAX_RETAINED_COMPLETED_JOBS: usize = 128;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -41,18 +69,77 @@ pub enum FfiError {
     InvalidCompatibilityMode(String),
     #[error("invalid execution policy mode: {0}")]
     InvalidExecutionPolicyMode(String),
+    #[error("invalid mnemonic: {0}")]
+    InvalidMnemonic(String),
+    #[error("invalid relay data: {0}")]
+    InvalidRelayData(String),
+    #[error("payload exceeds configured size limits: {0}")]
+    PayloadTooLarge(String),
     #[error("withdrawal circuit session handle not found: {0}")]
     SessionNotFound(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
+    #[error("signer handle is already registered: {0}")]
+    HandleAlreadyRegistered(String),
+    #[error("registry `{registry}` is full (max {max_entries})")]
+    RegistryFull { registry: String, max_entries: u64 },
+    #[error("chain id mismatch: expected {expected}, got {actual}")]
+    ChainIdMismatch { expected: u64, actual: u64 },
+    #[error("secret handle not found: {0}")]
+    SecretHandleNotFound(String),
+    #[error("verified proof handle not found: {0}")]
+    VerifiedProofHandleNotFound(String),
+    #[error("execution handle not found: {0}")]
+    ExecutionHandleNotFound(String),
     #[error("job handle not found: {0}")]
     JobNotFound(String),
     #[error("signer handle requires external signing: {0}")]
     SignerRequiresExternalSigning(String),
+    #[error("unmatched ragequit event: {0}")]
+    UnmatchedRagequit(String),
     #[error("artifact manifest parse failed: {0}")]
     InvalidManifest(String),
+    #[error("signed transaction did not match the finalized request: {0}")]
+    InvalidSignedTransaction(String),
+    #[error("prover failure: {0}")]
+    ProverFailure(String),
+    #[error("verifier failure: {0}")]
+    VerifierFailure(String),
     #[error("sdk operation failed: {0}")]
     OperationFailed(String),
+}
+
+impl From<BindingCoreError> for FfiError {
+    fn from(error: BindingCoreError) -> Self {
+        match error {
+            BindingCoreError::ChainIdMismatch { expected, actual } => {
+                Self::ChainIdMismatch { expected, actual }
+            }
+            BindingCoreError::InvalidSignedTransaction(message) => {
+                Self::InvalidSignedTransaction(message)
+            }
+            BindingCoreError::SignerRequiresExternalSigning => {
+                Self::SignerRequiresExternalSigning(String::new())
+            }
+            BindingCoreError::UnmatchedRagequit { scope, label } => {
+                Self::UnmatchedRagequit(format!("scope={scope} label={label}"))
+            }
+            BindingCoreError::RegistryFull { registry, capacity } => Self::RegistryFull {
+                registry: registry.to_owned(),
+                max_entries: capacity as u64,
+            },
+            BindingCoreError::HandleAlreadyRegistered(handle) => {
+                Self::HandleAlreadyRegistered(handle)
+            }
+            BindingCoreError::PayloadTooLarge {
+                field,
+                limit,
+                actual,
+            } => Self::PayloadTooLarge(format!("{field} exceeded {limit} bytes (actual {actual})")),
+            BindingCoreError::InvalidMnemonic(message) => Self::InvalidMnemonic(message),
+            BindingCoreError::InvalidRelayData(message) => Self::InvalidRelayData(message),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -129,6 +216,8 @@ pub struct FfiExecutionPolicy {
     pub caller: String,
     pub expected_pool_code_hash: Option<String>,
     pub expected_entrypoint_code_hash: Option<String>,
+    pub read_consistency: Option<String>,
+    pub max_fee_quote_wei: Option<String>,
     pub mode: Option<String>,
 }
 
@@ -160,6 +249,9 @@ pub struct FfiExecutionPreflightReport {
     pub chain_id_matches: bool,
     pub simulated: bool,
     pub estimated_gas: u64,
+    pub read_consistency: Option<String>,
+    pub max_fee_quote_wei: Option<String>,
+    pub mode: Option<String>,
     pub code_hash_checks: Vec<FfiCodeHashCheck>,
     pub root_checks: Vec<FfiRootCheck>,
 }
@@ -219,6 +311,24 @@ pub struct FfiSubmittedTransactionExecution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiPreflightedTransaction {
+    pub transaction: FfiTransactionPlan,
+    pub preflight: FfiExecutionPreflightReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiFinalizedPreflightedTransaction {
+    pub preflighted: FfiPreflightedTransaction,
+    pub request: FfiFinalizedTransactionRequest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiSubmittedPreflightedTransaction {
+    pub preflighted: FfiPreflightedTransaction,
+    pub receipt: FfiTransactionReceiptSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct FfiRootRead {
     pub kind: String,
     pub contract_address: String,
@@ -264,6 +374,22 @@ pub struct FfiResolvedArtifactBundle {
 pub struct FfiArtifactBytes {
     pub kind: String,
     pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiSignedManifestArtifactBytes {
+    pub filename: String,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct FfiVerifiedSignedManifest {
+    pub version: String,
+    pub artifact_count: u64,
+    pub ceremony: Option<String>,
+    pub build: Option<String>,
+    pub repository: Option<String>,
+    pub commit: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -385,8 +511,36 @@ fn sdk() -> PrivacyPoolsSdk {
 
 #[derive(Debug, Clone)]
 enum RegisteredSigner {
+    #[cfg(feature = "local-mnemonic")]
     LocalMnemonic(LocalMnemonicSigner),
     External(ExternalSigner),
+}
+
+#[derive(Debug, Clone)]
+enum SecretHandleEntry {
+    MasterKeys(MasterKeys),
+    Secrets {
+        nullifier: privacy_pools_sdk::core::Nullifier,
+        secret: privacy_pools_sdk::core::Secret,
+    },
+    CommitmentRequest(CommitmentWitnessRequest),
+    WithdrawalRequest(Box<WithdrawalWitnessRequest>),
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum VerifiedProofHandleEntry {
+    Commitment(VerifiedCommitmentProof),
+    Ragequit(VerifiedRagequitProof),
+    Withdrawal(VerifiedWithdrawalProof),
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "dangerous-exports"), allow(dead_code))]
+enum ExecutionHandleEntry {
+    Preflighted(PreflightedTransaction),
+    Finalized(FinalizedPreflightedTransaction),
+    Submitted(SubmittedPreflightedTransaction),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -405,6 +559,12 @@ enum BackgroundJobState {
     Cancelled,
 }
 
+impl BackgroundJobState {
+    const fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
+}
+
 #[derive(Debug, Clone)]
 enum BackgroundJobResult {
     Proving(Box<FfiProvingResult>),
@@ -413,6 +573,7 @@ enum BackgroundJobResult {
 
 #[derive(Debug)]
 struct BackgroundJobEntry {
+    job_id: String,
     kind: BackgroundJobKind,
     state: BackgroundJobState,
     stage: Option<String>,
@@ -421,12 +582,16 @@ struct BackgroundJobEntry {
     result: Option<BackgroundJobResult>,
 }
 
+#[derive(Debug)]
+struct JobEntrySignal(Mutex<BackgroundJobEntry>, Condvar);
+
 #[derive(Debug, Clone)]
 struct PrepareWithdrawalJobConfig {
     chain_id: u64,
     pool_address: Address,
     rpc_url: String,
     policy: ExecutionPolicy,
+    policy_echo: FfiExecutionPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -436,11 +601,13 @@ struct PrepareRelayJobConfig {
     pool_address: Address,
     rpc_url: String,
     policy: ExecutionPolicy,
+    policy_echo: FfiExecutionPolicy,
 }
 
 impl RegisteredSigner {
     fn address(&self) -> Address {
         match self {
+            #[cfg(feature = "local-mnemonic")]
             Self::LocalMnemonic(signer) => signer.address(),
             Self::External(signer) => signer.address(),
         }
@@ -448,6 +615,7 @@ impl RegisteredSigner {
 
     fn kind(&self) -> SignerKind {
         match self {
+            #[cfg(feature = "local-mnemonic")]
             Self::LocalMnemonic(signer) => signer.kind(),
             Self::External(signer) => signer.kind(),
         }
@@ -458,10 +626,13 @@ impl RegisteredSigner {
         handle: &str,
         request: &FinalizedTransactionRequest,
     ) -> Result<alloy_primitives::Bytes, FfiError> {
+        #[cfg(not(feature = "local-mnemonic"))]
+        let _ = request;
         match self {
+            #[cfg(feature = "local-mnemonic")]
             Self::LocalMnemonic(signer) => signer
                 .sign_transaction_request(request)
-                .map_err(|error| FfiError::OperationFailed(error.to_string())),
+                .map_err(map_signer_error),
             Self::External(_) => Err(FfiError::SignerRequiresExternalSigning(handle.to_owned())),
         }
     }
@@ -469,20 +640,91 @@ impl RegisteredSigner {
 
 static SIGNER_REGISTRY: LazyLock<RwLock<HashMap<String, RegisteredSigner>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static SECRET_HANDLE_REGISTRY: LazyLock<HandleRegistry<SecretHandleEntry>> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_SECRET_HANDLES,
+        EvictionPolicy::RejectFull {
+            registry_name: "secret_handles",
+        },
+    )
+});
+static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<HandleRegistry<VerifiedProofHandleEntry>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(
+            MAX_VERIFIED_PROOF_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "verified_proof_handles",
+            },
+        )
+    });
+static EXECUTION_HANDLE_REGISTRY: LazyLock<HandleRegistry<ExecutionHandleEntry>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(
+            MAX_EXECUTION_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "execution_handles",
+            },
+        )
+    });
 static JOB_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<Mutex<BackgroundJobEntry>>>>> =
+static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<JobEntrySignal>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMPLETED_JOB_IDS: LazyLock<Mutex<VecDeque<String>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
-    RwLock<HashMap<String, privacy_pools_sdk::WithdrawalCircuitSession>>,
-> = LazyLock::new(|| RwLock::new(HashMap::new()));
+    HandleRegistry<privacy_pools_sdk::WithdrawalCircuitSession>,
+> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+        EvictionPolicy::RejectFull {
+            registry_name: "withdrawal_sessions",
+        },
+    )
+});
 static COMMITMENT_SESSION_REGISTRY: LazyLock<
-    RwLock<HashMap<String, privacy_pools_sdk::CommitmentCircuitSession>>,
-> = LazyLock::new(|| RwLock::new(HashMap::new()));
+    HandleRegistry<privacy_pools_sdk::CommitmentCircuitSession>,
+> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+        EvictionPolicy::RejectFull {
+            registry_name: "commitment_sessions",
+        },
+    )
+});
+// UniFFI/mobile calls share one long-lived Tokio runtime so synchronous bridge
+// entrypoints do not rebuild an executor per call or rely on thread affinity.
+static SDK_RUNTIME: LazyLock<Result<tokio::runtime::Runtime, String>> = LazyLock::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .map_err(|error| error.to_string())
+});
+
+fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T, FfiError>
+where
+    T: DeserializeOwned,
+{
+    parse_json_with_limit_capped(value, max_bytes, "json_payload", |error| match error {
+        LimitError::PayloadTooLarge { limit, actual, .. } => FfiError::PayloadTooLarge(format!(
+            "JSON payload exceeds maximum size: {} > {} bytes",
+            actual, limit
+        )),
+        LimitError::Parse(message) => FfiError::OperationFailed(message),
+    })
+}
 
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
-    serde_json::from_str(manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))
+    parse_json_with_limit(manifest_json, MAX_ARTIFACT_JSON_INPUT_BYTES).map_err(|error| match error
+    {
+        FfiError::OperationFailed(message) => FfiError::InvalidManifest(message),
+        other => other,
+    })
+}
+
+fn validate_json_boundary(value: &str, max_bytes: usize) -> Result<(), FfiError> {
+    parse_json_with_limit::<serde_json::Value>(value, max_bytes).map(|_| ())
 }
 
 fn parse_address(value: &str) -> Result<Address, FfiError> {
@@ -498,40 +740,109 @@ fn parse_hash(value: &str) -> Result<B256, FfiError> {
 }
 
 fn parse_execution_policy_mode(value: &str) -> Result<ExecutionPolicyMode, FfiError> {
-    match value {
-        "strict" => Ok(ExecutionPolicyMode::Strict),
-        "insecure_dev" => Ok(ExecutionPolicyMode::InsecureDev),
-        _ => Err(FfiError::InvalidExecutionPolicyMode(value.to_owned())),
+    privacy_pools_sdk::core::parsers::parse_execution_policy_mode(value)
+        .map_err(|_| FfiError::InvalidExecutionPolicyMode(value.to_owned()))
+}
+
+fn parse_read_consistency(value: &str) -> Result<ReadConsistency, FfiError> {
+    privacy_pools_sdk::core::parsers::parse_read_consistency(value)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+}
+
+fn sdk_runtime() -> Result<&'static tokio::runtime::Runtime, FfiError> {
+    SDK_RUNTIME
+        .as_ref()
+        .map_err(|error| FfiError::OperationFailed(error.clone()))
+}
+
+fn map_signer_error(error: SignerError) -> FfiError {
+    match error {
+        #[cfg(feature = "local-mnemonic")]
+        SignerError::Local(error) => FfiError::InvalidMnemonic(error.to_string()),
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_crypto_error(error: privacy_pools_sdk::crypto::CryptoError) -> FfiError {
+    match error {
+        privacy_pools_sdk::crypto::CryptoError::Signer(error) => {
+            FfiError::InvalidMnemonic(error.to_string())
+        }
+        _ => FfiError::OperationFailed(error.to_string()),
+    }
+}
+
+fn map_chain_error(error: privacy_pools_sdk::chain::ChainError) -> FfiError {
+    match error {
+        privacy_pools_sdk::chain::ChainError::ChainIdMismatch { expected, actual }
+        | privacy_pools_sdk::chain::ChainError::PlannedChainIdMismatch { expected, actual } => {
+            BindingCoreError::ChainIdMismatch { expected, actual }.into()
+        }
+        privacy_pools_sdk::chain::ChainError::InvalidRelayData(message) => {
+            BindingCoreError::InvalidRelayData(message).into()
+        }
+        privacy_pools_sdk::chain::ChainError::InvalidSignedTransaction(message) => {
+            BindingCoreError::InvalidSignedTransaction(message).into()
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_artifact_error(error: privacy_pools_sdk::artifacts::ArtifactError) -> FfiError {
+    match error {
+        privacy_pools_sdk::artifacts::ArtifactError::PayloadTooLarge { .. } => {
+            FfiError::PayloadTooLarge(error.to_string())
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_recovery_error(error: RecoveryError) -> FfiError {
+    match error {
+        RecoveryError::UnmatchedRagequitEvent { scope, label } => {
+            BindingCoreError::UnmatchedRagequit {
+                scope: scope.to_string(),
+                label: label.to_string(),
+            }
+            .into()
+        }
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn map_sdk_error(error: SdkError) -> FfiError {
+    match error {
+        SdkError::Artifact(error) => map_artifact_error(error),
+        SdkError::Chain(error) => map_chain_error(error),
+        SdkError::Signer(error) => map_signer_error(error),
+        SdkError::Prover(error) => FfiError::ProverFailure(error.to_string()),
+        SdkError::ProofRejected => FfiError::VerifierFailure(SdkError::ProofRejected.to_string()),
+        other => FfiError::OperationFailed(other.to_string()),
+    }
+}
+
+fn read_consistency_label(consistency: ReadConsistency) -> String {
+    match consistency {
+        ReadConsistency::Latest => "latest".to_owned(),
+        ReadConsistency::Finalized => "finalized".to_owned(),
     }
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind, FfiError> {
-    match value {
-        "wasm" => Ok(ArtifactKind::Wasm),
-        "zkey" => Ok(ArtifactKind::Zkey),
-        "vkey" => Ok(ArtifactKind::Vkey),
-        _ => Err(FfiError::InvalidArtifactKind(value.to_owned())),
-    }
+    parse_binding_artifact_kind(value).map_err(|_| FfiError::InvalidArtifactKind(value.to_owned()))
 }
 
 fn parse_compatibility_mode(value: &str) -> Result<CompatibilityMode, FfiError> {
-    match value {
-        "strict" => Ok(CompatibilityMode::Strict),
-        "legacy" => Ok(CompatibilityMode::Legacy),
-        _ => Err(FfiError::InvalidCompatibilityMode(value.to_owned())),
-    }
+    parse_binding_compatibility_mode(value)
+        .map_err(|_| FfiError::InvalidCompatibilityMode(value.to_owned()))
 }
 
 fn parse_backend_profile(value: &str) -> Result<BackendProfile, FfiError> {
-    match value {
-        "stable" => Ok(BackendProfile::Stable),
-        "fast" => Ok(BackendProfile::Fast),
-        _ => Err(FfiError::OperationFailed(format!(
-            "invalid backend profile: {value}"
-        ))),
-    }
+    parse_binding_backend_profile(value)
+        .map_err(|_| FfiError::OperationFailed(format!("invalid backend profile: {value}")))
 }
 
+#[cfg_attr(not(feature = "local-mnemonic"), allow(dead_code))]
 fn to_master_keys(master_nullifier: &str, master_secret: &str) -> Result<MasterKeys, FfiError> {
     Ok(MasterKeys {
         master_nullifier: parse_field(master_nullifier)?.into(),
@@ -588,7 +899,6 @@ fn artifact_kind_label(kind: ArtifactKind) -> String {
 fn prover_backend_label(kind: ProverBackend) -> String {
     match kind {
         ProverBackend::Arkworks => "arkworks".to_owned(),
-        ProverBackend::Rapidsnark => "rapidsnark".to_owned(),
     }
 }
 
@@ -626,22 +936,11 @@ fn hash_label(value: B256) -> String {
     value.to_string()
 }
 
-fn build_runtime() -> Result<tokio::runtime::Runtime, FfiError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))
-}
-
 fn block_on_sdk<F, T>(future: F) -> Result<T, FfiError>
 where
-    F: Future<Output = Result<T, privacy_pools_sdk::SdkError>>,
+    F: Future<Output = Result<T, SdkError>>,
 {
-    let runtime = build_runtime()?;
-
-    runtime
-        .block_on(future)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))
+    sdk_runtime()?.block_on(future).map_err(map_sdk_error)
 }
 
 fn register_signer(handle: String, signer: RegisteredSigner) -> Result<FfiSignerHandle, FfiError> {
@@ -649,6 +948,9 @@ fn register_signer(handle: String, signer: RegisteredSigner) -> Result<FfiSigner
     let mut registry = SIGNER_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    if registry.contains_key(&handle) {
+        return Err(FfiError::HandleAlreadyRegistered(handle));
+    }
     registry.insert(handle, signer);
     Ok(ffi)
 }
@@ -670,6 +972,69 @@ fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
         .ok_or_else(|| FfiError::SignerNotFound(handle.to_owned()))
 }
 
+fn register_secret_handle(entry: SecretHandleEntry) -> Result<String, FfiError> {
+    let handle = uuid::Uuid::new_v4().to_string();
+    SECRET_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
+}
+
+fn registered_secret_handle(handle: &str) -> Result<SecretHandleEntry, FfiError> {
+    SECRET_HANDLE_REGISTRY
+        .get(handle)
+        .ok_or_else(|| FfiError::SecretHandleNotFound(handle.to_owned()))
+}
+
+fn remove_secret_handle_entry(handle: &str) -> Result<bool, FfiError> {
+    Ok(SECRET_HANDLE_REGISTRY.remove(handle).is_some())
+}
+
+fn clear_secret_handle_registry() -> Result<bool, FfiError> {
+    Ok(SECRET_HANDLE_REGISTRY.clear() > 0)
+}
+
+fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String, FfiError> {
+    let handle = uuid::Uuid::new_v4().to_string();
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
+}
+
+fn registered_verified_proof_handle(handle: &str) -> Result<VerifiedProofHandleEntry, FfiError> {
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .get(handle)
+        .ok_or_else(|| FfiError::VerifiedProofHandleNotFound(handle.to_owned()))
+}
+
+fn remove_verified_proof_handle_entry(handle: &str) -> Result<bool, FfiError> {
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.remove(handle).is_some())
+}
+
+fn clear_verified_proof_handle_registry() -> Result<bool, FfiError> {
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.clear() > 0)
+}
+
+fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String, FfiError> {
+    let handle = uuid::Uuid::new_v4().to_string();
+    EXECUTION_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
+}
+
+fn registered_execution_handle(handle: &str) -> Result<ExecutionHandleEntry, FfiError> {
+    EXECUTION_HANDLE_REGISTRY
+        .get(handle)
+        .ok_or_else(|| FfiError::ExecutionHandleNotFound(handle.to_owned()))
+}
+
+fn remove_execution_handle_entry(handle: &str) -> Result<bool, FfiError> {
+    Ok(EXECUTION_HANDLE_REGISTRY.remove(handle).is_some())
+}
+
+fn clear_execution_handle_registry() -> Result<bool, FfiError> {
+    Ok(EXECUTION_HANDLE_REGISTRY.clear() > 0)
+}
+
 fn register_withdrawal_session(
     session: privacy_pools_sdk::WithdrawalCircuitSession,
 ) -> Result<FfiWithdrawalCircuitSessionHandle, FfiError> {
@@ -682,30 +1047,20 @@ fn register_withdrawal_session(
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    let mut registry = WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry.insert(handle, session);
+    WITHDRAWAL_SESSION_REGISTRY.insert(handle, session)?;
     Ok(ffi)
 }
 
 fn registered_withdrawal_session(
     handle: &str,
 ) -> Result<privacy_pools_sdk::WithdrawalCircuitSession, FfiError> {
-    let registry = WITHDRAWAL_SESSION_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    WITHDRAWAL_SESSION_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
 }
 
 fn remove_withdrawal_session(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(WITHDRAWAL_SESSION_REGISTRY.remove(handle).is_some())
 }
 
 fn register_commitment_session(
@@ -720,44 +1075,38 @@ fn register_commitment_session(
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    let mut registry = COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry.insert(handle, session);
+    COMMITMENT_SESSION_REGISTRY.insert(handle, session)?;
     Ok(ffi)
 }
 
 fn registered_commitment_session(
     handle: &str,
 ) -> Result<privacy_pools_sdk::CommitmentCircuitSession, FfiError> {
-    let registry = COMMITMENT_SESSION_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    COMMITMENT_SESSION_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
 }
 
 fn remove_commitment_session(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(COMMITMENT_SESSION_REGISTRY.remove(handle).is_some())
 }
 
 fn register_job(
     kind: BackgroundJobKind,
-) -> Result<(FfiAsyncJobHandle, Arc<Mutex<BackgroundJobEntry>>), FfiError> {
+) -> Result<(FfiAsyncJobHandle, Arc<JobEntrySignal>), FfiError> {
     let job_id = format!("job-{}", JOB_COUNTER.fetch_add(1, Ordering::Relaxed));
-    let entry = Arc::new(Mutex::new(BackgroundJobEntry {
-        kind,
-        state: BackgroundJobState::Queued,
-        stage: None,
-        error: None,
-        cancel_requested: false,
-        result: None,
-    }));
+    let entry = Arc::new(JobEntrySignal(
+        Mutex::new(BackgroundJobEntry {
+            job_id: job_id.clone(),
+            kind,
+            state: BackgroundJobState::Queued,
+            stage: None,
+            error: None,
+            cancel_requested: false,
+            result: None,
+        }),
+        Condvar::new(),
+    ));
     let handle = FfiAsyncJobHandle {
         job_id: job_id.clone(),
         kind: background_job_kind_label(kind),
@@ -769,7 +1118,33 @@ fn register_job(
     Ok((handle, entry))
 }
 
-fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> {
+fn trim_completed_jobs(job_id: &str) {
+    let Ok(mut completed_jobs) = COMPLETED_JOB_IDS.lock() else {
+        return;
+    };
+    completed_jobs.push_back(job_id.to_owned());
+    while completed_jobs.len() > MAX_RETAINED_COMPLETED_JOBS {
+        let Some(evicted_job_id) = completed_jobs.pop_front() else {
+            break;
+        };
+        let Ok(mut registry) = JOB_REGISTRY.write() else {
+            break;
+        };
+        let should_remove = registry.get(&evicted_job_id).is_some_and(|entry| {
+            entry
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .state
+                .is_terminal()
+        });
+        if should_remove {
+            registry.remove(&evicted_job_id);
+        }
+    }
+}
+
+fn lookup_job(job_id: &str) -> Result<Arc<JobEntrySignal>, FfiError> {
     let registry = JOB_REGISTRY
         .read()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
@@ -779,22 +1154,22 @@ fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> 
         .ok_or_else(|| FfiError::JobNotFound(job_id.to_owned()))
 }
 
-fn set_job_stage(entry: &Arc<Mutex<BackgroundJobEntry>>, stage: impl Into<String>) {
-    if let Ok(mut entry) = entry.lock() {
-        entry.state = BackgroundJobState::Running;
-        entry.stage = Some(stage.into());
-        entry.error = None;
-    }
+fn set_job_stage(entry: &Arc<JobEntrySignal>, stage: impl Into<String>) {
+    let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
+    entry.state = BackgroundJobState::Running;
+    entry.stage = Some(stage.into());
+    entry.error = None;
 }
 
-fn job_cancel_requested(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+fn job_cancel_requested(entry: &Arc<JobEntrySignal>) -> bool {
     entry
+        .0
         .lock()
-        .map(|entry| entry.cancel_requested)
-        .unwrap_or(false)
+        .unwrap_or_else(|poison| poison.into_inner())
+        .cancel_requested
 }
 
-fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<(), FfiError> {
+fn ensure_job_not_cancelled(entry: &Arc<JobEntrySignal>) -> Result<(), FfiError> {
     if job_cancel_requested(entry) {
         Err(FfiError::OperationFailed("job cancelled".to_owned()))
     } else {
@@ -802,48 +1177,55 @@ fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<()
     }
 }
 
-fn complete_job(entry: &Arc<Mutex<BackgroundJobEntry>>, result: BackgroundJobResult) {
-    if let Ok(mut entry) = entry.lock() {
+fn complete_job(entry: &Arc<JobEntrySignal>, result: BackgroundJobResult) {
+    let completed_job_id = {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.result = None;
             entry.error = None;
-            return;
+        } else {
+            entry.state = BackgroundJobState::Completed;
+            entry.stage = None;
+            entry.error = None;
+            entry.result = Some(result);
         }
-
-        entry.state = BackgroundJobState::Completed;
-        entry.stage = None;
-        entry.error = None;
-        entry.result = Some(result);
+        Some(entry.job_id.clone())
+    };
+    entry.1.notify_all();
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
     }
 }
 
-fn fail_job(entry: &Arc<Mutex<BackgroundJobEntry>>, error: impl Into<String>) {
-    if let Ok(mut entry) = entry.lock() {
+fn fail_job(entry: &Arc<JobEntrySignal>, error: impl Into<String>) {
+    let completed_job_id = {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.error = None;
             entry.result = None;
-            return;
+        } else {
+            entry.state = BackgroundJobState::Failed;
+            entry.stage = None;
+            entry.error = Some(error.into());
+            entry.result = None;
         }
-
-        entry.state = BackgroundJobState::Failed;
-        entry.stage = None;
-        entry.error = Some(error.into());
-        entry.result = None;
+        Some(entry.job_id.clone())
+    };
+    entry.1.notify_all();
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
     }
 }
 
-fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
-    if let Ok(mut entry) = entry.lock() {
-        if matches!(
-            entry.state,
-            BackgroundJobState::Completed
-                | BackgroundJobState::Failed
-                | BackgroundJobState::Cancelled
-        ) {
+fn cancel_job_entry(entry: &Arc<JobEntrySignal>) -> bool {
+    let mut completed_job_id = None;
+    {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if entry.state.is_terminal() {
             return false;
         }
 
@@ -853,11 +1235,14 @@ fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
             entry.stage = None;
             entry.error = None;
             entry.result = None;
+            completed_job_id = Some(entry.job_id.clone());
         }
-        return true;
     }
-
-    false
+    entry.1.notify_all();
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
+    }
+    true
 }
 
 fn remove_job_entry(job_id: &str) -> Result<bool, FfiError> {
@@ -870,6 +1255,7 @@ fn remove_job_entry(job_id: &str) -> Result<bool, FfiError> {
 fn poll_job(job_id: &str) -> Result<FfiAsyncJobStatus, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
     Ok(FfiAsyncJobStatus {
@@ -887,9 +1273,7 @@ fn spawn_background_job<F>(
     worker: F,
 ) -> Result<FfiAsyncJobHandle, FfiError>
 where
-    F: FnOnce(Arc<Mutex<BackgroundJobEntry>>) -> Result<BackgroundJobResult, FfiError>
-        + Send
-        + 'static,
+    F: FnOnce(Arc<JobEntrySignal>) -> Result<BackgroundJobResult, FfiError> + Send + 'static,
 {
     let (handle, entry) = register_job(kind)?;
     std::thread::spawn({
@@ -917,6 +1301,7 @@ where
 fn proving_job_result(job_id: &str) -> Result<Option<FfiProvingResult>, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -928,7 +1313,7 @@ fn proving_job_result(job_id: &str) -> Result<Option<FfiProvingResult>, FfiError
     }
 
     Ok(match &entry.result {
-        Some(BackgroundJobResult::Proving(result)) => Some((**result).clone()),
+        Some(BackgroundJobResult::Proving(result)) => Some(result.as_ref().clone()),
         _ => None,
     })
 }
@@ -939,6 +1324,7 @@ fn prepared_execution_job_result(
 ) -> Result<Option<FfiPreparedTransactionExecution>, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -951,7 +1337,7 @@ fn prepared_execution_job_result(
     }
 
     Ok(match &entry.result {
-        Some(BackgroundJobResult::PreparedExecution(result)) => Some((**result).clone()),
+        Some(BackgroundJobResult::PreparedExecution(result)) => Some(result.as_ref().clone()),
         _ => None,
     })
 }
@@ -977,6 +1363,7 @@ fn finalize_for_signer_handle(
     Ok(to_ffi_finalized_execution(finalized))
 }
 
+#[cfg_attr(not(feature = "local-mnemonic"), allow(dead_code))]
 fn to_ffi_secrets(
     (nullifier, secret): (
         privacy_pools_sdk::core::Nullifier,
@@ -999,43 +1386,16 @@ fn to_ffi_root_read(read: privacy_pools_sdk::core::RootRead) -> FfiRootRead {
 }
 
 fn to_ffi_commitment(commitment: privacy_pools_sdk::core::Commitment) -> FfiCommitment {
+    let wire = WireCommitment::from(&commitment);
     FfiCommitment {
-        hash: field_label(commitment.hash),
-        nullifier_hash: field_label(commitment.precommitment_hash),
-        precommitment_hash: field_label(commitment.precommitment_hash),
-        value: field_label(commitment.preimage.value),
-        label: field_label(commitment.preimage.label),
-        nullifier: commitment
-            .preimage
-            .precommitment
-            .nullifier
-            .to_decimal_string(),
-        secret: commitment.preimage.precommitment.secret.to_decimal_string(),
+        hash: wire.hash,
+        nullifier_hash: wire.nullifier_hash,
+        precommitment_hash: wire.precommitment_hash,
+        value: wire.value,
+        label: wire.label,
+        nullifier: wire.nullifier,
+        secret: wire.secret,
     }
-}
-
-fn from_ffi_commitment(commitment: FfiCommitment) -> Result<Commitment, FfiError> {
-    let precommitment_hash = parse_field(&commitment.precommitment_hash)?;
-    let compatibility_hash = parse_field(&commitment.nullifier_hash)?;
-    if compatibility_hash != precommitment_hash {
-        return Err(FfiError::OperationFailed(
-            "commitment nullifierHash compatibility field must match precommitmentHash".to_owned(),
-        ));
-    }
-
-    Ok(Commitment {
-        hash: parse_field(&commitment.hash)?,
-        precommitment_hash,
-        preimage: privacy_pools_sdk::core::CommitmentPreimage {
-            value: parse_field(&commitment.value)?,
-            label: parse_field(&commitment.label)?,
-            precommitment: privacy_pools_sdk::core::Precommitment {
-                hash: precommitment_hash,
-                nullifier: parse_field(&commitment.nullifier)?.into(),
-                secret: parse_field(&commitment.secret)?.into(),
-            },
-        },
-    })
 }
 
 fn to_ffi_formatted_groth16_proof(proof: FormattedGroth16Proof) -> FfiFormattedGroth16Proof {
@@ -1087,7 +1447,7 @@ fn to_ffi_transaction_plan(plan: TransactionPlan) -> FfiTransactionPlan {
     }
 }
 
-fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
+fn from_ffi_execution_policy(policy: &FfiExecutionPolicy) -> Result<ExecutionPolicy, FfiError> {
     let mode = policy
         .mode
         .as_deref()
@@ -1108,8 +1468,33 @@ fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPoli
             .as_deref()
             .map(parse_hash)
             .transpose()?,
+        read_consistency: policy
+            .read_consistency
+            .as_deref()
+            .map(parse_read_consistency)
+            .transpose()?
+            .unwrap_or(ReadConsistency::Latest),
+        max_fee_quote_wei: policy
+            .max_fee_quote_wei
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
         mode,
     })
+}
+
+fn apply_execution_policy_round_trip(
+    preflight: &mut FfiExecutionPreflightReport,
+    policy: &FfiExecutionPolicy,
+) {
+    preflight
+        .read_consistency
+        .clone_from(&policy.read_consistency);
+    preflight
+        .max_fee_quote_wei
+        .clone_from(&policy.max_fee_quote_wei);
+    preflight.mode.clone_from(&policy.mode);
 }
 
 fn to_ffi_code_hash_check(check: CodeHashCheck) -> FfiCodeHashCheck {
@@ -1142,6 +1527,12 @@ fn to_ffi_execution_preflight(report: ExecutionPreflightReport) -> FfiExecutionP
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: Some(read_consistency_label(report.read_consistency)),
+        max_fee_quote_wei: report.max_fee_quote_wei.map(|value| value.to_string()),
+        mode: Some(match report.mode {
+            ExecutionPolicyMode::Strict => "strict".to_owned(),
+            ExecutionPolicyMode::InsecureDev => "insecure_dev".to_owned(),
+        }),
         code_hash_checks: report
             .code_hash_checks
             .into_iter()
@@ -1163,6 +1554,15 @@ fn to_ffi_prepared_execution(
         transaction: to_ffi_transaction_plan(prepared.transaction),
         preflight: to_ffi_execution_preflight(prepared.preflight),
     }
+}
+
+fn to_ffi_prepared_execution_with_policy(
+    prepared: PreparedTransactionExecution,
+    policy: &FfiExecutionPolicy,
+) -> FfiPreparedTransactionExecution {
+    let mut ffi = to_ffi_prepared_execution(prepared);
+    apply_execution_policy_round_trip(&mut ffi.preflight, policy);
+    ffi
 }
 
 fn to_ffi_finalized_request(
@@ -1225,10 +1625,70 @@ fn to_ffi_submitted_execution(
     }
 }
 
+fn to_ffi_preflighted_transaction(
+    preflighted: &PreflightedTransaction,
+) -> FfiPreflightedTransaction {
+    FfiPreflightedTransaction {
+        transaction: to_ffi_transaction_plan(preflighted.plan().clone()),
+        preflight: to_ffi_execution_preflight(preflighted.preflight().clone()),
+    }
+}
+
+fn to_ffi_finalized_preflighted_transaction(
+    finalized: &FinalizedPreflightedTransaction,
+) -> FfiFinalizedPreflightedTransaction {
+    FfiFinalizedPreflightedTransaction {
+        preflighted: to_ffi_preflighted_transaction(finalized.transaction()),
+        request: to_ffi_finalized_request(finalized.request().clone()),
+    }
+}
+
+fn to_ffi_submitted_preflighted_transaction(
+    submitted: &SubmittedPreflightedTransaction,
+) -> FfiSubmittedPreflightedTransaction {
+    FfiSubmittedPreflightedTransaction {
+        preflighted: to_ffi_preflighted_transaction(submitted.transaction()),
+        receipt: to_ffi_receipt_summary(submitted.receipt().clone()),
+    }
+}
+
 fn from_ffi_withdrawal(withdrawal: FfiWithdrawal) -> Result<Withdrawal, FfiError> {
     Ok(Withdrawal {
         processor: parse_address(&withdrawal.processooor)?,
         data: withdrawal.data.into(),
+    })
+}
+
+fn ffi_withdrawal_to_wire(withdrawal: FfiWithdrawal) -> WireWithdrawal {
+    WireWithdrawal {
+        processooor: withdrawal.processooor,
+        data: format!("0x{}", hex::encode(withdrawal.data)),
+    }
+}
+
+fn ffi_commitment_to_wire(commitment: FfiCommitment) -> WireCommitment {
+    WireCommitment {
+        hash: commitment.hash,
+        nullifier_hash: commitment.nullifier_hash,
+        precommitment_hash: commitment.precommitment_hash,
+        value: commitment.value,
+        label: commitment.label,
+        nullifier: commitment.nullifier,
+        secret: commitment.secret,
+    }
+}
+
+fn ffi_circuit_merkle_witness_to_wire(
+    witness: FfiCircuitMerkleWitness,
+) -> Result<WireCircuitMerkleWitness, FfiError> {
+    Ok(WireCircuitMerkleWitness {
+        root: witness.root,
+        leaf: witness.leaf,
+        index: usize::try_from(witness.index)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        siblings: witness.siblings,
+        depth: usize::try_from(witness.depth)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
     })
 }
 
@@ -1335,6 +1795,14 @@ fn from_ffi_execution_preflight(
         }
     };
 
+    let mode = match report.mode.as_deref().unwrap_or("strict") {
+        "strict" => ExecutionPolicyMode::Strict,
+        "insecure_dev" => ExecutionPolicyMode::InsecureDev,
+        other => {
+            return Err(FfiError::InvalidExecutionPolicyMode(other.to_owned()));
+        }
+    };
+
     Ok(ExecutionPreflightReport {
         kind,
         caller: parse_address(&report.caller)?,
@@ -1344,6 +1812,19 @@ fn from_ffi_execution_preflight(
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: report
+            .read_consistency
+            .as_deref()
+            .map(parse_read_consistency)
+            .transpose()?
+            .unwrap_or(ReadConsistency::Latest),
+        max_fee_quote_wei: report
+            .max_fee_quote_wei
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
+        mode,
         code_hash_checks: report
             .code_hash_checks
             .into_iter()
@@ -1360,7 +1841,6 @@ fn from_ffi_execution_preflight(
 fn from_ffi_proving_result(result: FfiProvingResult) -> Result<ProvingResult, FfiError> {
     let backend = match result.backend.as_str() {
         "arkworks" => ProverBackend::Arkworks,
-        "rapidsnark" => ProverBackend::Rapidsnark,
         _ => {
             return Err(FfiError::OperationFailed(format!(
                 "invalid prover backend: {}",
@@ -1479,24 +1959,6 @@ fn to_ffi_circuit_merkle_witness(
     })
 }
 
-fn from_ffi_circuit_merkle_witness(
-    witness: FfiCircuitMerkleWitness,
-) -> Result<CircuitMerkleWitness, FfiError> {
-    Ok(CircuitMerkleWitness {
-        root: parse_field(&witness.root)?,
-        leaf: parse_field(&witness.leaf)?,
-        index: usize::try_from(witness.index)
-            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
-        siblings: witness
-            .siblings
-            .iter()
-            .map(|value| parse_field(value))
-            .collect::<Result<Vec<_>, _>>()?,
-        depth: usize::try_from(witness.depth)
-            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
-    })
-}
-
 fn to_ffi_recovery_checkpoint(
     checkpoint: privacy_pools_sdk::recovery::RecoveryCheckpoint,
 ) -> Result<FfiRecoveryCheckpoint, FfiError> {
@@ -1510,36 +1972,38 @@ fn to_ffi_recovery_checkpoint(
 fn to_ffi_withdrawal_circuit_input(
     input: WithdrawalCircuitInput,
 ) -> Result<FfiWithdrawalCircuitInput, FfiError> {
+    let wire = WireWithdrawalCircuitInput::from(&input);
     Ok(FfiWithdrawalCircuitInput {
-        withdrawn_value: field_label(input.withdrawn_value),
-        state_root: field_label(input.state_root),
-        state_tree_depth: u64::try_from(input.state_tree_depth)
+        withdrawn_value: wire.withdrawn_value,
+        state_root: wire.state_root,
+        state_tree_depth: u64::try_from(wire.state_tree_depth)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
-        asp_root: field_label(input.asp_root),
-        asp_tree_depth: u64::try_from(input.asp_tree_depth)
+        asp_root: wire.asp_root,
+        asp_tree_depth: u64::try_from(wire.asp_tree_depth)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
-        context: field_label(input.context),
-        label: field_label(input.label),
-        existing_value: field_label(input.existing_value),
-        existing_nullifier: input.existing_nullifier.to_decimal_string(),
-        existing_secret: input.existing_secret.to_decimal_string(),
-        new_nullifier: input.new_nullifier.to_decimal_string(),
-        new_secret: input.new_secret.to_decimal_string(),
-        state_siblings: input.state_siblings.into_iter().map(field_label).collect(),
-        state_index: u64::try_from(input.state_index)
+        context: wire.context,
+        label: wire.label,
+        existing_value: wire.existing_value,
+        existing_nullifier: wire.existing_nullifier,
+        existing_secret: wire.existing_secret,
+        new_nullifier: wire.new_nullifier,
+        new_secret: wire.new_secret,
+        state_siblings: wire.state_siblings,
+        state_index: u64::try_from(wire.state_index)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
-        asp_siblings: input.asp_siblings.into_iter().map(field_label).collect(),
-        asp_index: u64::try_from(input.asp_index)
+        asp_siblings: wire.asp_siblings,
+        asp_index: u64::try_from(wire.asp_index)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
     })
 }
 
 fn to_ffi_commitment_circuit_input(input: &CommitmentCircuitInput) -> FfiCommitmentCircuitInput {
+    let wire = WireCommitmentCircuitInput::from(input);
     FfiCommitmentCircuitInput {
-        value: field_label(input.value),
-        label: field_label(input.label),
-        nullifier: input.nullifier.to_decimal_string(),
-        secret: input.secret.to_decimal_string(),
+        value: wire.value,
+        label: wire.label,
+        nullifier: wire.nullifier,
+        secret: wire.secret,
     }
 }
 
@@ -1572,6 +2036,20 @@ fn to_ffi_resolved_artifact_bundle(bundle: ResolvedArtifactBundle) -> FfiResolve
     }
 }
 
+fn to_ffi_verified_signed_manifest(
+    payload: &privacy_pools_sdk::artifacts::SignedArtifactManifestPayload,
+    artifact_count: usize,
+) -> FfiVerifiedSignedManifest {
+    FfiVerifiedSignedManifest {
+        version: payload.manifest.version.clone(),
+        artifact_count: artifact_count as u64,
+        ceremony: payload.metadata.ceremony.clone(),
+        build: payload.metadata.build.clone(),
+        repository: payload.metadata.repository.clone(),
+        commit: payload.metadata.commit.clone(),
+    }
+}
+
 fn from_ffi_recovery_policy(policy: FfiRecoveryPolicy) -> Result<RecoveryPolicy, FfiError> {
     Ok(RecoveryPolicy {
         compatibility_mode: parse_compatibility_mode(&policy.compatibility_mode)?,
@@ -1582,24 +2060,26 @@ fn from_ffi_recovery_policy(policy: FfiRecoveryPolicy) -> Result<RecoveryPolicy,
 fn from_ffi_withdrawal_witness_request(
     request: FfiWithdrawalWitnessRequest,
 ) -> Result<WithdrawalWitnessRequest, FfiError> {
-    Ok(WithdrawalWitnessRequest {
-        commitment: from_ffi_commitment(request.commitment)?,
-        withdrawal: from_ffi_withdrawal(request.withdrawal)?,
-        scope: parse_field(&request.scope)?,
-        withdrawal_amount: parse_field(&request.withdrawal_amount)?,
-        state_witness: from_ffi_circuit_merkle_witness(request.state_witness)?,
-        asp_witness: from_ffi_circuit_merkle_witness(request.asp_witness)?,
-        new_nullifier: parse_field(&request.new_nullifier)?.into(),
-        new_secret: parse_field(&request.new_secret)?.into(),
+    WithdrawalWitnessRequest::try_from(WireWithdrawalWitnessRequest {
+        commitment: ffi_commitment_to_wire(request.commitment),
+        withdrawal: ffi_withdrawal_to_wire(request.withdrawal),
+        scope: request.scope,
+        withdrawal_amount: request.withdrawal_amount,
+        state_witness: ffi_circuit_merkle_witness_to_wire(request.state_witness)?,
+        asp_witness: ffi_circuit_merkle_witness_to_wire(request.asp_witness)?,
+        new_nullifier: request.new_nullifier,
+        new_secret: request.new_secret,
     })
+    .map_err(|error| FfiError::OperationFailed(error.to_string()))
 }
 
 fn from_ffi_commitment_witness_request(
     request: FfiCommitmentWitnessRequest,
 ) -> Result<CommitmentWitnessRequest, FfiError> {
-    Ok(CommitmentWitnessRequest {
-        commitment: from_ffi_commitment(request.commitment)?,
+    CommitmentWitnessRequest::try_from(WireCommitmentWitnessRequest {
+        commitment: ffi_commitment_to_wire(request.commitment),
     })
+    .map_err(|error| FfiError::OperationFailed(error.to_string()))
 }
 
 fn from_ffi_pool_events(events: Vec<FfiPoolEvent>) -> Result<Vec<PoolEvent>, FfiError> {
@@ -1631,8 +2111,20 @@ fn from_ffi_artifact_bytes(
         .collect()
 }
 
+fn from_ffi_signed_manifest_artifact_bytes(
+    artifacts: Vec<FfiSignedManifestArtifactBytes>,
+) -> Vec<SignedManifestArtifactBytes> {
+    artifacts
+        .into_iter()
+        .map(|artifact| SignedManifestArtifactBytes {
+            filename: artifact.filename,
+            bytes: artifact.bytes,
+        })
+        .collect()
+}
+
 fn prove_withdrawal_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -1642,13 +2134,13 @@ fn prove_withdrawal_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let result = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::Proving(Box::new(
@@ -1657,7 +2149,7 @@ fn prove_withdrawal_background(
 }
 
 fn prepare_withdrawal_execution_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -1668,28 +2160,28 @@ fn prepare_withdrawal_execution_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "validating");
     ensure_job_not_cancelled(&entry)?;
     sdk()
         .validate_withdrawal_proof_against_request(&request, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .map_err(map_sdk_error)?
     {
-        return Err(FfiError::OperationFailed(
-            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
+        return Err(FfiError::VerifierFailure(
+            SdkError::ProofRejected.to_string(),
         ));
     }
 
@@ -1702,14 +2194,13 @@ fn prepare_withdrawal_execution_background(
             &request.withdrawal,
             &proving.proof,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     set_job_stage(&entry, "preflight");
     ensure_job_not_cancelled(&entry)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let runtime = build_runtime()?;
-    let preflight = runtime
+    let preflight = sdk_runtime()?
         .block_on(privacy_pools_sdk::chain::preflight_withdrawal(
             &client,
             &transaction,
@@ -1718,20 +2209,23 @@ fn prepare_withdrawal_execution_background(
             request.asp_witness.root,
             &config.policy,
         ))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
-        to_ffi_prepared_execution(PreparedTransactionExecution {
-            proving,
-            transaction,
-            preflight,
-        }),
+        to_ffi_prepared_execution_with_policy(
+            PreparedTransactionExecution {
+                proving,
+                transaction,
+                preflight,
+            },
+            &config.policy_echo,
+        ),
     )))
 }
 
 fn prepare_relay_execution_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -1742,28 +2236,28 @@ fn prepare_relay_execution_background(
     ensure_job_not_cancelled(&entry)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, &artifacts_root)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "proving");
     ensure_job_not_cancelled(&entry)?;
     let proving = sdk()
         .prove_withdrawal_with_session(profile, &session, &request)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "validating");
     ensure_job_not_cancelled(&entry)?;
     sdk()
         .validate_withdrawal_proof_against_request(&request, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     set_job_stage(&entry, "verifying");
     ensure_job_not_cancelled(&entry)?;
     if !sdk()
         .verify_withdrawal_proof_with_session(profile, &session, &proving.proof)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?
+        .map_err(map_sdk_error)?
     {
-        return Err(FfiError::OperationFailed(
-            privacy_pools_sdk::SdkError::ProofRejected.to_string(),
+        return Err(FfiError::VerifierFailure(
+            SdkError::ProofRejected.to_string(),
         ));
     }
 
@@ -1777,14 +2271,13 @@ fn prepare_relay_execution_background(
             &proving.proof,
             request.scope,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     set_job_stage(&entry, "preflight");
     ensure_job_not_cancelled(&entry)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&config.rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let runtime = build_runtime()?;
-    let preflight = runtime
+    let preflight = sdk_runtime()?
         .block_on(privacy_pools_sdk::chain::preflight_relay(
             &client,
             &transaction,
@@ -1794,15 +2287,18 @@ fn prepare_relay_execution_background(
             request.asp_witness.root,
             &config.policy,
         ))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_chain_error)?;
 
     ensure_job_not_cancelled(&entry)?;
     Ok(BackgroundJobResult::PreparedExecution(Box::new(
-        to_ffi_prepared_execution(PreparedTransactionExecution {
-            proving,
-            transaction,
-            preflight,
-        }),
+        to_ffi_prepared_execution_with_policy(
+            PreparedTransactionExecution {
+                proving,
+                transaction,
+                preflight,
+            },
+            &config.policy_echo,
+        ),
     )))
 }
 
@@ -1821,15 +2317,11 @@ pub fn get_stable_backend_name() -> Result<String, FfiError> {
 }
 
 #[uniffi::export]
-pub fn fast_backend_supported_on_target() -> bool {
-    sdk().fast_backend_supported_on_target()
-}
-
-#[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     let keys = sdk()
         .generate_master_keys(&mnemonic)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_crypto_error)?;
 
     Ok(FfiMasterKeys {
         master_nullifier: keys.master_nullifier.to_decimal_string(),
@@ -1837,7 +2329,47 @@ pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     })
 }
 
+fn derive_master_keys_handle_from_utf8_bytes(mnemonic: Vec<u8>) -> Result<String, FfiError> {
+    let mnemonic = Zeroizing::new(mnemonic);
+    (|| {
+        let phrase = std::str::from_utf8(&mnemonic)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        let keys = sdk()
+            .generate_master_keys(phrase)
+            .map_err(map_crypto_error)?;
+        register_secret_handle(SecretHandleEntry::MasterKeys(keys))
+    })()
+}
+
 #[uniffi::export]
+pub fn derive_master_keys_handle(mnemonic: String) -> Result<String, FfiError> {
+    let keys = sdk()
+        .generate_master_keys(&mnemonic)
+        .map_err(map_crypto_error)?;
+    register_secret_handle(SecretHandleEntry::MasterKeys(keys))
+}
+
+#[uniffi::export]
+pub fn derive_master_keys_handle_bytes(mnemonic: Vec<u8>) -> Result<String, FfiError> {
+    derive_master_keys_handle_from_utf8_bytes(mnemonic)
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_master_keys(handle: String) -> Result<FfiMasterKeys, FfiError> {
+    match registered_secret_handle(&handle)? {
+        SecretHandleEntry::MasterKeys(keys) => Ok(FfiMasterKeys {
+            master_nullifier: keys.master_nullifier.to_decimal_string(),
+            master_secret: keys.master_secret.to_decimal_string(),
+        }),
+        _ => Err(FfiError::OperationFailed(
+            "secret handle does not contain master keys".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_deposit_secrets(
     master_nullifier: String,
     master_secret: String,
@@ -1853,6 +2385,29 @@ pub fn derive_deposit_secrets(
 }
 
 #[uniffi::export]
+pub fn generate_deposit_secrets_handle(
+    master_keys_handle: String,
+    scope: String,
+    index: String,
+) -> Result<String, FfiError> {
+    let master_keys = match registered_secret_handle(&master_keys_handle)? {
+        SecretHandleEntry::MasterKeys(keys) => keys,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain master keys".to_owned(),
+            ));
+        }
+    };
+    let secrets = sdk()
+        .generate_deposit_secrets(&master_keys, parse_field(&scope)?, parse_field(&index)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    register_secret_handle(SecretHandleEntry::Secrets {
+        nullifier: secrets.0,
+        secret: secrets.1,
+    })
+}
+
+#[uniffi::export]
 pub fn calculate_withdrawal_context(
     withdrawal: FfiWithdrawal,
     scope: String,
@@ -1863,6 +2418,30 @@ pub fn calculate_withdrawal_context(
 }
 
 #[uniffi::export]
+pub fn generate_withdrawal_secrets_handle(
+    master_keys_handle: String,
+    label: String,
+    index: String,
+) -> Result<String, FfiError> {
+    let master_keys = match registered_secret_handle(&master_keys_handle)? {
+        SecretHandleEntry::MasterKeys(keys) => keys,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain master keys".to_owned(),
+            ));
+        }
+    };
+    let secrets = sdk()
+        .generate_withdrawal_secrets(&master_keys, parse_field(&label)?, parse_field(&index)?)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    register_secret_handle(SecretHandleEntry::Secrets {
+        nullifier: secrets.0,
+        secret: secrets.1,
+    })
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_withdrawal_secrets(
     master_nullifier: String,
     master_secret: String,
@@ -1894,6 +2473,74 @@ pub fn get_commitment(
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
     Ok(to_ffi_commitment(commitment))
+}
+
+#[uniffi::export]
+pub fn get_commitment_from_handles(
+    value: String,
+    label: String,
+    secrets_handle: String,
+) -> Result<String, FfiError> {
+    let (nullifier, secret) = match registered_secret_handle(&secrets_handle)? {
+        SecretHandleEntry::Secrets { nullifier, secret } => (nullifier, secret),
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain secret pair material".to_owned(),
+            ));
+        }
+    };
+    let commitment = sdk()
+        .build_commitment(
+            parse_field(&value)?,
+            parse_field(&label)?,
+            nullifier.dangerously_expose_field(),
+            secret.dangerously_expose_field(),
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    register_secret_handle(SecretHandleEntry::CommitmentRequest(
+        CommitmentWitnessRequest { commitment },
+    ))
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_commitment_preimage(handle: String) -> Result<FfiCommitment, FfiError> {
+    match registered_secret_handle(&handle)? {
+        SecretHandleEntry::CommitmentRequest(request) => Ok(to_ffi_commitment(request.commitment)),
+        _ => Err(FfiError::OperationFailed(
+            "secret handle does not contain a commitment witness request".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_secret(handle: String) -> Result<FfiSecrets, FfiError> {
+    match registered_secret_handle(&handle)? {
+        SecretHandleEntry::Secrets { nullifier, secret } => Ok(to_ffi_secrets((nullifier, secret))),
+        _ => Err(FfiError::OperationFailed(
+            "secret handle does not contain secret pair material".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+pub fn build_withdrawal_witness_request_handle(
+    request: FfiWithdrawalWitnessRequest,
+) -> Result<String, FfiError> {
+    register_secret_handle(SecretHandleEntry::WithdrawalRequest(Box::new(
+        from_ffi_withdrawal_witness_request(request)?,
+    )))
+}
+
+#[uniffi::export]
+pub fn remove_secret_handle(handle: String) -> Result<bool, FfiError> {
+    remove_secret_handle_entry(&handle)
+}
+
+#[uniffi::export]
+pub fn clear_secret_handles() -> Result<bool, FfiError> {
+    clear_secret_handle_registry()
 }
 
 #[uniffi::export]
@@ -1958,7 +2605,7 @@ pub fn prepare_withdrawal_circuit_session(
     let manifest = parse_manifest(&manifest_json)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session(&manifest, PathBuf::from(artifacts_root))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_withdrawal_session(session)
 }
@@ -1971,10 +2618,10 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
     let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .verify_artifact_bundle_bytes(&manifest, "withdraw", from_ffi_artifact_bytes(artifacts)?)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
     let session = sdk()
         .prepare_withdrawal_circuit_session_from_bundle(bundle)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_withdrawal_session(session)
 }
@@ -1992,7 +2639,7 @@ pub fn prepare_commitment_circuit_session(
     let manifest = parse_manifest(&manifest_json)?;
     let session = sdk()
         .prepare_commitment_circuit_session(&manifest, PathBuf::from(artifacts_root))
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_commitment_session(session)
 }
@@ -2005,10 +2652,10 @@ pub fn prepare_commitment_circuit_session_from_bytes(
     let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .verify_artifact_bundle_bytes(&manifest, "commitment", from_ffi_artifact_bytes(artifacts)?)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
     let session = sdk()
         .prepare_commitment_circuit_session_from_bundle(bundle)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_sdk_error)?;
 
     register_commitment_session(session)
 }
@@ -2079,6 +2726,34 @@ pub fn prove_withdrawal(
 }
 
 #[uniffi::export]
+pub fn prove_withdrawal_with_handles(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> Result<FfiProvingResult, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a withdrawal witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let result = sdk()
+        .prove_withdrawal(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
 pub fn prove_withdrawal_with_session(
     backend_profile: String,
     session_handle: String,
@@ -2110,6 +2785,34 @@ pub fn prove_commitment(
             &manifest,
             PathBuf::from(artifacts_root),
             &from_ffi_commitment_witness_request(request)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_proving_result(result))
+}
+
+#[uniffi::export]
+pub fn prove_commitment_with_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> Result<FfiProvingResult, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a commitment witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let result = sdk()
+        .prove_commitment(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
         )
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -2230,6 +2933,162 @@ pub fn verify_commitment_proof_with_session(
 }
 
 #[uniffi::export]
+pub fn prove_and_verify_commitment_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> Result<String, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a commitment witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let verified = sdk()
+        .prove_and_verify_commitment(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_verified_proof_handle(VerifiedProofHandleEntry::Commitment(verified))
+}
+
+#[uniffi::export]
+pub fn prove_and_verify_withdrawal_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+) -> Result<String, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a withdrawal witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let verified = sdk()
+        .prove_and_verify_withdrawal(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_verified_proof_handle(VerifiedProofHandleEntry::Withdrawal(verified))
+}
+
+#[uniffi::export]
+pub fn verify_commitment_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof: FfiProofBundle,
+) -> Result<String, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a commitment witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let verified = sdk()
+        .verify_commitment_proof_for_request(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_verified_proof_handle(VerifiedProofHandleEntry::Commitment(verified))
+}
+
+#[uniffi::export]
+pub fn verify_ragequit_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof: FfiProofBundle,
+) -> Result<String, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::CommitmentRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a commitment witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let verified = sdk()
+        .verify_ragequit_proof_for_request(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_verified_proof_handle(VerifiedProofHandleEntry::Ragequit(verified))
+}
+
+#[uniffi::export]
+pub fn verify_withdrawal_proof_for_request_handle(
+    backend_profile: String,
+    manifest_json: String,
+    artifacts_root: String,
+    request_handle: String,
+    proof: FfiProofBundle,
+) -> Result<String, FfiError> {
+    let request = match registered_secret_handle(&request_handle)? {
+        SecretHandleEntry::WithdrawalRequest(request) => request,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "secret handle does not contain a withdrawal witness request".to_owned(),
+            ));
+        }
+    };
+    let manifest = parse_manifest(&manifest_json)?;
+    let verified = sdk()
+        .verify_withdrawal_proof_for_request(
+            parse_backend_profile(&backend_profile)?,
+            &manifest,
+            PathBuf::from(artifacts_root),
+            &request,
+            &from_ffi_proof_bundle(proof)?,
+        )
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    register_verified_proof_handle(VerifiedProofHandleEntry::Withdrawal(verified))
+}
+
+#[uniffi::export]
+pub fn remove_verified_proof_handle(handle: String) -> Result<bool, FfiError> {
+    remove_verified_proof_handle_entry(&handle)
+}
+
+#[uniffi::export]
+pub fn clear_verified_proof_handles() -> Result<bool, FfiError> {
+    clear_verified_proof_handle_registry()
+}
+
+#[uniffi::export]
 #[allow(clippy::too_many_arguments)]
 pub fn start_prepare_withdrawal_execution_job(
     backend_profile: String,
@@ -2241,18 +3100,18 @@ pub fn start_prepare_withdrawal_execution_job(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiAsyncJobHandle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let pool_address = parse_address(&pool_address)?;
-    let policy = from_ffi_execution_policy(policy)?;
+    let parsed_policy = from_ffi_execution_policy(&policy)?;
     let artifacts_root = PathBuf::from(artifacts_root);
     let config = PrepareWithdrawalJobConfig {
         chain_id,
         pool_address,
         rpc_url,
-        policy,
+        policy: parsed_policy,
+        policy_echo: policy,
     };
 
     spawn_background_job(
@@ -2289,13 +3148,13 @@ pub fn prepare_withdrawal_execution(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiPreparedTransactionExecution, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
-    Ok(to_ffi_prepared_execution(block_on_sdk(
-        sdk().prepare_withdrawal_execution_with_client(
+    let policy_config = from_ffi_execution_policy(&policy)?;
+    Ok(to_ffi_prepared_execution_with_policy(
+        block_on_sdk(sdk().prepare_withdrawal_execution_with_client(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
@@ -2303,11 +3162,12 @@ pub fn prepare_withdrawal_execution(
             &privacy_pools_sdk::core::WithdrawalExecutionConfig {
                 chain_id,
                 pool_address: parse_address(&pool_address)?,
-                policy: from_ffi_execution_policy(policy)?,
+                policy: policy_config,
             },
             &client,
-        ),
-    )?))
+        ))?,
+        &policy,
+    ))
 }
 
 #[uniffi::export]
@@ -2323,20 +3183,20 @@ pub fn start_prepare_relay_execution_job(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiAsyncJobHandle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let profile = parse_backend_profile(&backend_profile)?;
     let request = from_ffi_withdrawal_witness_request(request)?;
     let entrypoint_address = parse_address(&entrypoint_address)?;
     let pool_address = parse_address(&pool_address)?;
-    let policy = from_ffi_execution_policy(policy)?;
+    let parsed_policy = from_ffi_execution_policy(&policy)?;
     let artifacts_root = PathBuf::from(artifacts_root);
     let config = PrepareRelayJobConfig {
         chain_id,
         entrypoint_address,
         pool_address,
         rpc_url,
-        policy,
+        policy: parsed_policy,
+        policy_echo: policy,
     };
 
     spawn_background_job(BackgroundJobKind::PrepareRelayExecution, move |entry| {
@@ -2371,13 +3231,13 @@ pub fn prepare_relay_execution(
     rpc_url: String,
     policy: FfiExecutionPolicy,
 ) -> Result<FfiPreparedTransactionExecution, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
-    Ok(to_ffi_prepared_execution(block_on_sdk(
-        sdk().prepare_relay_execution_with_client(
+    let policy_config = from_ffi_execution_policy(&policy)?;
+    Ok(to_ffi_prepared_execution_with_policy(
+        block_on_sdk(sdk().prepare_relay_execution_with_client(
             parse_backend_profile(&backend_profile)?,
             &manifest,
             PathBuf::from(artifacts_root),
@@ -2386,21 +3246,23 @@ pub fn prepare_relay_execution(
                 chain_id,
                 entrypoint_address: parse_address(&entrypoint_address)?,
                 pool_address: parse_address(&pool_address)?,
-                policy: from_ffi_execution_policy(policy)?,
+                policy: policy_config,
             },
             &client,
-        ),
-    )?))
+        ))?,
+        &policy,
+    ))
 }
 
+#[cfg(feature = "local-mnemonic")]
 #[uniffi::export]
 pub fn register_local_mnemonic_signer(
     handle: String,
     mnemonic: String,
     index: u32,
 ) -> Result<FfiSignerHandle, FfiError> {
-    let signer = LocalMnemonicSigner::from_phrase_nth(&mnemonic, index)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let signer =
+        LocalMnemonicSigner::from_phrase_nth(&mnemonic, index).map_err(map_signer_error)?;
     register_signer(handle, RegisteredSigner::LocalMnemonic(signer))
 }
 
@@ -2481,15 +3343,14 @@ pub fn submit_signed_transaction(
     finalized: FfiFinalizedTransactionExecution,
     signed_transaction: String,
 ) -> Result<FfiSubmittedTransactionExecution, FfiError> {
+    let finalized = from_ffi_finalized_execution(finalized)?;
     let encoded_tx = hex::decode(signed_transaction.trim_start_matches("0x"))
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    privacy_pools_sdk::chain::validate_signed_transaction_request(&encoded_tx, &finalized.request)
+        .map_err(|error| FfiError::InvalidSignedTransaction(error.to_string()))?;
 
     Ok(to_ffi_submitted_execution(block_on_sdk(
-        sdk().submit_finalized_transaction(
-            &rpc_url,
-            from_ffi_finalized_execution(finalized)?,
-            &encoded_tx,
-        ),
+        sdk().submit_finalized_transaction(&rpc_url, finalized, &encoded_tx),
     )?))
 }
 
@@ -2551,6 +3412,300 @@ pub fn plan_ragequit_transaction(
 }
 
 #[uniffi::export]
+pub fn plan_verified_withdrawal_transaction_with_handle(
+    chain_id: u64,
+    pool_address: String,
+    proof_handle: String,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a withdrawal proof".to_owned(),
+            ));
+        }
+    };
+    let plan = sdk()
+        .plan_verified_withdrawal_transaction(chain_id, parse_address(&pool_address)?, &proof)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
+}
+
+#[uniffi::export]
+pub fn plan_verified_relay_transaction_with_handle(
+    chain_id: u64,
+    entrypoint_address: String,
+    proof_handle: String,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a withdrawal proof".to_owned(),
+            ));
+        }
+    };
+    let plan = sdk()
+        .plan_verified_relay_transaction(chain_id, parse_address(&entrypoint_address)?, &proof)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
+}
+
+#[uniffi::export]
+pub fn plan_verified_ragequit_transaction_with_handle(
+    chain_id: u64,
+    pool_address: String,
+    proof_handle: String,
+) -> Result<FfiTransactionPlan, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Ragequit(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a ragequit proof".to_owned(),
+            ));
+        }
+    };
+    let plan = sdk()
+        .plan_verified_ragequit_transaction(chain_id, parse_address(&pool_address)?, &proof)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+
+    Ok(to_ffi_transaction_plan(plan))
+}
+
+#[uniffi::export]
+pub fn preflight_verified_withdrawal_transaction_with_handle(
+    chain_id: u64,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+    proof_handle: String,
+) -> Result<String, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a withdrawal proof".to_owned(),
+            ));
+        }
+    };
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let preflighted = block_on_sdk(sdk().preflight_verified_withdrawal_transaction_with_client(
+        &WithdrawalExecutionConfig {
+            chain_id,
+            pool_address: parse_address(&pool_address)?,
+            policy: from_ffi_execution_policy(&policy)?,
+        },
+        &proof,
+        &client,
+    ))?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted))
+}
+
+#[uniffi::export]
+pub fn preflight_verified_relay_transaction_with_handle(
+    chain_id: u64,
+    entrypoint_address: String,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+    proof_handle: String,
+) -> Result<String, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Withdrawal(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a withdrawal proof".to_owned(),
+            ));
+        }
+    };
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let preflighted = block_on_sdk(sdk().preflight_verified_relay_transaction_with_client(
+        &RelayExecutionConfig {
+            chain_id,
+            entrypoint_address: parse_address(&entrypoint_address)?,
+            pool_address: parse_address(&pool_address)?,
+            policy: from_ffi_execution_policy(&policy)?,
+        },
+        &proof,
+        &client,
+    ))?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted))
+}
+
+#[uniffi::export]
+pub fn preflight_verified_ragequit_transaction_with_handle(
+    chain_id: u64,
+    pool_address: String,
+    rpc_url: String,
+    policy: FfiExecutionPolicy,
+    proof_handle: String,
+) -> Result<String, FfiError> {
+    let proof = match registered_verified_proof_handle(&proof_handle)? {
+        VerifiedProofHandleEntry::Ragequit(proof) => proof,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "verified proof handle does not contain a ragequit proof".to_owned(),
+            ));
+        }
+    };
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let preflighted = block_on_sdk(sdk().preflight_verified_ragequit_transaction_with_client(
+        &RagequitExecutionConfig {
+            chain_id,
+            pool_address: parse_address(&pool_address)?,
+            policy: from_ffi_execution_policy(&policy)?,
+        },
+        &proof,
+        &client,
+    ))?;
+    register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted))
+}
+
+#[uniffi::export]
+pub fn finalize_preflighted_transaction_handle(
+    rpc_url: String,
+    preflighted_handle: String,
+) -> Result<String, FfiError> {
+    let preflighted = match registered_execution_handle(&preflighted_handle)? {
+        ExecutionHandleEntry::Preflighted(preflighted) => preflighted,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "execution handle does not contain a preflighted transaction".to_owned(),
+            ));
+        }
+    };
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let finalized =
+        block_on_sdk(sdk().finalize_preflighted_transaction_with_client(preflighted, &client))?;
+    register_execution_handle(ExecutionHandleEntry::Finalized(finalized))
+}
+
+#[uniffi::export]
+pub fn submit_preflighted_transaction_handle(
+    rpc_url: String,
+    signer_handle: String,
+    preflighted_handle: String,
+) -> Result<String, FfiError> {
+    let preflighted = match registered_execution_handle(&preflighted_handle)? {
+        ExecutionHandleEntry::Preflighted(preflighted) => preflighted,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "execution handle does not contain a preflighted transaction".to_owned(),
+            ));
+        }
+    };
+    let signer = registered_signer(&signer_handle)?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let finalized =
+        block_on_sdk(sdk().finalize_preflighted_transaction_with_client(preflighted, &client))?;
+    if finalized.request().from != signer.address() {
+        return Err(FfiError::OperationFailed(format!(
+            "finalized transaction signer mismatch for handle {signer_handle}: expected {}, got {}",
+            signer.address(),
+            finalized.request().from
+        )));
+    }
+    let signed_transaction =
+        signer.sign_transaction_request(&signer_handle, finalized.request())?;
+    let submitted = block_on_sdk(sdk().submit_finalized_preflighted_transaction_with_client(
+        finalized,
+        &signed_transaction,
+        &client,
+    ))?;
+    register_execution_handle(ExecutionHandleEntry::Submitted(submitted))
+}
+
+#[uniffi::export]
+pub fn submit_finalized_preflighted_transaction_handle(
+    rpc_url: String,
+    finalized_handle: String,
+    signed_transaction: String,
+) -> Result<String, FfiError> {
+    let finalized = match registered_execution_handle(&finalized_handle)? {
+        ExecutionHandleEntry::Finalized(finalized) => finalized,
+        _ => {
+            return Err(FfiError::OperationFailed(
+                "execution handle does not contain a finalized preflighted transaction".to_owned(),
+            ));
+        }
+    };
+    let encoded_tx = hex::decode(signed_transaction.trim_start_matches("0x"))
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    privacy_pools_sdk::chain::validate_signed_transaction_request(&encoded_tx, finalized.request())
+        .map_err(|error| FfiError::InvalidSignedTransaction(error.to_string()))?;
+    let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    let submitted = block_on_sdk(sdk().submit_finalized_preflighted_transaction_with_client(
+        finalized,
+        &encoded_tx,
+        &client,
+    ))?;
+    register_execution_handle(ExecutionHandleEntry::Submitted(submitted))
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_preflighted_transaction(
+    handle: String,
+) -> Result<FfiPreflightedTransaction, FfiError> {
+    match registered_execution_handle(&handle)? {
+        ExecutionHandleEntry::Preflighted(preflighted) => {
+            Ok(to_ffi_preflighted_transaction(&preflighted))
+        }
+        _ => Err(FfiError::OperationFailed(
+            "execution handle does not contain a preflighted transaction".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_finalized_preflighted_transaction(
+    handle: String,
+) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
+    match registered_execution_handle(&handle)? {
+        ExecutionHandleEntry::Finalized(finalized) => {
+            Ok(to_ffi_finalized_preflighted_transaction(&finalized))
+        }
+        _ => Err(FfiError::OperationFailed(
+            "execution handle does not contain a finalized preflighted transaction".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_submitted_preflighted_transaction(
+    handle: String,
+) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
+    match registered_execution_handle(&handle)? {
+        ExecutionHandleEntry::Submitted(submitted) => {
+            Ok(to_ffi_submitted_preflighted_transaction(&submitted))
+        }
+        _ => Err(FfiError::OperationFailed(
+            "execution handle does not contain a submitted preflighted transaction".to_owned(),
+        )),
+    }
+}
+
+#[uniffi::export]
+pub fn remove_execution_handle(handle: String) -> Result<bool, FfiError> {
+    remove_execution_handle_entry(&handle)
+}
+
+#[uniffi::export]
+pub fn clear_execution_handles() -> Result<bool, FfiError> {
+    clear_execution_handle_registry()
+}
+
+#[uniffi::export]
 pub fn is_current_state_root(
     expected_root: String,
     current_root: String,
@@ -2597,8 +3752,7 @@ pub fn verify_artifact_bytes(
     kind: String,
     bytes: Vec<u8>,
 ) -> Result<FfiArtifactVerification, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let kind = parse_artifact_kind(&kind)?;
     let version = manifest.version.clone();
     let descriptor = manifest
@@ -2617,13 +3771,49 @@ pub fn verify_artifact_bytes(
 }
 
 #[uniffi::export]
+pub fn verify_signed_manifest(
+    payload_json: String,
+    signature_hex: String,
+    public_key_hex: String,
+) -> Result<FfiVerifiedSignedManifest, FfiError> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES)?;
+    let payload = privacy_pools_sdk::artifacts::verify_signed_manifest_bytes(
+        payload_json.as_bytes(),
+        &signature_hex,
+        &public_key_hex,
+    )
+    .map_err(map_artifact_error)?;
+    Ok(to_ffi_verified_signed_manifest(&payload, 0))
+}
+
+#[uniffi::export]
+pub fn verify_signed_manifest_artifacts(
+    payload_json: String,
+    signature_hex: String,
+    public_key_hex: String,
+    artifacts: Vec<FfiSignedManifestArtifactBytes>,
+) -> Result<FfiVerifiedSignedManifest, FfiError> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES)?;
+    let verified = privacy_pools_sdk::artifacts::verify_signed_manifest_artifact_bytes(
+        payload_json.as_bytes(),
+        &signature_hex,
+        &public_key_hex,
+        from_ffi_signed_manifest_artifact_bytes(artifacts),
+    )
+    .map_err(map_artifact_error)?;
+    Ok(to_ffi_verified_signed_manifest(
+        verified.payload(),
+        verified.artifact_count(),
+    ))
+}
+
+#[uniffi::export]
 pub fn get_artifact_statuses(
     manifest_json: String,
     artifacts_root: String,
     circuit: String,
 ) -> Result<Vec<FfiArtifactStatus>, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let version = manifest.version.clone();
     let statuses = sdk().artifact_statuses(&manifest, PathBuf::from(artifacts_root), &circuit);
 
@@ -2639,11 +3829,10 @@ pub fn resolve_verified_artifact_bundle(
     artifacts_root: String,
     circuit: String,
 ) -> Result<FfiResolvedArtifactBundle, FfiError> {
-    let manifest: ArtifactManifest = serde_json::from_str(&manifest_json)
-        .map_err(|error| FfiError::InvalidManifest(error.to_string()))?;
+    let manifest = parse_manifest(&manifest_json)?;
     let bundle = sdk()
         .resolve_verified_artifact_bundle(&manifest, PathBuf::from(artifacts_root), &circuit)
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_artifact_error)?;
 
     Ok(to_ffi_resolved_artifact_bundle(bundle))
 }
@@ -2658,7 +3847,7 @@ pub fn checkpoint_recovery(
             &from_ffi_pool_events(events)?,
             from_ffi_recovery_policy(policy)?,
         )
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        .map_err(map_recovery_error)?;
 
     to_ffi_recovery_checkpoint(checkpoint)
 }
@@ -2666,9 +3855,33 @@ pub fn checkpoint_recovery(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::bytes;
-    use serde_json::Value;
-    use std::time::Duration;
+    use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope, TxLegacy};
+    use alloy_eips::Encodable2718;
+    use alloy_network::TxSignerSync;
+    use alloy_primitives::{bytes, keccak256};
+    use alloy_signer_local::MnemonicBuilder;
+    use async_trait::async_trait;
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::{Value, json};
+    use sha2::{Digest, Sha256};
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        sync::{
+            Arc, Condvar, Mutex, OnceLock,
+            atomic::{AtomicBool, Ordering},
+        },
+        thread::{self, JoinHandle},
+        time::Duration,
+    };
+
+    fn handle_registry_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static HANDLE_REGISTRY_TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+        HANDLE_REGISTRY_TEST_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     fn vector() -> Value {
         serde_json::from_str(include_str!(
@@ -2676,6 +3889,192 @@ mod tests {
         ))
         .expect("valid ffi fixture")
     }
+
+    fn assert_dangerous_exports_disabled<T>(result: Result<T, FfiError>) {
+        match result {
+            Ok(_) => panic!("expected dangerous export helper to be disabled"),
+            Err(FfiError::OperationFailed(message)) => {
+                assert!(message.contains("dangerous export helpers are disabled"));
+            }
+            Err(other) => panic!("expected disabled-operation error, found {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_json_with_limit_rejects_oversized_payloads() {
+        let oversized = "x".repeat(MAX_CONTROL_JSON_INPUT_BYTES + 1);
+        let error = parse_json_with_limit::<Value>(&oversized, MAX_CONTROL_JSON_INPUT_BYTES)
+            .expect_err("oversized control payload should be rejected");
+        assert!(matches!(error, FfiError::PayloadTooLarge(_)));
+    }
+
+    #[test]
+    fn registry_capacity_rejects_when_full() {
+        let registry = HandleRegistry::new(
+            MAX_SECRET_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "secret_handles",
+            },
+        );
+        for index in 0..MAX_SECRET_HANDLES {
+            registry
+                .insert(index.to_string(), ())
+                .expect("registry accepts entries before reaching capacity");
+        }
+        let error = registry
+            .insert("overflow".to_owned(), ())
+            .expect_err("full registries should fail closed");
+        assert!(matches!(
+            error,
+            BindingCoreError::RegistryFull { registry, capacity }
+                if registry == "secret_handles" && capacity == MAX_SECRET_HANDLES
+        ));
+    }
+
+    #[test]
+    fn chain_id_mismatches_map_to_typed_ffi_errors() {
+        let error = map_chain_error(privacy_pools_sdk::chain::ChainError::ChainIdMismatch {
+            expected: 1,
+            actual: 2,
+        });
+        assert!(matches!(
+            error,
+            FfiError::ChainIdMismatch {
+                expected: 1,
+                actual: 2
+            }
+        ));
+    }
+
+    fn sample_execution_preflight_report() -> ExecutionPreflightReport {
+        ExecutionPreflightReport {
+            kind: privacy_pools_sdk::core::TransactionKind::Withdraw,
+            caller: Address::from_slice(&[0x11; 20]),
+            target: Address::from_slice(&[0x22; 20]),
+            expected_chain_id: 1,
+            actual_chain_id: 1,
+            chain_id_matches: true,
+            simulated: true,
+            estimated_gas: 42_000,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: Some(2_000_000_000),
+            mode: ExecutionPolicyMode::Strict,
+            code_hash_checks: vec![],
+            root_checks: vec![],
+        }
+    }
+
+    #[test]
+    fn execution_policy_round_trip_preserves_null_optional_fields() {
+        let policy = FfiExecutionPolicy {
+            expected_chain_id: 1,
+            caller: format!("{:#x}", Address::from_slice(&[0x11; 20])),
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+            read_consistency: None,
+            max_fee_quote_wei: None,
+            mode: None,
+        };
+
+        let mut preflight = to_ffi_execution_preflight(sample_execution_preflight_report());
+        apply_execution_policy_round_trip(&mut preflight, &policy);
+
+        assert_eq!(preflight.read_consistency, None);
+        assert_eq!(preflight.max_fee_quote_wei, None);
+        assert_eq!(preflight.mode, None);
+    }
+
+    #[test]
+    fn execution_policy_round_trip_preserves_explicit_optional_fields() {
+        let policy = FfiExecutionPolicy {
+            expected_chain_id: 1,
+            caller: format!("{:#x}", Address::from_slice(&[0x11; 20])),
+            expected_pool_code_hash: None,
+            expected_entrypoint_code_hash: None,
+            read_consistency: Some("finalized".to_owned()),
+            max_fee_quote_wei: Some("9999".to_owned()),
+            mode: Some("insecure_dev".to_owned()),
+        };
+
+        let mut preflight = to_ffi_execution_preflight(sample_execution_preflight_report());
+        apply_execution_policy_round_trip(&mut preflight, &policy);
+
+        assert_eq!(preflight.read_consistency, policy.read_consistency);
+        assert_eq!(preflight.max_fee_quote_wei, policy.max_fee_quote_wei);
+        assert_eq!(preflight.mode, policy.mode);
+    }
+
+    #[cfg_attr(feature = "dangerous-exports", allow(dead_code))]
+    fn dangerous_exports_disabled<T>() -> Result<T, FfiError> {
+        Err(FfiError::OperationFailed(
+            "dangerous export helpers are disabled".to_owned(),
+        ))
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_master_keys_for_test(handle: String) -> Result<FfiMasterKeys, FfiError> {
+        dangerously_export_master_keys(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_master_keys_for_test(_handle: String) -> Result<FfiMasterKeys, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_commitment_preimage_for_test(handle: String) -> Result<FfiCommitment, FfiError> {
+        dangerously_export_commitment_preimage(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_commitment_preimage_for_test(_handle: String) -> Result<FfiCommitment, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiPreflightedTransaction, FfiError> {
+        dangerously_export_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_finalized_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
+        dangerously_export_finalized_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_finalized_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    #[cfg(feature = "dangerous-exports")]
+    fn export_submitted_preflighted_transaction_for_test(
+        handle: String,
+    ) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
+        dangerously_export_submitted_preflighted_transaction(handle)
+    }
+
+    #[cfg(not(feature = "dangerous-exports"))]
+    fn export_submitted_preflighted_transaction_for_test(
+        _handle: String,
+    ) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
+        dangerous_exports_disabled()
+    }
+
+    const EXECUTION_TEST_MNEMONIC: &str =
+        "test test test test test test test test test test test junk";
 
     fn valid_relay_data_bytes() -> Vec<u8> {
         bytes!(
@@ -2696,25 +4095,26 @@ mod tests {
     fn ffi_withdrawal_request() -> FfiWithdrawalWitnessRequest {
         let crypto_fixture = vector();
         let withdrawal_fixture = withdrawal_vector();
-        let keys =
-            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
-        let deposit = derive_deposit_secrets(
-            keys.master_nullifier,
-            keys.master_secret,
-            crypto_fixture["scope"].as_str().unwrap().to_owned(),
-            "0".to_owned(),
-        )
-        .unwrap();
-        let commitment = get_commitment(
-            withdrawal_fixture["existingValue"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
-            deposit.nullifier,
-            deposit.secret,
-        )
-        .unwrap();
+        let keys = sdk()
+            .generate_master_keys(crypto_fixture["mnemonic"].as_str().unwrap())
+            .unwrap();
+        let deposit = sdk()
+            .generate_deposit_secrets(
+                &keys,
+                parse_field(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
+                U256::ZERO,
+            )
+            .unwrap();
+        let commitment = to_ffi_commitment(
+            sdk()
+                .build_commitment(
+                    parse_field(withdrawal_fixture["existingValue"].as_str().unwrap()).unwrap(),
+                    parse_field(withdrawal_fixture["label"].as_str().unwrap()).unwrap(),
+                    deposit.0,
+                    deposit.1,
+                )
+                .unwrap(),
+        );
 
         FfiWithdrawalWitnessRequest {
             commitment,
@@ -2775,12 +4175,819 @@ mod tests {
         }
     }
 
+    fn signed_manifest_fixture() -> (String, String, String, String, Vec<u8>) {
+        let artifact_bytes = b"signed manifest ffi fixture".to_vec();
+        let payload = privacy_pools_sdk::artifacts::SignedArtifactManifestPayload {
+            manifest: privacy_pools_sdk::artifacts::ArtifactManifest {
+                version: "signed-ffi-test".to_owned(),
+                artifacts: vec![privacy_pools_sdk::artifacts::ArtifactDescriptor {
+                    circuit: "withdraw".to_owned(),
+                    kind: privacy_pools_sdk::artifacts::ArtifactKind::Wasm,
+                    filename: "signed.wasm".to_owned(),
+                    sha256: hex::encode(Sha256::digest(&artifact_bytes)),
+                }],
+            },
+            metadata: privacy_pools_sdk::artifacts::ArtifactManifestMetadata {
+                ceremony: Some("ffi ceremony".to_owned()),
+                build: Some("ffi-test".to_owned()),
+                repository: Some("0xbow/privacy-pools-sdk-rs".to_owned()),
+                commit: Some("abc123".to_owned()),
+            },
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap();
+        let signing_key = SigningKey::from_bytes(&[13_u8; 32]);
+        let wrong_key = SigningKey::from_bytes(&[17_u8; 32]);
+        let signature_hex = hex::encode(signing_key.sign(payload_json.as_bytes()).to_bytes());
+        let public_key_hex = hex::encode(signing_key.verifying_key().to_bytes());
+        let wrong_public_key_hex = hex::encode(wrong_key.verifying_key().to_bytes());
+
+        (
+            payload_json,
+            signature_hex,
+            public_key_hex,
+            wrong_public_key_hex,
+            artifact_bytes,
+        )
+    }
+
     fn ffi_commitment_request() -> FfiCommitmentWitnessRequest {
         FfiCommitmentWitnessRequest {
             commitment: ffi_withdrawal_request().commitment,
         }
     }
 
+    #[derive(Clone)]
+    struct MockChainClient {
+        caller: Address,
+        pool: Address,
+        entrypoint: Address,
+        pool_code_hash: B256,
+        entrypoint_code_hash: B256,
+        state_root: U256,
+        asp_root: U256,
+    }
+
+    #[async_trait]
+    impl privacy_pools_sdk::chain::ExecutionClient for MockChainClient {
+        async fn chain_id(&self) -> Result<u64, privacy_pools_sdk::chain::ChainError> {
+            Ok(1)
+        }
+
+        async fn code_hash(
+            &self,
+            address: Address,
+            _consistency: ReadConsistency,
+        ) -> Result<B256, privacy_pools_sdk::chain::ChainError> {
+            if address == self.pool {
+                Ok(self.pool_code_hash)
+            } else if address == self.entrypoint {
+                Ok(self.entrypoint_code_hash)
+            } else {
+                Ok(B256::ZERO)
+            }
+        }
+
+        async fn read_root(
+            &self,
+            read: &privacy_pools_sdk::core::RootRead,
+        ) -> Result<U256, privacy_pools_sdk::chain::ChainError> {
+            match read.kind {
+                RootReadKind::Asp => Ok(self.asp_root),
+                RootReadKind::PoolState => {
+                    let state_root_read = privacy_pools_sdk::chain::state_root_read(
+                        self.pool,
+                        ReadConsistency::Latest,
+                    );
+                    if read.call_data == state_root_read.call_data {
+                        Ok(self.state_root)
+                    } else {
+                        let mut word = [0_u8; 32];
+                        word[12..].copy_from_slice(self.entrypoint.as_slice());
+                        Ok(U256::from_be_bytes(word))
+                    }
+                }
+            }
+        }
+
+        async fn simulate_transaction(
+            &self,
+            _caller: Address,
+            _plan: &TransactionPlan,
+        ) -> Result<u64, privacy_pools_sdk::chain::ChainError> {
+            Ok(210_000)
+        }
+    }
+
+    #[async_trait]
+    impl privacy_pools_sdk::chain::SubmissionClient for MockChainClient {
+        fn caller(&self) -> Address {
+            self.caller
+        }
+
+        async fn submit_transaction(
+            &self,
+            _plan: &TransactionPlan,
+        ) -> Result<TransactionReceiptSummary, privacy_pools_sdk::chain::ChainError> {
+            Ok(dummy_receipt_summary())
+        }
+    }
+
+    #[async_trait]
+    impl privacy_pools_sdk::chain::FinalizationClient for MockChainClient {
+        async fn next_nonce(
+            &self,
+            _caller: Address,
+        ) -> Result<u64, privacy_pools_sdk::chain::ChainError> {
+            Ok(7)
+        }
+
+        async fn fee_parameters(
+            &self,
+        ) -> Result<privacy_pools_sdk::chain::FeeParameters, privacy_pools_sdk::chain::ChainError>
+        {
+            Ok(privacy_pools_sdk::chain::FeeParameters {
+                gas_price: Some(1_500_000_000),
+                max_fee_per_gas: None,
+                max_priority_fee_per_gas: None,
+            })
+        }
+
+        async fn submit_raw_transaction(
+            &self,
+            _encoded_tx: &[u8],
+        ) -> Result<TransactionReceiptSummary, privacy_pools_sdk::chain::ChainError> {
+            Ok(dummy_receipt_summary())
+        }
+    }
+
+    struct ExecutionRpcFixtureServer {
+        url: String,
+        shutdown: Arc<AtomicBool>,
+        worker: Option<JoinHandle<()>>,
+        raw_transactions: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ExecutionRpcFixtureServer {
+        fn start(state_root: U256, asp_root: U256) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture rpc server");
+            listener
+                .set_nonblocking(true)
+                .expect("configure fixture rpc server");
+            let address = listener.local_addr().expect("fixture rpc local addr");
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let raw_transactions = Arc::new(Mutex::new(Vec::new()));
+            let worker_shutdown = Arc::clone(&shutdown);
+            let worker_raw_transactions = Arc::clone(&raw_transactions);
+
+            let worker = thread::spawn(move || {
+                let pool = Address::from_slice(&[0x22; 20]);
+                let entrypoint = Address::from_slice(&[0x11; 20]);
+                while !worker_shutdown.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => handle_rpc_connection(
+                            &mut stream,
+                            pool,
+                            entrypoint,
+                            state_root,
+                            asp_root,
+                            &worker_raw_transactions,
+                        ),
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            Self {
+                url: format!("http://127.0.0.1:{}", address.port()),
+                shutdown,
+                worker: Some(worker),
+                raw_transactions,
+            }
+        }
+
+        fn raw_transactions(&self) -> Vec<String> {
+            self.raw_transactions.lock().expect("raw tx lock").clone()
+        }
+    }
+
+    impl Drop for ExecutionRpcFixtureServer {
+        fn drop(&mut self) {
+            self.shutdown.store(true, Ordering::Relaxed);
+            let _ = TcpStream::connect(self.url.trim_start_matches("http://"));
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
+    fn handle_rpc_connection(
+        stream: &mut TcpStream,
+        pool: Address,
+        entrypoint: Address,
+        state_root: U256,
+        asp_root: U256,
+        raw_transactions: &Arc<Mutex<Vec<String>>>,
+    ) {
+        if let Ok(body) = read_http_body(stream) {
+            if body.is_empty() {
+                return;
+            }
+            let request_json: Value = serde_json::from_slice(&body).expect("valid rpc json");
+            let response = match &request_json {
+                Value::Array(requests) => Value::Array(
+                    requests
+                        .iter()
+                        .map(|request| {
+                            handle_rpc_payload(
+                                request,
+                                pool,
+                                entrypoint,
+                                state_root,
+                                asp_root,
+                                raw_transactions,
+                            )
+                        })
+                        .collect(),
+                ),
+                _ => handle_rpc_payload(
+                    &request_json,
+                    pool,
+                    entrypoint,
+                    state_root,
+                    asp_root,
+                    raw_transactions,
+                ),
+            };
+            let encoded = serde_json::to_vec(&response).expect("encode rpc response");
+            let response_head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                encoded.len()
+            );
+            stream
+                .write_all(response_head.as_bytes())
+                .expect("write rpc response head");
+            stream.write_all(&encoded).expect("write rpc response body");
+        }
+    }
+
+    fn read_http_body(stream: &mut TcpStream) -> Result<Vec<u8>, std::io::Error> {
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 4096];
+        let headers_end = loop {
+            let read = stream.read(&mut chunk)?;
+            if read == 0 {
+                return Ok(Vec::new());
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+            if let Some(index) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                break index + 4;
+            }
+        };
+
+        let headers = String::from_utf8_lossy(&buffer[..headers_end]);
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    value.trim().parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        while buffer.len() < headers_end + content_length {
+            let read = stream.read(&mut chunk)?;
+            if read == 0 {
+                break;
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+
+        Ok(buffer[headers_end..headers_end + content_length].to_vec())
+    }
+
+    fn handle_rpc_payload(
+        request: &Value,
+        pool: Address,
+        entrypoint: Address,
+        state_root: U256,
+        asp_root: U256,
+        raw_transactions: &Arc<Mutex<Vec<String>>>,
+    ) -> Value {
+        let id = request.get("id").cloned().unwrap_or(Value::Null);
+        let method = request
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let params = request
+            .get("params")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        match method {
+            "eth_chainId" => rpc_ok(id, json!(hex_quantity_u64(1))),
+            "eth_getCode" => {
+                let address = params.first().and_then(Value::as_str).unwrap_or_default();
+                let bytecode = if address.eq_ignore_ascii_case(&format!("{pool:#x}")) {
+                    "0x60006000556001600055"
+                } else if address.eq_ignore_ascii_case(&format!("{entrypoint:#x}")) {
+                    "0x60016000556002600055"
+                } else {
+                    "0x"
+                };
+                rpc_ok(id, json!(bytecode))
+            }
+            "eth_call" => rpc_ok(
+                id,
+                json!(handle_eth_call(
+                    &params, pool, entrypoint, state_root, asp_root
+                )),
+            ),
+            "eth_estimateGas" => rpc_ok(id, json!(hex_quantity_u64(210_000))),
+            "eth_getTransactionCount" => rpc_ok(id, json!(hex_quantity_u64(7))),
+            "eth_feeHistory" | "eth_maxPriorityFeePerGas" => rpc_error(
+                id,
+                -32000,
+                &format!("{method} unsupported in ffi execution test fixture"),
+            ),
+            "eth_gasPrice" => rpc_ok(id, json!(hex_quantity_u64(1_500_000_000))),
+            "eth_sendRawTransaction" => {
+                let signed_transaction = params
+                    .first()
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned();
+                raw_transactions
+                    .lock()
+                    .expect("raw tx lock")
+                    .push(signed_transaction);
+                rpc_ok(id, json!(format!("0x{}", "ab".repeat(32))))
+            }
+            "eth_getTransactionReceipt" => rpc_ok(
+                id,
+                json!({
+                    "transactionHash": format!("0x{}", "ab".repeat(32)),
+                    "transactionIndex": hex_quantity_u64(0),
+                    "blockHash": format!("0x{}", "cd".repeat(32)),
+                    "blockNumber": hex_quantity_u64(128),
+                    "from": format!("{:#x}", Address::from_slice(&[0x55; 20])),
+                    "to": format!("{pool:#x}"),
+                    "cumulativeGasUsed": hex_quantity_u64(123_456),
+                    "gasUsed": hex_quantity_u64(123_456),
+                    "contractAddress": Value::Null,
+                    "logs": Vec::<Value>::new(),
+                    "logsBloom": format!("0x{}", "0".repeat(512)),
+                    "status": "0x1",
+                    "effectiveGasPrice": hex_quantity_u64(1_500_000_000),
+                    "type": "0x0",
+                }),
+            ),
+            "eth_blockNumber" => rpc_ok(id, json!(hex_quantity_u64(128))),
+            "eth_getBlockByNumber" => rpc_ok(
+                id,
+                json!({
+                    "hash": format!("0x{}", "cd".repeat(32)),
+                    "number": hex_quantity_u64(128),
+                    "baseFeePerGas": hex_quantity_u64(1),
+                    "timestamp": hex_quantity_u64(1),
+                    "transactions": [format!("0x{}", "ab".repeat(32))],
+                }),
+            ),
+            "eth_getTransactionByHash" => rpc_ok(
+                id,
+                json!({
+                    "hash": format!("0x{}", "ab".repeat(32)),
+                    "nonce": hex_quantity_u64(7),
+                    "blockHash": format!("0x{}", "cd".repeat(32)),
+                    "blockNumber": hex_quantity_u64(128),
+                    "transactionIndex": hex_quantity_u64(0),
+                    "from": format!("{:#x}", Address::from_slice(&[0x55; 20])),
+                    "to": format!("{pool:#x}"),
+                    "value": "0x0",
+                    "gas": hex_quantity_u64(210_000),
+                    "gasPrice": hex_quantity_u64(1_500_000_000),
+                    "input": "0x",
+                    "chainId": hex_quantity_u64(1),
+                    "type": "0x0",
+                    "v": "0x1b",
+                    "r": format!("0x{}", "11".repeat(32)),
+                    "s": format!("0x{}", "22".repeat(32)),
+                }),
+            ),
+            _ => rpc_error(id, -32601, &format!("unsupported rpc method {method}")),
+        }
+    }
+
+    fn handle_eth_call(
+        params: &[Value],
+        pool: Address,
+        entrypoint: Address,
+        state_root: U256,
+        asp_root: U256,
+    ) -> String {
+        let call = params
+            .first()
+            .and_then(Value::as_object)
+            .expect("rpc call object");
+        let to = call
+            .get("to")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let data = call
+            .get("data")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+
+        let state_call = format!(
+            "0x{}",
+            hex::encode(
+                privacy_pools_sdk::chain::state_root_read(pool, ReadConsistency::Latest).call_data
+            )
+        );
+        let asp_call = format!(
+            "0x{}",
+            hex::encode(
+                privacy_pools_sdk::chain::asp_root_read(entrypoint, pool, ReadConsistency::Latest,)
+                    .call_data
+            )
+        );
+
+        if to == format!("{pool:#x}") && data == state_call {
+            hex_word_u256(state_root)
+        } else if to == format!("{entrypoint:#x}") && data == asp_call {
+            hex_word_u256(asp_root)
+        } else if to == format!("{pool:#x}") {
+            let mut word = [0_u8; 32];
+            word[12..].copy_from_slice(entrypoint.as_slice());
+            hex_word_u256(U256::from_be_bytes(word))
+        } else {
+            hex_word_u256(U256::ZERO)
+        }
+    }
+
+    fn rpc_ok(id: Value, result: Value) -> Value {
+        json!({ "jsonrpc": "2.0", "id": id, "result": result })
+    }
+
+    fn rpc_error(id: Value, code: i64, message: &str) -> Value {
+        json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+    }
+
+    fn hex_quantity_u64(value: u64) -> String {
+        format!("0x{:x}", value)
+    }
+
+    fn hex_word_u256(value: U256) -> String {
+        format!("0x{}", hex::encode(value.to_be_bytes::<32>()))
+    }
+
+    fn compatibility_shapes() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../fixtures/compatibility-shapes/sdk-json-shapes.json"
+        ))
+        .expect("valid compatibility shape fixture")
+    }
+
+    fn assert_ffi_shape(name: &str, value: Value) {
+        let shapes = compatibility_shapes();
+        let runtime_shapes = resolve_shape_ref(&shapes, &shapes["ffi"]);
+        assert_eq!(
+            shape_of_json(&value),
+            resolve_shape_ref(&shapes, &runtime_shapes[name]),
+            "ffi.{name}"
+        );
+    }
+
+    fn resolve_shape_ref(root: &Value, value: &Value) -> Value {
+        match value {
+            Value::String(reference) if reference.starts_with("$ref:") => {
+                resolve_shape_ref(root, &lookup_shape_ref(root, &reference[5..]))
+            }
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(|entry| resolve_shape_ref(root, entry))
+                    .collect(),
+            ),
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(key, entry)| (key.clone(), resolve_shape_ref(root, entry)))
+                    .collect(),
+            ),
+            _ => value.clone(),
+        }
+    }
+
+    fn lookup_shape_ref(root: &Value, path: &str) -> Value {
+        path.split('.')
+            .fold(root, |cursor, segment| &cursor[segment])
+            .clone()
+    }
+
+    fn shape_of_json(value: &Value) -> Value {
+        match value {
+            Value::Array(values) => {
+                if let Some(first) = values.first() {
+                    Value::Array(vec![shape_of_json(first)])
+                } else {
+                    Value::Array(vec![])
+                }
+            }
+            Value::Object(map) => {
+                let mut entries = map
+                    .iter()
+                    .map(|(key, entry)| (key.clone(), shape_of_json(entry)))
+                    .collect::<Vec<_>>();
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
+                Value::Object(entries.into_iter().collect())
+            }
+            Value::Null => Value::String("null".to_owned()),
+            Value::Bool(_) => Value::String("boolean".to_owned()),
+            Value::Number(_) => Value::String("number".to_owned()),
+            Value::String(_) => Value::String("string".to_owned()),
+        }
+    }
+
+    fn assert_uuid_v4(handle: &str) {
+        let parsed = uuid::Uuid::parse_str(handle).expect("valid UUID");
+        assert_eq!(parsed.get_version_num(), 4);
+    }
+
+    fn dummy_receipt_summary() -> TransactionReceiptSummary {
+        TransactionReceiptSummary {
+            transaction_hash: B256::repeat_byte(0xab),
+            block_hash: Some(B256::repeat_byte(0xcd)),
+            block_number: Some(128),
+            transaction_index: Some(0),
+            success: true,
+            gas_used: 123_456,
+            effective_gas_price: "1500000000".to_owned(),
+            from: Address::from_slice(&[0x55; 20]),
+            to: Some(Address::from_slice(&[0x22; 20])),
+        }
+    }
+
+    fn json_master_keys(keys: &FfiMasterKeys) -> Value {
+        json!({
+            "master_nullifier": keys.master_nullifier,
+            "master_secret": keys.master_secret,
+        })
+    }
+
+    fn json_commitment(commitment: &FfiCommitment) -> Value {
+        json!({
+            "hash": commitment.hash,
+            "label": commitment.label,
+            "nullifier": commitment.nullifier,
+            "nullifier_hash": commitment.nullifier_hash,
+            "precommitment_hash": commitment.precommitment_hash,
+            "secret": commitment.secret,
+            "value": commitment.value,
+        })
+    }
+
+    fn json_circuit_witness(witness: &FfiCircuitMerkleWitness) -> Value {
+        json!({
+            "root": witness.root,
+            "leaf": witness.leaf,
+            "index": witness.index,
+            "siblings": witness.siblings,
+            "depth": witness.depth,
+        })
+    }
+
+    fn json_withdrawal(withdrawal: &FfiWithdrawal) -> Value {
+        json!({
+            "processooor": withdrawal.processooor,
+            "data": withdrawal.data,
+        })
+    }
+
+    fn json_withdrawal_request(request: &FfiWithdrawalWitnessRequest) -> Value {
+        json!({
+            "commitment": json_commitment(&request.commitment),
+            "withdrawal": json_withdrawal(&request.withdrawal),
+            "scope": request.scope,
+            "withdrawal_amount": request.withdrawal_amount,
+            "state_witness": json_circuit_witness(&request.state_witness),
+            "asp_witness": json_circuit_witness(&request.asp_witness),
+            "new_nullifier": request.new_nullifier,
+            "new_secret": request.new_secret,
+        })
+    }
+
+    fn json_commitment_request(request: &FfiCommitmentWitnessRequest) -> Value {
+        json!({
+            "commitment": json_commitment(&request.commitment),
+        })
+    }
+
+    fn json_proof_bundle(proof: &FfiProofBundle) -> Value {
+        json!({
+            "proof": {
+                "pi_a": proof.proof.pi_a,
+                "pi_b": proof.proof.pi_b,
+                "pi_c": proof.proof.pi_c,
+                "protocol": proof.proof.protocol,
+                "curve": proof.proof.curve,
+            },
+            "public_signals": proof.public_signals,
+        })
+    }
+
+    fn json_transaction_plan(plan: &FfiTransactionPlan) -> Value {
+        json!({
+            "kind": plan.kind,
+            "chain_id": plan.chain_id,
+            "target": plan.target,
+            "calldata": plan.calldata,
+            "value": plan.value,
+            "proof": {
+                "p_a": plan.proof.p_a,
+                "p_b": plan.proof.p_b,
+                "p_c": plan.proof.p_c,
+                "pub_signals": plan.proof.pub_signals,
+            },
+        })
+    }
+
+    fn json_preflight_report(report: &FfiExecutionPreflightReport) -> Value {
+        json!({
+            "kind": report.kind,
+            "caller": report.caller,
+            "target": report.target,
+            "expected_chain_id": report.expected_chain_id,
+            "actual_chain_id": report.actual_chain_id,
+            "chain_id_matches": report.chain_id_matches,
+            "simulated": report.simulated,
+            "estimated_gas": report.estimated_gas,
+            "mode": report.mode,
+            "read_consistency": report.read_consistency,
+            "max_fee_quote_wei": report.max_fee_quote_wei,
+            "code_hash_checks": report.code_hash_checks.iter().map(|check| {
+                json!({
+                    "address": check.address,
+                    "expected_code_hash": check.expected_code_hash,
+                    "actual_code_hash": check.actual_code_hash,
+                    "matches_expected": check.matches_expected,
+                })
+            }).collect::<Vec<_>>(),
+            "root_checks": report.root_checks.iter().map(|check| {
+                json!({
+                    "kind": check.kind,
+                    "contract_address": check.contract_address,
+                    "pool_address": check.pool_address,
+                    "expected_root": check.expected_root,
+                    "actual_root": check.actual_root,
+                    "matches": check.matches,
+                })
+            }).collect::<Vec<_>>(),
+        })
+    }
+
+    fn json_finalized_request(request: &FfiFinalizedTransactionRequest) -> Value {
+        json!({
+            "kind": request.kind,
+            "chain_id": request.chain_id,
+            "from": request.from,
+            "to": request.to,
+            "nonce": request.nonce,
+            "gas_limit": request.gas_limit,
+            "value": request.value,
+            "data": request.data,
+            "gas_price": request.gas_price,
+            "max_fee_per_gas": request.max_fee_per_gas,
+            "max_priority_fee_per_gas": request.max_priority_fee_per_gas,
+        })
+    }
+
+    fn json_receipt_summary(receipt: &FfiTransactionReceiptSummary) -> Value {
+        json!({
+            "transaction_hash": receipt.transaction_hash,
+            "block_hash": receipt.block_hash,
+            "block_number": receipt.block_number,
+            "transaction_index": receipt.transaction_index,
+            "success": receipt.success,
+            "gas_used": receipt.gas_used,
+            "effective_gas_price": receipt.effective_gas_price,
+            "from": receipt.from,
+            "to": receipt.to,
+        })
+    }
+
+    fn json_preflighted_transaction(transaction: &FfiPreflightedTransaction) -> Value {
+        json!({
+            "transaction": json_transaction_plan(&transaction.transaction),
+            "preflight": json_preflight_report(&transaction.preflight),
+        })
+    }
+
+    fn json_finalized_preflighted_transaction(
+        transaction: &FfiFinalizedPreflightedTransaction,
+    ) -> Value {
+        json!({
+            "preflighted": json_preflighted_transaction(&transaction.preflighted),
+            "request": json_finalized_request(&transaction.request),
+        })
+    }
+
+    fn json_submitted_preflighted_transaction(
+        transaction: &FfiSubmittedPreflightedTransaction,
+    ) -> Value {
+        json!({
+            "preflighted": json_preflighted_transaction(&transaction.preflighted),
+            "receipt": json_receipt_summary(&transaction.receipt),
+        })
+    }
+
+    fn json_prepared_transaction_execution(execution: &FfiPreparedTransactionExecution) -> Value {
+        json!({
+            "proving": {
+                "backend": execution.proving.backend,
+                "proof": json_proof_bundle(&execution.proving.proof),
+            },
+            "transaction": json_transaction_plan(&execution.transaction),
+            "preflight": json_preflight_report(&execution.preflight),
+        })
+    }
+
+    fn json_finalized_transaction_execution(execution: &FfiFinalizedTransactionExecution) -> Value {
+        json!({
+            "prepared": json_prepared_transaction_execution(&execution.prepared),
+            "request": json_finalized_request(&execution.request),
+        })
+    }
+
+    fn json_submitted_transaction_execution(execution: &FfiSubmittedTransactionExecution) -> Value {
+        json!({
+            "prepared": json_prepared_transaction_execution(&execution.prepared),
+            "receipt": json_receipt_summary(&execution.receipt),
+        })
+    }
+
+    fn json_verified_signed_manifest(verified: &FfiVerifiedSignedManifest) -> Value {
+        json!({
+            "version": verified.version,
+            "artifact_count": verified.artifact_count,
+            "ceremony": verified.ceremony,
+            "build": verified.build,
+            "repository": verified.repository,
+            "commit": verified.commit,
+        })
+    }
+
+    fn sign_finalized_request_hex(request: FfiFinalizedTransactionRequest) -> String {
+        let request = from_ffi_finalized_request(request).expect("valid finalized request");
+        let signer = MnemonicBuilder::from_phrase_nth(EXECUTION_TEST_MNEMONIC, 0);
+        assert_eq!(request.from, signer.address());
+
+        let envelope = if let Some(gas_price) = request.gas_price {
+            let mut tx = TxLegacy {
+                chain_id: Some(request.chain_id),
+                nonce: request.nonce,
+                gas_price,
+                gas_limit: request.gas_limit,
+                to: request.to.into(),
+                value: request.value,
+                input: request.data.clone(),
+            };
+            let signature = signer
+                .sign_transaction_sync(&mut tx)
+                .expect("sign legacy request");
+            TxEnvelope::from(tx.into_signed(signature))
+        } else {
+            let mut tx = TxEip1559 {
+                chain_id: request.chain_id,
+                nonce: request.nonce,
+                gas_limit: request.gas_limit,
+                max_fee_per_gas: request.max_fee_per_gas.expect("dynamic max fee per gas"),
+                max_priority_fee_per_gas: request
+                    .max_priority_fee_per_gas
+                    .expect("dynamic max priority fee per gas"),
+                to: request.to.into(),
+                value: request.value,
+                access_list: Default::default(),
+                input: request.data.clone(),
+            };
+            let signature = signer
+                .sign_transaction_sync(&mut tx)
+                .expect("sign dynamic request");
+            TxEnvelope::from(tx.into_signed(signature))
+        };
+
+        format!("0x{}", hex::encode(envelope.encoded_2718()))
+    }
+
+    #[cfg(feature = "dangerous-key-export")]
     #[test]
     fn ffi_exports_match_crypto_and_merkle_vectors() {
         let fixture = vector();
@@ -2879,31 +5086,443 @@ mod tests {
     }
 
     #[test]
-    fn ffi_builds_typed_withdrawal_circuit_inputs() {
+    fn ffi_exports_match_frozen_binding_shapes() {
+        let _guard = handle_registry_test_guard();
         let crypto_fixture = vector();
-        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
-            "../../../fixtures/vectors/withdrawal-circuit-input.json"
-        ))
-        .unwrap();
-        let keys =
-            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
-        let deposit = derive_deposit_secrets(
-            keys.master_nullifier.clone(),
-            keys.master_secret.clone(),
+        let withdrawal_request = ffi_withdrawal_request();
+        let commitment_request = ffi_commitment_request();
+
+        let master_keys_handle =
+            derive_master_keys_handle(crypto_fixture["mnemonic"].as_str().unwrap().to_owned())
+                .unwrap();
+        let exported_master_keys = export_master_keys_for_test(master_keys_handle.clone());
+        let deposit_handle = generate_deposit_secrets_handle(
+            master_keys_handle.clone(),
             crypto_fixture["scope"].as_str().unwrap().to_owned(),
             "0".to_owned(),
         )
         .unwrap();
-        let commitment = get_commitment(
-            withdrawal_fixture["existingValue"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
-            deposit.nullifier,
-            deposit.secret,
+        let withdrawal_handle = generate_withdrawal_secrets_handle(
+            master_keys_handle,
+            crypto_fixture["label"].as_str().unwrap().to_owned(),
+            "1".to_owned(),
         )
         .unwrap();
+        let commitment_handle = get_commitment_from_handles(
+            withdrawal_request.commitment.value.clone(),
+            withdrawal_request.commitment.label.clone(),
+            deposit_handle.clone(),
+        )
+        .unwrap();
+        let exported_commitment = export_commitment_preimage_for_test(commitment_handle.clone());
+
+        assert_uuid_v4(&deposit_handle);
+        assert_uuid_v4(&withdrawal_handle);
+        assert_uuid_v4(&commitment_handle);
+        if cfg!(feature = "dangerous-exports") {
+            assert_ffi_shape(
+                "masterKeys",
+                json_master_keys(&exported_master_keys.unwrap()),
+            );
+            assert_ffi_shape("commitment", json_commitment(&exported_commitment.unwrap()));
+        } else {
+            assert_dangerous_exports_disabled(exported_master_keys);
+            assert_dangerous_exports_disabled(exported_commitment);
+        }
+        assert_ffi_shape(
+            "withdrawalWitnessRequest",
+            json_withdrawal_request(&withdrawal_request),
+        );
+        assert_ffi_shape(
+            "commitmentWitnessRequest",
+            json_commitment_request(&commitment_request),
+        );
+
+        let withdrawal_input = build_withdrawal_circuit_input(withdrawal_request.clone()).unwrap();
+        let commitment_input = build_commitment_circuit_input(commitment_request.clone()).unwrap();
+        assert_ffi_shape(
+            "withdrawalCircuitInput",
+            json!({
+                "existing_nullifier": withdrawal_input.existing_nullifier,
+                "existing_secret": withdrawal_input.existing_secret,
+                "existing_value": withdrawal_input.existing_value,
+                "label": withdrawal_input.label,
+                "new_nullifier": withdrawal_input.new_nullifier,
+                "new_secret": withdrawal_input.new_secret,
+                "withdrawn_value": withdrawal_input.withdrawn_value,
+                "state_root": withdrawal_input.state_root,
+                "state_siblings": withdrawal_input.state_siblings,
+                "state_index": withdrawal_input.state_index,
+                "state_tree_depth": withdrawal_input.state_tree_depth,
+                "asp_root": withdrawal_input.asp_root,
+                "asp_siblings": withdrawal_input.asp_siblings,
+                "asp_index": withdrawal_input.asp_index,
+                "asp_tree_depth": withdrawal_input.asp_tree_depth,
+                "context": withdrawal_input.context,
+            }),
+        );
+        assert_ffi_shape(
+            "commitmentCircuitInput",
+            json!({
+                "value": commitment_input.value,
+                "label": commitment_input.label,
+                "nullifier": commitment_input.nullifier,
+                "secret": commitment_input.secret,
+            }),
+        );
+
+        let proving = dummy_proving_result();
+        assert_ffi_shape("proofBundle", json_proof_bundle(&proving.proof));
+        let transaction_plan = plan_withdrawal_transaction(
+            1,
+            "0x2222222222222222222222222222222222222222".to_owned(),
+            withdrawal_request.withdrawal.clone(),
+            proving.proof.clone(),
+        )
+        .unwrap();
+        assert_ffi_shape("transactionPlan", json_transaction_plan(&transaction_plan));
+
+        let artifacts_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let manifest: ArtifactManifest = serde_json::from_str(include_str!(
+            "../../../fixtures/artifacts/withdrawal-proving-manifest.json"
+        ))
+        .unwrap();
+        let request = from_ffi_withdrawal_witness_request(withdrawal_request).unwrap();
+        let verified = sdk()
+            .prove_and_verify_withdrawal(
+                BackendProfile::Stable,
+                &manifest,
+                &artifacts_root,
+                &request,
+            )
+            .unwrap();
+        let caller = Address::from_slice(&[0x55; 20]);
+        let pool = Address::from_slice(&[0x22; 20]);
+        let entrypoint = Address::from_slice(&[0x11; 20]);
+        let client = MockChainClient {
+            caller,
+            pool,
+            entrypoint,
+            pool_code_hash: B256::repeat_byte(0x33),
+            entrypoint_code_hash: B256::repeat_byte(0x44),
+            state_root: request.state_witness.root,
+            asp_root: request.asp_witness.root,
+        };
+        let preflighted =
+            block_on_sdk(sdk().preflight_verified_withdrawal_transaction_with_client(
+                &WithdrawalExecutionConfig {
+                    chain_id: 1,
+                    pool_address: pool,
+                    policy: ExecutionPolicy::strict(
+                        1,
+                        caller,
+                        client.pool_code_hash,
+                        client.entrypoint_code_hash,
+                    ),
+                },
+                &verified,
+                &client,
+            ))
+            .unwrap();
+        let finalized = block_on_sdk(
+            sdk().finalize_preflighted_transaction_with_client(preflighted.clone(), &client),
+        )
+        .unwrap();
+        let submitted = block_on_sdk(
+            sdk().submit_preflighted_transaction_with_client(preflighted.clone(), &client),
+        )
+        .unwrap();
+
+        let preflighted_handle =
+            register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted.clone()))
+                .unwrap();
+        let finalized_handle =
+            register_execution_handle(ExecutionHandleEntry::Finalized(finalized.clone())).unwrap();
+        let submitted_handle =
+            register_execution_handle(ExecutionHandleEntry::Submitted(submitted.clone())).unwrap();
+        assert_uuid_v4(&preflighted_handle);
+        assert_uuid_v4(&finalized_handle);
+        assert_uuid_v4(&submitted_handle);
+        assert_ffi_shape(
+            "executionHandles",
+            json!({
+                "preflighted": preflighted_handle,
+                "finalized": finalized_handle,
+                "submitted": submitted_handle,
+            }),
+        );
+
+        let exported_preflighted_result =
+            export_preflighted_transaction_for_test(preflighted_handle.clone());
+        let exported_finalized_result =
+            export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
+        let exported_submitted_result =
+            export_submitted_preflighted_transaction_for_test(submitted_handle.clone());
+        let (exported_preflighted, exported_finalized, exported_submitted) =
+            if cfg!(feature = "dangerous-exports") {
+                (
+                    exported_preflighted_result.unwrap(),
+                    exported_finalized_result.unwrap(),
+                    exported_submitted_result.unwrap(),
+                )
+            } else {
+                assert_dangerous_exports_disabled(exported_preflighted_result);
+                assert_dangerous_exports_disabled(exported_finalized_result);
+                assert_dangerous_exports_disabled(exported_submitted_result);
+                (
+                    to_ffi_preflighted_transaction(&preflighted),
+                    to_ffi_finalized_preflighted_transaction(&finalized),
+                    to_ffi_submitted_preflighted_transaction(&submitted),
+                )
+            };
+        assert_ffi_shape(
+            "preflightedTransaction",
+            json_preflighted_transaction(&exported_preflighted),
+        );
+        assert_ffi_shape(
+            "finalizedPreflightedTransaction",
+            json_finalized_preflighted_transaction(&exported_finalized),
+        );
+        assert_ffi_shape(
+            "submittedPreflightedTransaction",
+            json_submitted_preflighted_transaction(&exported_submitted),
+        );
+        assert_ffi_shape(
+            "transactionReceiptSummary",
+            json_receipt_summary(&exported_submitted.receipt),
+        );
+
+        let prepared_execution = FfiPreparedTransactionExecution {
+            proving: dummy_proving_result(),
+            transaction: exported_preflighted.transaction.clone(),
+            preflight: exported_preflighted.preflight.clone(),
+        };
+        assert_ffi_shape(
+            "preparedTransactionExecution",
+            json_prepared_transaction_execution(&prepared_execution),
+        );
+        assert_ffi_shape(
+            "finalizedTransactionExecution",
+            json_finalized_transaction_execution(&FfiFinalizedTransactionExecution {
+                prepared: prepared_execution.clone(),
+                request: exported_finalized.request.clone(),
+            }),
+        );
+        assert_ffi_shape(
+            "submittedTransactionExecution",
+            json_submitted_transaction_execution(&FfiSubmittedTransactionExecution {
+                prepared: prepared_execution,
+                receipt: exported_submitted.receipt.clone(),
+            }),
+        );
+
+        let (payload_json, signature_hex, public_key_hex, _, artifact_bytes) =
+            signed_manifest_fixture();
+        let verified_manifest = verify_signed_manifest(
+            payload_json.clone(),
+            signature_hex.clone(),
+            public_key_hex.clone(),
+        )
+        .unwrap();
+        assert_ffi_shape(
+            "verifiedSignedManifest",
+            json_verified_signed_manifest(&verified_manifest),
+        );
+        let verified_manifest_artifacts = verify_signed_manifest_artifacts(
+            payload_json,
+            signature_hex,
+            public_key_hex,
+            vec![FfiSignedManifestArtifactBytes {
+                filename: "signed.wasm".to_owned(),
+                bytes: artifact_bytes,
+            }],
+        )
+        .unwrap();
+        assert_ffi_shape(
+            "verifiedSignedManifest",
+            json_verified_signed_manifest(&verified_manifest_artifacts),
+        );
+
+        assert!(remove_execution_handle(finalized_handle).unwrap());
+        assert!(clear_execution_handles().unwrap());
+        assert!(clear_secret_handles().unwrap());
+    }
+
+    #[test]
+    fn ffi_public_handle_apis_match_frozen_shapes() {
+        let _guard = handle_registry_test_guard();
+        let crypto_fixture = vector();
+        let withdrawal_request = ffi_withdrawal_request();
+        let artifacts_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/artifacts");
+        let artifacts_root_string = artifacts_root.to_string_lossy().to_string();
+        let withdrawal_manifest =
+            include_str!("../../../fixtures/artifacts/withdrawal-proving-manifest.json").to_owned();
+        let commitment_manifest =
+            include_str!("../../../fixtures/artifacts/commitment-proving-manifest.json").to_owned();
+
+        let master_keys_handle =
+            derive_master_keys_handle(crypto_fixture["mnemonic"].as_str().unwrap().to_owned())
+                .unwrap();
+        let deposit_handle = generate_deposit_secrets_handle(
+            master_keys_handle.clone(),
+            crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            "0".to_owned(),
+        )
+        .unwrap();
+        let commitment_handle = get_commitment_from_handles(
+            withdrawal_request.commitment.value.clone(),
+            withdrawal_request.commitment.label.clone(),
+            deposit_handle,
+        )
+        .unwrap();
+        let withdrawal_request_handle =
+            build_withdrawal_witness_request_handle(withdrawal_request.clone()).unwrap();
+
+        let verified_withdrawal_handle = prove_and_verify_withdrawal_handle(
+            "stable".to_owned(),
+            withdrawal_manifest.clone(),
+            artifacts_root_string.clone(),
+            withdrawal_request_handle.clone(),
+        )
+        .unwrap();
+        let commitment_proof = prove_commitment_with_handle(
+            "stable".to_owned(),
+            commitment_manifest.clone(),
+            artifacts_root_string.clone(),
+            commitment_handle.clone(),
+        )
+        .unwrap();
+        let verified_ragequit_handle = verify_ragequit_proof_for_request_handle(
+            "stable".to_owned(),
+            commitment_manifest,
+            artifacts_root_string.clone(),
+            commitment_handle.clone(),
+            commitment_proof.proof.clone(),
+        )
+        .unwrap();
+
+        assert_uuid_v4(&verified_withdrawal_handle);
+        assert_uuid_v4(&verified_ragequit_handle);
+
+        let rpc_server = ExecutionRpcFixtureServer::start(
+            parse_field(&withdrawal_request.state_witness.root).unwrap(),
+            parse_field(&withdrawal_request.asp_witness.root).unwrap(),
+        );
+        let expected_pool_code_hash = format!(
+            "{:#x}",
+            B256::from(keccak256(bytes!("60006000556001600055")))
+        );
+        let expected_entrypoint_code_hash = format!(
+            "{:#x}",
+            B256::from(keccak256(bytes!("60016000556002600055")))
+        );
+        let strict_policy = FfiExecutionPolicy {
+            expected_chain_id: 1,
+            caller: format!(
+                "{:#x}",
+                MnemonicBuilder::from_phrase_nth(EXECUTION_TEST_MNEMONIC, 0).address()
+            ),
+            expected_pool_code_hash: Some(expected_pool_code_hash),
+            expected_entrypoint_code_hash: Some(expected_entrypoint_code_hash),
+            read_consistency: Some("latest".to_owned()),
+            max_fee_quote_wei: Some("2000000000".to_owned()),
+            mode: Some("strict".to_owned()),
+        };
+
+        let preflighted_handle = preflight_verified_withdrawal_transaction_with_handle(
+            1,
+            "0x2222222222222222222222222222222222222222".to_owned(),
+            rpc_server.url.clone(),
+            strict_policy.clone(),
+            verified_withdrawal_handle.clone(),
+        )
+        .unwrap();
+        assert_uuid_v4(&preflighted_handle);
+        let preflighted = export_preflighted_transaction_for_test(preflighted_handle.clone());
+        if cfg!(feature = "dangerous-exports") {
+            assert_ffi_shape(
+                "preflightedTransaction",
+                json_preflighted_transaction(&preflighted.unwrap()),
+            );
+        } else {
+            assert_dangerous_exports_disabled(preflighted);
+        }
+
+        let finalized_handle = finalize_preflighted_transaction_handle(
+            rpc_server.url.clone(),
+            preflighted_handle.clone(),
+        )
+        .unwrap();
+        assert_uuid_v4(&finalized_handle);
+        let finalized = export_finalized_preflighted_transaction_for_test(finalized_handle.clone());
+        let submitted_handle = if cfg!(feature = "dangerous-exports") {
+            let finalized = finalized.unwrap();
+            assert_ffi_shape(
+                "finalizedPreflightedTransaction",
+                json_finalized_preflighted_transaction(&finalized),
+            );
+            let signed_transaction = sign_finalized_request_hex(finalized.request.clone());
+
+            let submitted_handle = submit_finalized_preflighted_transaction_handle(
+                rpc_server.url.clone(),
+                finalized_handle.clone(),
+                signed_transaction.clone(),
+            )
+            .unwrap();
+            assert_uuid_v4(&submitted_handle);
+            assert_ffi_shape(
+                "executionHandles",
+                json!({
+                    "preflighted": preflighted_handle.clone(),
+                    "finalized": finalized_handle.clone(),
+                    "submitted": submitted_handle.clone(),
+                }),
+            );
+
+            let submitted =
+                export_submitted_preflighted_transaction_for_test(submitted_handle.clone())
+                    .unwrap();
+            assert_ffi_shape(
+                "submittedPreflightedTransaction",
+                json_submitted_preflighted_transaction(&submitted),
+            );
+            assert_ffi_shape(
+                "transactionReceiptSummary",
+                json_receipt_summary(&submitted.receipt),
+            );
+            assert_eq!(rpc_server.raw_transactions(), vec![signed_transaction]);
+            Some(submitted_handle)
+        } else {
+            assert_dangerous_exports_disabled(finalized);
+            None
+        };
+
+        let ragequit_plan = plan_verified_ragequit_transaction_with_handle(
+            1,
+            "0x2222222222222222222222222222222222222222".to_owned(),
+            verified_ragequit_handle,
+        )
+        .unwrap();
+        assert_ffi_shape("transactionPlan", json_transaction_plan(&ragequit_plan));
+
+        assert!(remove_verified_proof_handle(verified_withdrawal_handle).unwrap());
+        if let Some(submitted_handle) = submitted_handle {
+            assert!(remove_execution_handle(submitted_handle).unwrap());
+        }
+        assert!(clear_execution_handles().unwrap());
+        assert!(clear_verified_proof_handles().unwrap());
+        assert!(clear_secret_handles().unwrap());
+    }
+
+    #[test]
+    fn ffi_builds_typed_withdrawal_circuit_inputs() {
+        let withdrawal_fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+        let commitment = ffi_withdrawal_request().commitment;
 
         let request = FfiWithdrawalWitnessRequest {
             commitment,
@@ -2911,7 +5530,7 @@ mod tests {
                 processooor: "0x1111111111111111111111111111111111111111".to_owned(),
                 data: vec![0x12, 0x34],
             },
-            scope: crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            scope: vector()["scope"].as_str().unwrap().to_owned(),
             withdrawal_amount: withdrawal_fixture["withdrawalAmount"]
                 .as_str()
                 .unwrap()
@@ -3519,14 +6138,24 @@ mod tests {
             })
             .unwrap();
 
-        let mut proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
-        for _ in 0..20 {
-            if proving_status.state == "completed" {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-            proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
-        }
+        let proving_entry = lookup_job(&proving_handle.job_id).unwrap();
+        let proving_guard = proving_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (proving_guard, proving_wait) = proving_entry
+            .1
+            .wait_timeout_while(proving_guard, Duration::from_secs(2), |entry| {
+                !entry.state.is_terminal()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !proving_wait.timed_out(),
+            "proving job did not reach terminal state"
+        );
+        drop(proving_guard);
+
+        let proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
         assert_eq!(proving_status.kind, "prove_withdrawal");
         assert_eq!(proving_status.state, "completed");
         assert!(
@@ -3570,6 +6199,9 @@ mod tests {
                             chain_id_matches: true,
                             simulated: true,
                             estimated_gas: 42_000,
+                            read_consistency: Some("finalized".to_owned()),
+                            max_fee_quote_wei: Some("9999".to_owned()),
+                            mode: Some("strict".to_owned()),
                             code_hash_checks: vec![],
                             root_checks: vec![],
                         },
@@ -3580,14 +6212,23 @@ mod tests {
         .unwrap();
 
         assert!(cancel_job(cancelled_handle.job_id.clone()).unwrap());
-        let mut cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
-        for _ in 0..20 {
-            if cancelled_status.state == "cancelled" {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-            cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
-        }
+        let cancelled_entry = lookup_job(&cancelled_handle.job_id).unwrap();
+        let cancelled_guard = cancelled_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (cancelled_guard, cancelled_wait) = cancelled_entry
+            .1
+            .wait_timeout_while(cancelled_guard, Duration::from_secs(2), |entry| {
+                !entry.state.is_terminal()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !cancelled_wait.timed_out(),
+            "cancelled job did not reach terminal state"
+        );
+        drop(cancelled_guard);
+        let cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
         assert_eq!(cancelled_status.kind, "prepare_withdrawal_execution");
         assert_eq!(cancelled_status.state, "cancelled");
         assert!(cancelled_status.cancel_requested);
@@ -3597,5 +6238,223 @@ mod tests {
                 .is_none()
         );
         assert!(remove_job(cancelled_handle.job_id).unwrap());
+    }
+
+    fn sample_background_job_entry(state: BackgroundJobState) -> BackgroundJobEntry {
+        BackgroundJobEntry {
+            job_id: "poisoned-job".to_owned(),
+            kind: BackgroundJobKind::ProveWithdrawal,
+            state,
+            stage: Some("queued".to_owned()),
+            error: Some("boom".to_owned()),
+            cancel_requested: false,
+            result: None,
+        }
+    }
+
+    fn poison_background_job_entry(state: BackgroundJobState) -> Arc<JobEntrySignal> {
+        let entry = Arc::new(JobEntrySignal(
+            Mutex::new(sample_background_job_entry(state)),
+            Condvar::new(),
+        ));
+        let poisoned = Arc::clone(&entry);
+        let join_result = std::thread::spawn(move || {
+            let _guard = poisoned
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            panic!("poison background job mutex");
+        })
+        .join();
+        assert!(
+            join_result.is_err(),
+            "expected poison helper thread to panic"
+        );
+        entry
+    }
+
+    #[test]
+    fn ffi_background_job_state_transitions_recover_from_poisoned_mutex() {
+        let _guard = handle_registry_test_guard();
+
+        let stage_entry = poison_background_job_entry(BackgroundJobState::Queued);
+        set_job_stage(&stage_entry, "proving");
+        let stage_entry = stage_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(stage_entry.state, BackgroundJobState::Running);
+        assert_eq!(stage_entry.stage.as_deref(), Some("proving"));
+        assert_eq!(stage_entry.error, None);
+        drop(stage_entry);
+
+        let completed_entry = poison_background_job_entry(BackgroundJobState::Running);
+        complete_job(
+            &completed_entry,
+            BackgroundJobResult::Proving(Box::new(dummy_proving_result())),
+        );
+        let completed_entry = completed_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(completed_entry.state, BackgroundJobState::Completed);
+        assert!(completed_entry.result.is_some());
+        assert_eq!(completed_entry.error, None);
+        drop(completed_entry);
+
+        let failed_entry = poison_background_job_entry(BackgroundJobState::Running);
+        fail_job(&failed_entry, "failed");
+        let failed_entry = failed_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(failed_entry.state, BackgroundJobState::Failed);
+        assert_eq!(failed_entry.error.as_deref(), Some("failed"));
+        assert!(failed_entry.result.is_none());
+        drop(failed_entry);
+
+        let cancelled_running_entry = poison_background_job_entry(BackgroundJobState::Running);
+        assert!(cancel_job_entry(&cancelled_running_entry));
+        assert!(job_cancel_requested(&cancelled_running_entry));
+        let cancelled_running_entry = cancelled_running_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cancelled_running_entry.state, BackgroundJobState::Running);
+        assert!(cancelled_running_entry.cancel_requested);
+        drop(cancelled_running_entry);
+
+        let cancelled_queued_entry = poison_background_job_entry(BackgroundJobState::Queued);
+        assert!(cancel_job_entry(&cancelled_queued_entry));
+        let cancelled_queued_entry = cancelled_queued_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cancelled_queued_entry.state, BackgroundJobState::Cancelled);
+        assert!(cancelled_queued_entry.cancel_requested);
+        assert_eq!(cancelled_queued_entry.stage, None);
+        assert_eq!(cancelled_queued_entry.error, None);
+    }
+
+    #[test]
+    fn ffi_verifies_signed_manifests_and_artifacts() {
+        let (payload_json, signature_hex, public_key_hex, wrong_public_key_hex, artifact_bytes) =
+            signed_manifest_fixture();
+
+        let verified = verify_signed_manifest(
+            payload_json.clone(),
+            signature_hex.clone(),
+            public_key_hex.clone(),
+        )
+        .unwrap();
+        assert_eq!(verified.version, "signed-ffi-test");
+        assert_eq!(verified.artifact_count, 0);
+        assert_eq!(verified.build.as_deref(), Some("ffi-test"));
+
+        let verified_artifacts = verify_signed_manifest_artifacts(
+            payload_json.clone(),
+            signature_hex.clone(),
+            public_key_hex.clone(),
+            vec![FfiSignedManifestArtifactBytes {
+                filename: "signed.wasm".to_owned(),
+                bytes: artifact_bytes.clone(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(verified_artifacts.artifact_count, 1);
+        assert_eq!(verified_artifacts.ceremony.as_deref(), Some("ffi ceremony"));
+
+        let modified_payload = format!("{payload_json} ");
+        assert!(matches!(
+            verify_signed_manifest(
+                modified_payload,
+                signature_hex.clone(),
+                public_key_hex.clone()
+            ),
+            Err(FfiError::OperationFailed(message)) if message.contains("signature")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest(
+                payload_json.clone(),
+                signature_hex.clone(),
+                wrong_public_key_hex,
+            ),
+            Err(FfiError::OperationFailed(message)) if message.contains("signature")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest_artifacts(
+                payload_json.clone(),
+                signature_hex.clone(),
+                public_key_hex.clone(),
+                vec![],
+            ),
+            Err(FfiError::OperationFailed(message))
+                if message.contains("artifact file does not exist")
+                    || message.contains("missing")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest_artifacts(
+                payload_json.clone(),
+                signature_hex.clone(),
+                public_key_hex.clone(),
+                vec![FfiSignedManifestArtifactBytes {
+                    filename: "signed.wasm".to_owned(),
+                    bytes: b"tampered".to_vec(),
+                }],
+            ),
+            Err(FfiError::OperationFailed(message))
+                if message.contains("sha256") || message.contains("hash")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest_artifacts(
+                payload_json,
+                signature_hex,
+                public_key_hex,
+                vec![
+                    FfiSignedManifestArtifactBytes {
+                        filename: "signed.wasm".to_owned(),
+                        bytes: artifact_bytes,
+                    },
+                    FfiSignedManifestArtifactBytes {
+                        filename: "unexpected.wasm".to_owned(),
+                        bytes: b"unexpected".to_vec(),
+                    },
+                ],
+            ),
+            Err(FfiError::OperationFailed(message)) if message.contains("unexpected")
+        ));
+    }
+
+    #[test]
+    fn ffi_signed_manifest_checks_payload_size_before_signature_validation() {
+        let oversized_payload = format!(
+            "{{\"padding\":\"{}\"}}",
+            "a".repeat(MAX_CONTROL_JSON_INPUT_BYTES)
+        );
+
+        assert!(matches!(
+            verify_signed_manifest(
+                oversized_payload.clone(),
+                "00".repeat(64),
+                "00".repeat(32),
+            ),
+            Err(FfiError::PayloadTooLarge(message))
+                if message.contains("exceeds maximum size")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest_artifacts(
+                oversized_payload,
+                "00".repeat(64),
+                "00".repeat(32),
+                vec![],
+            ),
+            Err(FfiError::PayloadTooLarge(message))
+                if message.contains("exceeds maximum size")
+        ));
     }
 }

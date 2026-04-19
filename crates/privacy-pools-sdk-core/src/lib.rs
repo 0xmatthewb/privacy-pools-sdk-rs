@@ -13,6 +13,8 @@ use subtle::ConstantTimeEq;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
+pub mod limits;
+pub mod parsers;
 pub mod wire;
 
 sol! {
@@ -423,6 +425,20 @@ pub struct ArtifactVersion {
     pub version: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadConsistency {
+    #[default]
+    Latest,
+    Finalized,
+}
+
+impl ReadConsistency {
+    pub const fn is_latest(&self) -> bool {
+        matches!(self, Self::Latest)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootReadKind {
@@ -435,6 +451,8 @@ pub struct RootRead {
     pub kind: RootReadKind,
     pub contract_address: Address,
     pub pool_address: Address,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub consistency: ReadConsistency,
     pub call_data: Bytes,
 }
 
@@ -458,6 +476,10 @@ pub struct ExecutionPolicy {
     pub caller: Address,
     pub expected_pool_code_hash: Option<B256>,
     pub expected_entrypoint_code_hash: Option<B256>,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub read_consistency: ReadConsistency,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fee_quote_wei: Option<u128>,
     #[serde(default, skip_serializing_if = "ExecutionPolicyMode::is_strict")]
     pub mode: ExecutionPolicyMode,
 }
@@ -474,6 +496,8 @@ impl ExecutionPolicy {
             caller,
             expected_pool_code_hash: Some(pool_code_hash),
             expected_entrypoint_code_hash: Some(entrypoint_code_hash),
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::Strict,
         }
     }
@@ -484,6 +508,8 @@ impl ExecutionPolicy {
             caller,
             expected_pool_code_hash: None,
             expected_entrypoint_code_hash: None,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::InsecureDev,
         }
     }
@@ -521,6 +547,12 @@ pub struct ExecutionPreflightReport {
     pub chain_id_matches: bool,
     pub simulated: bool,
     pub estimated_gas: u64,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub read_consistency: ReadConsistency,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fee_quote_wei: Option<u128>,
+    #[serde(default)]
+    pub mode: ExecutionPolicyMode,
     pub code_hash_checks: Vec<CodeHashCheck>,
     pub root_checks: Vec<RootCheck>,
 }
@@ -553,6 +585,13 @@ pub struct RelayExecutionConfig {
     pub policy: ExecutionPolicy,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RagequitExecutionConfig {
+    pub chain_id: u64,
+    pub pool_address: Address,
+    pub policy: ExecutionPolicy,
+}
+
 #[derive(Debug, Error)]
 pub enum CoreError {
     #[error("failed to parse decimal field element: {0}")]
@@ -561,6 +600,10 @@ pub enum CoreError {
     InvalidAddress(String),
     #[error("failed to parse hex bytes: {0}")]
     InvalidHexBytes(String),
+    #[error("invalid execution policy mode: {0}")]
+    InvalidExecutionPolicyMode(String),
+    #[error("invalid read consistency: {0}")]
+    InvalidReadConsistency(String),
     #[error("commitment nullifier hash compatibility field must match precommitment hash")]
     MismatchedCommitmentCompatibilityHash,
     #[error("field element cannot be zero: {0}")]
@@ -714,6 +757,27 @@ mod tests {
             .try_into()
             .expect("legacy wire commitment converts");
         assert_eq!(decoded, commitment);
+    }
+
+    #[test]
+    fn execution_preflight_report_defaults_missing_mode_to_strict() {
+        let report: ExecutionPreflightReport = serde_json::from_value(serde_json::json!({
+            "kind": "withdraw",
+            "caller": "0x1111111111111111111111111111111111111111",
+            "target": "0x2222222222222222222222222222222222222222",
+            "expected_chain_id": 1,
+            "actual_chain_id": 1,
+            "chain_id_matches": true,
+            "simulated": true,
+            "estimated_gas": 1234,
+            "code_hash_checks": [],
+            "root_checks": []
+        }))
+        .expect("legacy report decodes");
+
+        assert_eq!(report.mode, ExecutionPolicyMode::Strict);
+        assert_eq!(report.read_consistency, ReadConsistency::Latest);
+        assert_eq!(report.max_fee_quote_wei, None);
     }
 
     #[test]

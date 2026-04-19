@@ -1,6 +1,6 @@
 #import <React/RCTBridgeModule.h>
 
-@interface RCT_EXTERN_MODULE(PrivacyPoolsSdk, NSObject)
+@interface RCT_EXTERN_REMAP_MODULE(PrivacyPoolsSdk, PrivacyPoolsSdkModule, NSObject)
 
 RCT_EXTERN_METHOD(getVersion:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
@@ -8,24 +8,31 @@ RCT_EXTERN_METHOD(getVersion:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(getStableBackendName:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(fastBackendSupportedOnTarget:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(deriveMasterKeys:(NSString *)mnemonic
+RCT_EXTERN_METHOD(deriveMasterKeysHandle:(NSString *)mnemonic
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(deriveDepositSecrets:(NSString *)masterNullifier
-                  masterSecret:(NSString *)masterSecret
+RCT_EXTERN_METHOD(deriveMasterKeysHandleBytes:(NSArray<NSNumber *> *)mnemonicBytes
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(dangerouslyExportMasterKeys:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(generateDepositSecretsHandle:(NSString *)masterKeysHandle
                   scope:(NSString *)scope
                   index:(NSString *)index
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(deriveWithdrawalSecrets:(NSString *)masterNullifier
-                  masterSecret:(NSString *)masterSecret
+RCT_EXTERN_METHOD(generateWithdrawalSecretsHandle:(NSString *)masterKeysHandle
                   label:(NSString *)label
                   index:(NSString *)index
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(dangerouslyExportSecret:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
@@ -34,6 +41,34 @@ RCT_EXTERN_METHOD(getCommitment:(NSString *)value
                   nullifier:(NSString *)nullifier
                   secret:(NSString *)secret
                   resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(getCommitmentFromHandles:(NSString *)value
+                  label:(NSString *)label
+                  secretsHandle:(NSString *)secretsHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(dangerouslyExportCommitmentPreimage:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(buildWithdrawalWitnessRequestHandle:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(removeSecretHandle:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(clearSecretHandles:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(removeVerifiedProofHandle:(NSString *)handle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(clearVerifiedProofHandles:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(calculateWithdrawalContext:(NSDictionary *)withdrawal
@@ -100,6 +135,13 @@ RCT_EXTERN_METHOD(proveWithdrawalWithSession:(NSString *)backendProfile
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(proveWithdrawalWithHandles:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(proveCommitment:(NSString *)backendProfile
                   manifestJson:(NSString *)manifestJson
                   artifactsRoot:(NSString *)artifactsRoot
@@ -110,6 +152,13 @@ RCT_EXTERN_METHOD(proveCommitment:(NSString *)backendProfile
 RCT_EXTERN_METHOD(proveCommitmentWithSession:(NSString *)backendProfile
                   sessionHandle:(NSString *)sessionHandle
                   request:(NSDictionary *)request
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(proveCommitmentWithHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
@@ -148,6 +197,44 @@ RCT_EXTERN_METHOD(verifyCommitmentProof:(NSString *)backendProfile
 
 RCT_EXTERN_METHOD(verifyCommitmentProofWithSession:(NSString *)backendProfile
                   sessionHandle:(NSString *)sessionHandle
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(proveAndVerifyCommitmentHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(proveAndVerifyWithdrawalHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyCommitmentProofForRequestHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyRagequitProofForRequestHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
+                  proof:(NSDictionary *)proof
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifyWithdrawalProofForRequestHandle:(NSString *)backendProfile
+                  manifestJson:(NSString *)manifestJson
+                  artifactsRoot:(NSString *)artifactsRoot
+                  requestHandle:(NSString *)requestHandle
                   proof:(NSDictionary *)proof
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
@@ -222,12 +309,6 @@ RCT_EXTERN_METHOD(getPrepareRelayExecutionJobResult:(NSString *)jobId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(registerLocalMnemonicSigner:(NSString *)handle
-                  mnemonic:(NSString *)mnemonic
-                  index:(nonnull NSNumber *)index
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-
 RCT_EXTERN_METHOD(registerHostProvidedSigner:(NSString *)handle
                   address:(NSString *)address
                   resolver:(RCTPromiseResolveBlock)resolve
@@ -286,6 +367,24 @@ RCT_EXTERN_METHOD(planRagequitTransaction:(nonnull NSNumber *)chainId
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(planVerifiedWithdrawalTransactionWithHandle:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  proofHandle:(NSString *)proofHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(planVerifiedRelayTransactionWithHandle:(nonnull NSNumber *)chainId
+                  entrypointAddress:(NSString *)entrypointAddress
+                  proofHandle:(NSString *)proofHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(planVerifiedRagequitTransactionWithHandle:(nonnull NSNumber *)chainId
+                  poolAddress:(NSString *)poolAddress
+                  proofHandle:(NSString *)proofHandle
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 RCT_EXTERN_METHOD(planPoolStateRootRead:(NSString *)poolAddress
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
@@ -305,9 +404,22 @@ RCT_EXTERN_METHOD(formatGroth16ProofBundle:(NSDictionary *)proof
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(verifyArtifactBytes:(NSString *)manifestJson
-                  circuit:(NSString *)circuit
-                  kind:(NSString *)kind
-                  bytes:(NSArray<NSNumber *> *)bytes
+	                  circuit:(NSString *)circuit
+	                  kind:(NSString *)kind
+	                  bytes:(NSArray<NSNumber *> *)bytes
+	                  resolver:(RCTPromiseResolveBlock)resolve
+	                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifySignedManifest:(NSString *)payloadJson
+                  signatureHex:(NSString *)signatureHex
+                  publicKeyHex:(NSString *)publicKeyHex
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
+RCT_EXTERN_METHOD(verifySignedManifestArtifacts:(NSString *)payloadJson
+                  signatureHex:(NSString *)signatureHex
+                  publicKeyHex:(NSString *)publicKeyHex
+                  artifacts:(NSArray<NSDictionary *> *)artifacts
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

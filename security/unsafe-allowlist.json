@@ -1,0 +1,5 @@
+{
+  "allowed_matches": [
+    "crates/privacy-pools-sdk-node/Cargo.toml:44:unsafe_code = \"allow\""
+  ]
+}

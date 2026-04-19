@@ -6,20 +6,20 @@ import {
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
   cancelJob,
+  clearExecutionHandles,
+  clearSecretHandles,
+  clearVerifiedProofHandles,
   checkpointRecovery,
-  deriveDepositSecrets,
-  deriveMasterKeys,
-  deriveWithdrawalSecrets,
-  fastBackendSupportedOnTarget,
+  deriveMasterKeysHandleBytes,
   finalizePreparedTransaction,
   finalizePreparedTransactionForSigner,
+  finalizePreflightedTransactionHandle,
   formatGroth16ProofBundle,
+  generateDepositSecretsHandle,
+  generateWithdrawalSecretsHandle,
   generateMerkleProof,
-  getArtifactStatuses,
   getCommitment,
-  getPrepareRelayExecutionJobResult,
-  getPrepareWithdrawalExecutionJobResult,
-  getProveWithdrawalJobResult,
+  getCommitmentFromHandles,
   getStableBackendName,
   getVersion,
   isCurrentStateRoot,
@@ -28,21 +28,49 @@ import {
   planRagequitTransaction,
   planRelayTransaction,
   planWithdrawalTransaction,
+  preflightVerifiedRagequitTransactionWithHandle,
+  preflightVerifiedRelayTransactionWithHandle,
+  preflightVerifiedWithdrawalTransactionWithHandle,
   pollJobStatus,
-  prepareCommitmentCircuitSession,
-  prepareCommitmentCircuitSessionFromBytes,
-  prepareWithdrawalCircuitSession,
-  prepareWithdrawalCircuitSessionFromBytes,
-  prepareRelayExecution,
-  prepareWithdrawalExecution,
-  proveCommitment,
-  proveCommitmentWithSession,
-  proveWithdrawal,
-  proveWithdrawalWithSession,
   registerHostProvidedSigner,
-  registerLocalMnemonicSigner,
   registerMobileSecureStorageSigner,
   removeJob,
+  removeExecutionHandle,
+  removeSecretHandle,
+  removeVerifiedProofHandle,
+  submitPreparedTransaction,
+  submitFinalizedPreflightedTransactionHandle,
+  submitPreflightedTransactionHandle,
+  submitSignedTransaction,
+  type FinalizedPreflightedTransactionHandle,
+  type PreflightedTransactionHandle,
+  type SecretHandle,
+  type SubmittedPreflightedTransactionHandle,
+  type VerifiedProofHandle,
+  unregisterSigner,
+  verifyArtifactBytes,
+  verifySignedManifest,
+  verifySignedManifestArtifacts,
+} from "@0xmatthewb/privacy-pools-sdk-react-native";
+import {
+  getArtifactStatuses,
+  getPrepareRelayExecutionJobResult,
+  getPrepareWithdrawalExecutionJobResult,
+  getProveWithdrawalJobResult,
+  prepareCommitmentCircuitSession,
+  prepareCommitmentCircuitSessionFromBytes,
+  prepareRelayExecution,
+  prepareWithdrawalCircuitSession,
+  prepareWithdrawalCircuitSessionFromBytes,
+  prepareWithdrawalExecution,
+  proveAndVerifyCommitmentHandle,
+  proveAndVerifyWithdrawalHandle,
+  proveCommitment,
+  proveCommitmentWithHandle,
+  proveCommitmentWithSession,
+  proveWithdrawal,
+  proveWithdrawalWithHandles,
+  proveWithdrawalWithSession,
   removeCommitmentCircuitSession,
   removeWithdrawalCircuitSession,
   resolveVerifiedArtifactBundle,
@@ -50,15 +78,22 @@ import {
   startPrepareWithdrawalExecutionJob,
   startProveWithdrawalJob,
   startProveWithdrawalJobWithSession,
-  submitPreparedTransaction,
-  submitSignedTransaction,
-  unregisterSigner,
-  verifyArtifactBytes,
   verifyCommitmentProof,
+  verifyCommitmentProofForRequestHandle,
   verifyCommitmentProofWithSession,
+  verifyRagequitProofForRequestHandle,
   verifyWithdrawalProof,
+  verifyWithdrawalProofForRequestHandle,
   verifyWithdrawalProofWithSession,
-} from "@0xmatthewb/privacy-pools-sdk-react-native";
+} from "@0xmatthewb/privacy-pools-sdk-react-native/testing";
+import {
+  dangerouslyExportCommitmentPreimage,
+  dangerouslyExportFinalizedPreflightedTransaction,
+  dangerouslyExportMasterKeys,
+  dangerouslyExportPreflightedTransaction,
+  dangerouslyExportSecret,
+  dangerouslyExportSubmittedPreflightedTransaction,
+} from "@0xmatthewb/privacy-pools-sdk-react-native/debug";
 
 const address = "0x1111111111111111111111111111111111111111";
 const otherAddress = "0x2222222222222222222222222222222222222222";
@@ -70,6 +105,7 @@ const manifestJson = JSON.stringify({
 const artifactsRoot = "/tmp/privacy-pools-sdk";
 const mnemonic =
   "test test test test test test test test test test test junk";
+const mnemonicBytes = Array.from(new TextEncoder().encode(mnemonic));
 
 const proofBundle = {
   proof: {
@@ -209,10 +245,17 @@ const recoveryEvents = [
 const smokePromises = [
   getVersion(),
   getStableBackendName(),
-  fastBackendSupportedOnTarget(),
-  deriveMasterKeys(mnemonic),
-  deriveDepositSecrets("1", "2", scope, "0"),
-  deriveWithdrawalSecrets("1", "2", commitment.label, "0"),
+  deriveMasterKeysHandleBytes(mnemonicBytes),
+  generateDepositSecretsHandle(
+    "00000000-0000-4000-8000-000000000001" as SecretHandle,
+    scope,
+    "0",
+  ),
+  generateWithdrawalSecretsHandle(
+    "00000000-0000-4000-8000-000000000001" as SecretHandle,
+    commitment.label,
+    "0",
+  ),
   getCommitment(
     commitment.value,
     commitment.label,
@@ -292,7 +335,6 @@ const smokePromises = [
     executionPolicy,
   ),
   getPrepareRelayExecutionJobResult("job-3"),
-  registerLocalMnemonicSigner("local-dev", mnemonic, 0),
   registerHostProvidedSigner("host-signer", address),
   registerMobileSecureStorageSigner("secure-signer", address),
   unregisterSigner("host-signer"),
@@ -302,7 +344,7 @@ const smokePromises = [
     "host-signer",
     preparedExecution,
   ),
-  submitPreparedTransaction("https://rpc.invalid", "local-dev", preparedExecution),
+  submitPreparedTransaction("https://rpc.invalid", "host-signer", preparedExecution),
   submitSignedTransaction("https://rpc.invalid", finalizedExecution, "0xdeadbeef"),
   planWithdrawalTransaction(1, address, withdrawal, proofBundle),
   planRelayTransaction(1, otherAddress, withdrawal, proofBundle, scope),
@@ -318,6 +360,115 @@ const smokePromises = [
 ];
 
 void smokePromises;
+
+const secretHandle = "00000000-0000-4000-8000-000000000001" as SecretHandle;
+const verifiedProofHandle =
+  "00000000-0000-4000-8000-000000000002" as VerifiedProofHandle;
+const preflightedHandle =
+  "00000000-0000-4000-8000-000000000003" as PreflightedTransactionHandle;
+const finalizedPreflightedHandle =
+  "00000000-0000-4000-8000-000000000004" as FinalizedPreflightedTransactionHandle;
+const submittedPreflightedHandle =
+  "00000000-0000-4000-8000-000000000005" as SubmittedPreflightedTransactionHandle;
+
+const secretHandleSurface = {
+  deriveMasterKeysHandleBytes,
+  generateDepositSecretsHandle,
+  generateWithdrawalSecretsHandle,
+  getCommitmentFromHandles,
+  dangerouslyExportMasterKeys,
+  dangerouslyExportCommitmentPreimage,
+  dangerouslyExportSecret,
+  removeSecretHandle,
+  clearSecretHandles,
+} satisfies Record<
+  | "deriveMasterKeysHandleBytes"
+  | "generateDepositSecretsHandle"
+  | "generateWithdrawalSecretsHandle"
+  | "getCommitmentFromHandles"
+  | "dangerouslyExportMasterKeys"
+  | "dangerouslyExportCommitmentPreimage"
+  | "dangerouslyExportSecret"
+  | "removeSecretHandle"
+  | "clearSecretHandles",
+  unknown
+>;
+
+const verifiedProofHandleSurface = {
+  proveCommitmentWithHandle,
+  proveWithdrawalWithHandles,
+  proveAndVerifyCommitmentHandle,
+  proveAndVerifyWithdrawalHandle,
+  verifyCommitmentProofForRequestHandle,
+  verifyRagequitProofForRequestHandle,
+  verifyWithdrawalProofForRequestHandle,
+  removeVerifiedProofHandle,
+  clearVerifiedProofHandles,
+} satisfies Record<
+  | "proveCommitmentWithHandle"
+  | "proveWithdrawalWithHandles"
+  | "proveAndVerifyCommitmentHandle"
+  | "proveAndVerifyWithdrawalHandle"
+  | "verifyCommitmentProofForRequestHandle"
+  | "verifyRagequitProofForRequestHandle"
+  | "verifyWithdrawalProofForRequestHandle"
+  | "removeVerifiedProofHandle"
+  | "clearVerifiedProofHandles",
+  unknown
+>;
+
+const executionHandleSurface = {
+  preflightVerifiedWithdrawalTransactionWithHandle,
+  preflightVerifiedRelayTransactionWithHandle,
+  preflightVerifiedRagequitTransactionWithHandle,
+  finalizePreflightedTransactionHandle,
+  submitPreflightedTransactionHandle,
+  submitFinalizedPreflightedTransactionHandle,
+  dangerouslyExportPreflightedTransaction,
+  dangerouslyExportFinalizedPreflightedTransaction,
+  dangerouslyExportSubmittedPreflightedTransaction,
+  removeExecutionHandle,
+  clearExecutionHandles,
+} satisfies Record<
+  | "preflightVerifiedWithdrawalTransactionWithHandle"
+  | "preflightVerifiedRelayTransactionWithHandle"
+  | "preflightVerifiedRagequitTransactionWithHandle"
+  | "finalizePreflightedTransactionHandle"
+  | "submitPreflightedTransactionHandle"
+  | "submitFinalizedPreflightedTransactionHandle"
+  | "dangerouslyExportPreflightedTransaction"
+  | "dangerouslyExportFinalizedPreflightedTransaction"
+  | "dangerouslyExportSubmittedPreflightedTransaction"
+  | "removeExecutionHandle"
+  | "clearExecutionHandles",
+  unknown
+>;
+
+const signedManifestSurface = {
+  verifySignedManifest,
+  verifySignedManifestArtifacts,
+} satisfies Record<
+  "verifySignedManifest" | "verifySignedManifestArtifacts",
+  unknown
+>;
+
+const handleSurface = {
+  secretHandleSurface,
+  verifiedProofHandleSurface,
+  executionHandleSurface,
+  signedManifestSurface,
+};
+
+const brandedHandles = {
+  secretHandle,
+  verifiedProofHandle,
+  preflightedHandle,
+  finalizedPreflightedHandle,
+  submittedPreflightedHandle,
+};
+
+void handleSurface;
+void brandedHandles;
 
 export default function App() {
   return (

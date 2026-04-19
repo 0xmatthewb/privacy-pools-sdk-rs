@@ -13,79 +13,354 @@ on:
           - beta
           - rc
           - stable
+      reference_benchmarks_run_id:
+        description: Optional workflow run id for the informational reference-benchmarks-stable artifact
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
-  evidence:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo run -p xtask -- evidence-check --channel "${{ inputs.channel }}" --dir "release/evidence/${{ inputs.channel }}"
-
   validate:
-    needs: evidence
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
+
+  crate-packages:
+    needs: validate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo package --workspace --allow-dirty --no-verify --locked
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: crate-packages-${{ inputs.channel }}
+          path: target/package/*.crate
+      - id: attest_crate_packages
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: target/package/*.crate
+      - name: verify crate attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/crates
+          for subject in target/package/*.crate; do
+            node ./scripts/release/verify-attestation.mjs \
+              --out "target/attestation-metadata/attestation-verification/crates/$(basename "$subject").verified.json" \
+              --repo "$REPO" \
+              --signer-workflow "$SIGNER_WORKFLOW" \
+              --subject "$subject" \
+              --subject-path "packages/crates/$(basename "$subject")"
+          done
+      - name: write attestation metadata
+        env:
+          ATTESTATION_URL: ${{ steps.attest_crate_packages.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          args=()
+          for subject in target/package/*.crate; do
+            args+=(--subject "$subject")
+          done
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/crates.json \
+            --strip-prefix target/package \
+            --target-prefix packages/crates \
+            --attestation-url "$ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/crates \
+            "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: crate-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/crates.json
+            target/attestation-metadata/attestation-verification/crates
+
+  sdk-web-package:
+    needs: validate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
       - run: rustup target add wasm32-unknown-unknown
-      - run: cargo install --locked cargo-audit
-      - run: cargo install --locked cargo-deny
-      - run: cargo install --locked cargo-hack
-      - run: cargo install --locked wasm-bindgen-cli
-      - run: sudo apt-get update && sudo apt-get install -y binaryen
-      - run: npm ci
+      - name: install browser release tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: release-browser
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: cargo run -p xtask -- sdk-web-package --release
+      - run: npm pack
         working-directory: packages/sdk
-      - run: npx playwright install --with-deps chromium
-        working-directory: packages/sdk
-      - run: cargo run -p xtask -- dependency-check
-      - run: cargo deny check bans licenses sources advisories
-      - run: cargo run -p xtask -- release-check --channel "${{ inputs.channel }}"
-      - run: cargo run -p xtask -- examples-check
-      - run: cargo run -p xtask -- feature-check
-      - run: cargo run -p xtask -- package-check
-      - run: cargo run -p xtask -- sdk-smoke
-      - run: npm pack --dry-run --json
-        working-directory: packages/sdk
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-web-package-${{ inputs.channel }}
+          path: |
+            packages/sdk/*.tgz
+            packages/sdk/src/browser/generated/privacy_pools_sdk_web_bg.wasm
+      - id: attest_sdk_web_wasm
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: packages/sdk/src/browser/generated/privacy_pools_sdk_web_bg.wasm
+      - id: attest_sdk_web_package
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: packages/sdk/*.tgz
+      - name: verify sdk web attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/sdk-web
+          node ./scripts/release/verify-attestation.mjs \
+            --out target/attestation-metadata/attestation-verification/sdk-web/privacy_pools_sdk_web_bg.wasm.verified.json \
+            --repo "$REPO" \
+            --signer-workflow "$SIGNER_WORKFLOW" \
+            --subject packages/sdk/src/browser/generated/privacy_pools_sdk_web_bg.wasm \
+            --subject-path packages/sdk/privacy_pools_sdk_web_bg.wasm
+          for subject in packages/sdk/*.tgz; do
+            node ./scripts/release/verify-attestation.mjs \
+              --out "target/attestation-metadata/attestation-verification/sdk-web/$(basename "$subject").verified.json" \
+              --repo "$REPO" \
+              --signer-workflow "$SIGNER_WORKFLOW" \
+              --subject "$subject" \
+              --subject-path "packages/sdk/$(basename "$subject")"
+          done
+      - name: write attestation metadata
+        env:
+          SDK_WASM_ATTESTATION_URL: ${{ steps.attest_sdk_web_wasm.outputs.attestation-url }}
+          SDK_PACKAGE_ATTESTATION_URL: ${{ steps.attest_sdk_web_package.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/sdk-web-wasm.json \
+            --strip-prefix packages/sdk/src/browser/generated \
+            --target-prefix packages/sdk \
+            --attestation-url "$SDK_WASM_ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/sdk-web \
+            --subject packages/sdk/src/browser/generated/privacy_pools_sdk_web_bg.wasm
+          args=()
+          for subject in packages/sdk/*.tgz; do
+            args+=(--subject "$subject")
+          done
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/sdk-web-package.json \
+            --strip-prefix packages/sdk \
+            --target-prefix packages/sdk \
+            --attestation-url "$SDK_PACKAGE_ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/sdk-web \
+            "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-web-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/sdk-web-*.json
+            target/attestation-metadata/attestation-verification/sdk-web
+
+  circuit-artifacts:
+    needs: validate
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - run: mkdir -p dist
+      - run: tar -C fixtures -czf "dist/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz" artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: circuit-artifacts-${{ inputs.channel }}
+          path: dist/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz
+      - id: attest_circuit_artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz
+      - name: verify circuit artifact attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/circuits
+          node ./scripts/release/verify-attestation.mjs \
+            --out "target/attestation-metadata/attestation-verification/circuits/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz.verified.json" \
+            --repo "$REPO" \
+            --signer-workflow "$SIGNER_WORKFLOW" \
+            --subject "dist/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz" \
+            --subject-path "packages/circuits/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz"
+      - name: write attestation metadata
+        env:
+          ATTESTATION_URL: ${{ steps.attest_circuit_artifacts.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/circuit-artifacts.json \
+            --strip-prefix dist \
+            --target-prefix packages/circuits \
+            --attestation-url "$ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/circuits \
+            --subject "dist/privacy-pools-sdk-circuit-artifacts-${{ inputs.channel }}.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: circuit-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/circuit-artifacts.json
+            target/attestation-metadata/attestation-verification/circuits
 
   react-native-ios-native:
     needs: validate
-    runs-on: macos-latest
+    runs-on: macos-15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: select xcode 16.4
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
+          xcodebuild -version
+      - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - run: cargo run -p xtask -- react-native-package --release --with-ios-native
       - run: mkdir -p dist
       - run: tar -C packages/react-native/ios/frameworks -czf "dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz" PrivacyPoolsSdkFFI.xcframework
-      - uses: actions/upload-artifact@v7
+      - id: attest_react_native_ios_native
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz
+      - name: verify react native ios native attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/react-native-ios
+          node ./scripts/release/verify-attestation.mjs \
+            --out "target/attestation-metadata/attestation-verification/react-native-ios/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz.verified.json" \
+            --repo "$REPO" \
+            --signer-workflow "$SIGNER_WORKFLOW" \
+            --subject "dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz" \
+            --subject-path "packages/react-native/ios/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz"
+      - name: write attestation metadata
+        env:
+          ATTESTATION_URL: ${{ steps.attest_react_native_ios_native.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/react-native-ios-native.json \
+            --strip-prefix dist \
+            --target-prefix packages/react-native/ios \
+            --attestation-url "$ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/react-native-ios \
+            --subject "dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: react-native-ios-frameworks-${{ inputs.channel }}
           path: dist/privacy-pools-sdk-ios-frameworks-${{ inputs.channel }}.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: react-native-ios-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/react-native-ios-native.json
+            target/attestation-metadata/attestation-verification/react-native-ios
 
   react-native-android-native:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e # v6
         with:
           gradle-version: "8.10.2"
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
       - run: rustup target add armv7-linux-androideabi aarch64-linux-android x86_64-linux-android
       - run: yes | sdkmanager --licenses
       - run: sdkmanager "ndk;27.1.12297006"
-      - run: cargo install --locked cargo-ndk
+      - name: install mobile release tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: release-mobile
       - run: |
           NDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk/27.1.12297006"
           echo "ANDROID_NDK_HOME=$NDK_ROOT" >> "$GITHUB_ENV"
@@ -93,30 +368,77 @@ jobs:
       - run: cargo run -p xtask -- react-native-package --release --with-android-native
       - run: mkdir -p dist
       - run: tar -C packages/react-native/android/src/main -czf "dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz" jniLibs
-      - uses: actions/upload-artifact@v7
+      - id: attest_react_native_android_native
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz
+      - name: verify react native android native attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/react-native-android
+          node ./scripts/release/verify-attestation.mjs \
+            --out "target/attestation-metadata/attestation-verification/react-native-android/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz.verified.json" \
+            --repo "$REPO" \
+            --signer-workflow "$SIGNER_WORKFLOW" \
+            --subject "dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz" \
+            --subject-path "packages/react-native/android/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz"
+      - name: write attestation metadata
+        env:
+          ATTESTATION_URL: ${{ steps.attest_react_native_android_native.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/react-native-android-native.json \
+            --strip-prefix dist \
+            --target-prefix packages/react-native/android \
+            --attestation-url "$ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/react-native-android \
+            --subject "dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: react-native-android-jni-${{ inputs.channel }}
           path: dist/privacy-pools-sdk-android-jni-${{ inputs.channel }}.tar.gz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: react-native-android-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/react-native-android-native.json
+            target/attestation-metadata/attestation-verification/react-native-android
 
   react-native-package:
     needs:
       - validate
       - react-native-ios-native
       - react-native-android-native
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
       - run: cargo run -p xtask -- react-native-package
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: react-native-ios-frameworks-${{ inputs.channel }}
           path: dist/ios
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: react-native-android-jni-${{ inputs.channel }}
           path: dist/android
@@ -126,7 +448,183 @@ jobs:
       - run: npm pack --json
         working-directory: packages/react-native
       - run: mkdir -p dist/package && mv packages/react-native/*.tgz dist/package/
-      - uses: actions/upload-artifact@v7
+      - id: attest_react_native_package
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: dist/package/*.tgz
+      - name: verify react native package attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
+        run: |
+          mkdir -p target/attestation-metadata/attestation-verification/react-native-package
+          for subject in dist/package/*.tgz; do
+            node ./scripts/release/verify-attestation.mjs \
+              --out "target/attestation-metadata/attestation-verification/react-native-package/$(basename "$subject").verified.json" \
+              --repo "$REPO" \
+              --signer-workflow "$SIGNER_WORKFLOW" \
+              --subject "$subject" \
+              --subject-path "packages/react-native/$(basename "$subject")"
+          done
+      - name: write attestation metadata
+        env:
+          ATTESTATION_URL: ${{ steps.attest_react_native_package.outputs.attestation-url }}
+          WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          mkdir -p target/attestation-metadata
+          args=()
+          for subject in dist/package/*.tgz; do
+            args+=(--subject "$subject")
+          done
+          node ./scripts/release/write-attestation-metadata.mjs \
+            --out target/attestation-metadata/react-native-package.json \
+            --strip-prefix dist/package \
+            --target-prefix packages/react-native \
+            --attestation-url "$ATTESTATION_URL" \
+            --workflow-run-url "$WORKFLOW_RUN_URL" \
+            --verification-prefix attestation-verification/react-native-package \
+            "${args[@]}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: react-native-package-${{ inputs.channel }}
           path: dist/package/*.tgz
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: react-native-package-attestation-metadata-${{ inputs.channel }}
+          path: |
+            target/attestation-metadata/react-native-package.json
+            target/attestation-metadata/attestation-verification/react-native-package
+
+  sbom:
+    needs: validate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - name: install release sbom tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: release-sbom
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: mkdir -p target/release-sbom/sbom
+      - run: mkdir -p target/release-sbom/auditable
+      - run: |
+          mkdir -p target/release-sbom/sbom/rust
+          cargo cyclonedx --format json --override-filename rust.cdx
+          while IFS= read -r path; do
+            rel="${path%/rust.cdx.json}"
+            name="${rel//\//__}.rust.cdx.json"
+            cp "$path" "target/release-sbom/sbom/rust/$name"
+            rm -f "$path"
+          done < <(find crates xtask -name rust.cdx.json | sort)
+      - run: cargo auditable build --release -p privacy-pools-sdk-cli --locked
+      - run: cp target/release/privacy-pools-sdk-cli target/release-sbom/auditable/privacy-pools-sdk-cli
+      - run: npm sbom --json --sbom-format spdx > ../../target/release-sbom/sbom/sdk.spdx.json
+        working-directory: packages/sdk
+      - run: node ./packages/sdk/scripts/generate-react-native-sbom.mjs --output target/release-sbom/sbom/react-native.spdx.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-sboms-${{ inputs.channel }}
+          path: target/release-sbom
+
+  release-evidence-inputs:
+    needs:
+      - validate
+      - crate-packages
+      - sdk-web-package
+      - circuit-artifacts
+      - react-native-package
+      - sbom
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: crate-packages-${{ inputs.channel }}
+          path: target/downloads/packages/crates
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sdk-web-package-${{ inputs.channel }}
+          path: target/downloads/packages/sdk
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: circuit-artifacts-${{ inputs.channel }}
+          path: target/downloads/packages/circuits
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-package-${{ inputs.channel }}
+          path: target/downloads/packages/react-native
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-ios-frameworks-${{ inputs.channel }}
+          path: target/downloads/packages/react-native/ios
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-android-jni-${{ inputs.channel }}
+          path: target/downloads/packages/react-native/android
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-sboms-${{ inputs.channel }}
+          path: target/downloads/sboms
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: crate-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sdk-web-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: circuit-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-ios-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-android-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: react-native-package-attestation-metadata-${{ inputs.channel }}
+          path: target/downloads/attestation-metadata
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: ${{ inputs.reference_benchmarks_run_id != '' }}
+        with:
+          name: reference-benchmarks-stable
+          path: target/downloads/reference-benchmarks
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.reference_benchmarks_run_id }}
+      - name: bundle release evidence inputs
+        run: |
+          mkdir -p target/release-evidence-inputs
+          cp -R target/downloads/packages target/release-evidence-inputs/packages
+          cp -R target/downloads/sboms/sbom target/release-evidence-inputs/sbom
+          cp -R target/downloads/attestation-metadata target/release-evidence-inputs/attestation-metadata
+
+          if [ -d target/downloads/reference-benchmarks/benchmarks ]; then
+            cp -R target/downloads/reference-benchmarks/benchmarks target/release-evidence-inputs/benchmarks
+          elif [ -d target/downloads/reference-benchmarks ]; then
+            cp -R target/downloads/reference-benchmarks target/release-evidence-inputs/benchmarks
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-evidence-inputs-${{ inputs.channel }}
+          path: target/release-evidence-inputs

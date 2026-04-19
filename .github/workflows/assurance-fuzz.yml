@@ -1,0 +1,64 @@
+name: assurance-fuzz
+
+on:
+  pull_request:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzz_runs:
+        description: Number of libFuzzer iterations per target
+        required: false
+        type: string
+        default: "1024"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # nightly-2026-04-15
+        with:
+          toolchain: nightly-2026-04-15
+          components: rust-src
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: install fuzz tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: fuzz
+      - name: fuzz assurance
+        env:
+          FUZZ_RUNS_INPUT: ${{ github.event_name == 'pull_request' && '256' || (github.event_name == 'workflow_dispatch' && inputs.fuzz_runs != '' && inputs.fuzz_runs || '1024') }}
+          RUSTUP_TOOLCHAIN: nightly-2026-04-15
+        run: |
+          case "$FUZZ_RUNS_INPUT" in
+            (*[!0-9]*|'')
+              echo "fuzz_runs must be a positive integer" >&2
+              exit 1
+              ;;
+          esac
+
+          cargo run -p xtask -- assurance --profile nightly --runtime rust \
+            --only-checks fuzz-field_parsing,fuzz-wire_conversion,fuzz-proof_bundle_parsing,fuzz-manifest_parsing,fuzz-json_boundaries,fuzz-artifact_bundle_resolution,fuzz-session_invalidation,fuzz-execution_policy_inputs,fuzz-groth16_verifier_fuzz,fuzz-relay_data_abi_fuzz,fuzz-merkle_proof_tamper_fuzz \
+            --fuzz-runs "$FUZZ_RUNS_INPUT" \
+            --out-dir target/assurance-fuzz
+      - name: print fuzz findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-fuzz/findings.md ]; then
+            tail -n 200 target/assurance-fuzz/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-fuzz
+          path: target/assurance-fuzz
+          if-no-files-found: warn

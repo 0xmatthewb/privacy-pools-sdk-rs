@@ -1,23 +1,37 @@
 import { NativeModules, Platform } from "react-native";
 
-type RootRead = {
+export type RootRead = {
   kind: string;
   contract_address: string;
   pool_address: string;
   call_data: string;
 };
 
-type MasterKeys = {
+export type MasterKeys = {
   master_nullifier: string;
   master_secret: string;
 };
 
-type Secrets = {
+export type SecretHandle = string & { readonly __secretHandle: unique symbol };
+export type VerifiedProofHandle = string & {
+  readonly __verifiedProofHandle: unique symbol;
+};
+export type PreflightedTransactionHandle = string & {
+  readonly __preflightedTransactionHandle: unique symbol;
+};
+export type FinalizedPreflightedTransactionHandle = string & {
+  readonly __finalizedPreflightedTransactionHandle: unique symbol;
+};
+export type SubmittedPreflightedTransactionHandle = string & {
+  readonly __submittedPreflightedTransactionHandle: unique symbol;
+};
+
+export type Secrets = {
   nullifier: string;
   secret: string;
 };
 
-type Commitment = {
+export type Commitment = {
   hash: string;
   nullifier_hash: string;
   precommitment_hash: string;
@@ -27,7 +41,9 @@ type Commitment = {
   secret: string;
 };
 
-type Withdrawal = {
+export type ByteInput = Uint8Array | ArrayBuffer | number[];
+
+export type Withdrawal = {
   processooor: string;
   data: number[];
 };
@@ -40,24 +56,24 @@ type SnarkJsProof = {
   curve: string;
 };
 
-type ProofBundle = {
+export type ProofBundle = {
   proof: SnarkJsProof;
   public_signals: string[];
 };
 
-type ProvingResult = {
-  backend: "arkworks" | "rapidsnark";
+export type ProvingResult = {
+  backend: "arkworks";
   proof: ProofBundle;
 };
 
-type FormattedGroth16Proof = {
+export type FormattedGroth16Proof = {
   p_a: string[];
   p_b: string[][];
   p_c: string[];
   pub_signals: string[];
 };
 
-type TransactionPlan = {
+export type TransactionPlan = {
   kind: "withdraw" | "relay" | "ragequit";
   chain_id: number;
   target: string;
@@ -66,11 +82,13 @@ type TransactionPlan = {
   proof: FormattedGroth16Proof;
 };
 
-type ExecutionPolicy = {
+export type ExecutionPolicy = {
   expected_chain_id: number;
   caller: string;
   expected_pool_code_hash?: string | null;
   expected_entrypoint_code_hash?: string | null;
+  read_consistency?: "latest" | "finalized" | null;
+  max_fee_quote_wei?: string | null;
   mode?: "strict" | "insecure_dev" | null;
 };
 
@@ -90,8 +108,31 @@ type RootCheck = {
   matches: boolean;
 };
 
-type ExecutionPreflightReport = {
-  kind: "withdraw" | "relay";
+type PrepareWithdrawalExecutionPayload = {
+  backendProfile: "stable";
+  manifestJson: string;
+  artifactsRoot: string;
+  request: WithdrawalWitnessRequest;
+  chainId: number;
+  poolAddress: string;
+  rpcUrl: string;
+  policy: ExecutionPolicy;
+};
+
+type PrepareRelayExecutionPayload = {
+  backendProfile: "stable";
+  manifestJson: string;
+  artifactsRoot: string;
+  request: WithdrawalWitnessRequest;
+  chainId: number;
+  entrypointAddress: string;
+  poolAddress: string;
+  rpcUrl: string;
+  policy: ExecutionPolicy;
+};
+
+export type ExecutionPreflightReport = {
+  kind: "withdraw" | "relay" | "ragequit";
   caller: string;
   target: string;
   expected_chain_id: number;
@@ -99,18 +140,21 @@ type ExecutionPreflightReport = {
   chain_id_matches: boolean;
   simulated: boolean;
   estimated_gas: number;
+  read_consistency?: "latest" | "finalized" | null;
+  max_fee_quote_wei?: string | null;
+  mode?: "strict" | "insecure_dev" | null;
   code_hash_checks: CodeHashCheck[];
   root_checks: RootCheck[];
 };
 
-type PreparedTransactionExecution = {
+export type PreparedTransactionExecution = {
   proving: ProvingResult;
   transaction: TransactionPlan;
   preflight: ExecutionPreflightReport;
 };
 
-type FinalizedTransactionRequest = {
-  kind: "withdraw" | "relay";
+export type FinalizedTransactionRequest = {
+  kind: "withdraw" | "relay" | "ragequit";
   chain_id: number;
   from: string;
   to: string;
@@ -123,18 +167,18 @@ type FinalizedTransactionRequest = {
   max_priority_fee_per_gas?: string | null;
 };
 
-type FinalizedTransactionExecution = {
+export type FinalizedTransactionExecution = {
   prepared: PreparedTransactionExecution;
   request: FinalizedTransactionRequest;
 };
 
-type SignerHandle = {
+export type SignerHandle = {
   handle: string;
   address: string;
   kind: "local_dev" | "host_provided" | "mobile_secure_storage";
 };
 
-type TransactionReceiptSummary = {
+export type TransactionReceiptSummary = {
   transaction_hash: string;
   block_hash?: string | null;
   block_number?: number | null;
@@ -146,12 +190,27 @@ type TransactionReceiptSummary = {
   to?: string | null;
 };
 
-type SubmittedTransactionExecution = {
+export type SubmittedTransactionExecution = {
   prepared: PreparedTransactionExecution;
   receipt: TransactionReceiptSummary;
 };
 
-type ArtifactVerification = {
+export type PreflightedTransaction = {
+  transaction: TransactionPlan;
+  preflight: ExecutionPreflightReport;
+};
+
+export type FinalizedPreflightedTransaction = {
+  preflighted: PreflightedTransaction;
+  request: FinalizedTransactionRequest;
+};
+
+export type SubmittedPreflightedTransaction = {
+  preflighted: PreflightedTransaction;
+  receipt: TransactionReceiptSummary;
+};
+
+export type ArtifactVerification = {
   version: string;
   circuit: string;
   kind: string;
@@ -168,22 +227,36 @@ type ArtifactStatus = {
   verified: boolean;
 };
 
-type ResolvedArtifact = {
+export type ResolvedArtifact = {
   circuit: string;
   kind: string;
   filename: string;
   path: string;
 };
 
-type ResolvedArtifactBundle = {
+export type ResolvedArtifactBundle = {
   version: string;
   circuit: string;
   artifacts: ResolvedArtifact[];
 };
 
-type ArtifactBytesInput = {
+export type ArtifactBytesInput = {
   kind: string;
   bytes: number[];
+};
+
+export type SignedManifestArtifactBytesInput = {
+  filename: string;
+  bytes: number[];
+};
+
+export type VerifiedSignedManifest = {
+  version: string;
+  artifact_count: number;
+  ceremony?: string | null;
+  build?: string | null;
+  repository?: string | null;
+  commit?: string | null;
 };
 
 type WithdrawalCircuitSessionHandle = {
@@ -198,14 +271,14 @@ type CommitmentCircuitSessionHandle = {
   artifact_version: string;
 };
 
-type MerkleProof = {
+export type MerkleProof = {
   root: string;
   leaf: string;
   index: number;
   siblings: string[];
 };
 
-type CircuitMerkleWitness = {
+export type CircuitMerkleWitness = {
   root: string;
   leaf: string;
   index: number;
@@ -213,7 +286,7 @@ type CircuitMerkleWitness = {
   depth: number;
 };
 
-type WithdrawalWitnessRequest = {
+export type WithdrawalWitnessRequest = {
   commitment: Commitment;
   withdrawal: Withdrawal;
   scope: string;
@@ -224,7 +297,7 @@ type WithdrawalWitnessRequest = {
   new_secret: string;
 };
 
-type WithdrawalCircuitInput = {
+export type WithdrawalCircuitInput = {
   withdrawn_value: string;
   state_root: string;
   state_tree_depth: number;
@@ -243,23 +316,23 @@ type WithdrawalCircuitInput = {
   asp_index: number;
 };
 
-type CommitmentWitnessRequest = {
+export type CommitmentWitnessRequest = {
   commitment: Commitment;
 };
 
-type CommitmentCircuitInput = {
+export type CommitmentCircuitInput = {
   value: string;
   label: string;
   nullifier: string;
   secret: string;
 };
 
-type RecoveryPolicy = {
+export type RecoveryPolicy = {
   compatibility_mode: "strict" | "legacy";
   fail_closed: boolean;
 };
 
-type PoolEvent = {
+export type PoolEvent = {
   block_number: number;
   transaction_index: number;
   log_index: number;
@@ -267,7 +340,7 @@ type PoolEvent = {
   commitment_hash: string;
 };
 
-type RecoveryCheckpoint = {
+export type RecoveryCheckpoint = {
   latest_block: number;
   commitments_seen: number;
 };
@@ -277,7 +350,7 @@ type AsyncJobHandle = {
   kind: string;
 };
 
-type AsyncJobStatus = {
+export type AsyncJobStatus = {
   job_id: string;
   kind: string;
   state: "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -298,26 +371,45 @@ type WaitForJobOptions = {
 export type NativePrivacyPoolsSdkModule = {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
-  fastBackendSupportedOnTarget(): Promise<boolean>;
-  deriveMasterKeys(mnemonic: string): Promise<MasterKeys>;
-  deriveDepositSecrets(
-    masterNullifier: string,
-    masterSecret: string,
+  deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+  deriveMasterKeysHandleBytes(mnemonicBytes: number[]): Promise<SecretHandle>;
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  dangerouslyExportMasterKeys(handle: SecretHandle): Promise<MasterKeys>;
+  generateDepositSecretsHandle(
+    masterKeysHandle: SecretHandle,
     scope: string,
     index: string,
-  ): Promise<Secrets>;
-  deriveWithdrawalSecrets(
-    masterNullifier: string,
-    masterSecret: string,
+  ): Promise<SecretHandle>;
+  generateWithdrawalSecretsHandle(
+    masterKeysHandle: SecretHandle,
     label: string,
     index: string,
-  ): Promise<Secrets>;
+  ): Promise<SecretHandle>;
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  dangerouslyExportSecret(handle: SecretHandle): Promise<Secrets>;
   getCommitment(
     value: string,
     label: string,
     nullifier: string,
     secret: string,
   ): Promise<Commitment>;
+  getCommitmentFromHandles(
+    value: string,
+    label: string,
+    secretsHandle: SecretHandle,
+  ): Promise<SecretHandle>;
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  /** Compatibility/testing escape hatch. Avoid in normal integrations. */
+  dangerouslyExportCommitmentPreimage(handle: SecretHandle): Promise<Commitment>;
+  buildWithdrawalWitnessRequestHandle(
+    request: WithdrawalWitnessRequest,
+  ): Promise<SecretHandle>;
+  removeSecretHandle(handle: SecretHandle): Promise<boolean>;
+  clearSecretHandles(): Promise<boolean>;
+  removeVerifiedProofHandle(handle: VerifiedProofHandle): Promise<boolean>;
+  clearVerifiedProofHandles(): Promise<boolean>;
   calculateWithdrawalContext(
     withdrawal: Withdrawal,
     scope: string,
@@ -352,57 +444,102 @@ export type NativePrivacyPoolsSdkModule = {
   ): Promise<CommitmentCircuitSessionHandle>;
   removeCommitmentCircuitSession(handle: string): Promise<boolean>;
   proveWithdrawal(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
   ): Promise<ProvingResult>;
   proveWithdrawalWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     request: WithdrawalWitnessRequest,
   ): Promise<ProvingResult>;
+  proveWithdrawalWithHandles(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+  ): Promise<ProvingResult>;
   startProveWithdrawalJob(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
   ): Promise<AsyncJobHandle>;
   startProveWithdrawalJobWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     request: WithdrawalWitnessRequest,
   ): Promise<AsyncJobHandle>;
   verifyWithdrawalProof(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyWithdrawalProofWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   proveCommitment(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: CommitmentWitnessRequest,
   ): Promise<ProvingResult>;
   proveCommitmentWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     request: CommitmentWitnessRequest,
   ): Promise<ProvingResult>;
+  proveCommitmentWithHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+  ): Promise<ProvingResult>;
+  proveAndVerifyCommitmentHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+  ): Promise<VerifiedProofHandle>;
+  proveAndVerifyWithdrawalHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+  ): Promise<VerifiedProofHandle>;
+  verifyCommitmentProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
+  verifyRagequitProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
+  verifyWithdrawalProofForRequestHandle(
+    backendProfile: "stable",
+    manifestJson: string,
+    artifactsRoot: string,
+    requestHandle: SecretHandle,
+    proof: ProofBundle,
+  ): Promise<VerifiedProofHandle>;
   verifyCommitmentProof(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     proof: ProofBundle,
   ): Promise<boolean>;
   verifyCommitmentProofWithSession(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     sessionHandle: string,
     proof: ProofBundle,
   ): Promise<boolean>;
@@ -411,7 +548,7 @@ export type NativePrivacyPoolsSdkModule = {
   cancelJob(jobId: string): Promise<boolean>;
   removeJob(jobId: string): Promise<boolean>;
   prepareWithdrawalExecution(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
@@ -420,8 +557,11 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<PreparedTransactionExecution>;
+  prepareWithdrawalExecutionPayload?(
+    payload: PrepareWithdrawalExecutionPayload,
+  ): Promise<PreparedTransactionExecution>;
   startPrepareWithdrawalExecutionJob(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
@@ -429,12 +569,15 @@ export type NativePrivacyPoolsSdkModule = {
     poolAddress: string,
     rpcUrl: string,
     policy: ExecutionPolicy,
+  ): Promise<AsyncJobHandle>;
+  startPrepareWithdrawalExecutionJobPayload?(
+    payload: PrepareWithdrawalExecutionPayload,
   ): Promise<AsyncJobHandle>;
   getPrepareWithdrawalExecutionJobResult(
     jobId: string,
   ): Promise<PreparedTransactionExecution | null>;
   prepareRelayExecution(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
@@ -444,8 +587,11 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<PreparedTransactionExecution>;
+  prepareRelayExecutionPayload?(
+    payload: PrepareRelayExecutionPayload,
+  ): Promise<PreparedTransactionExecution>;
   startPrepareRelayExecutionJob(
-    backendProfile: "stable" | "fast",
+    backendProfile: "stable",
     manifestJson: string,
     artifactsRoot: string,
     request: WithdrawalWitnessRequest,
@@ -455,14 +601,12 @@ export type NativePrivacyPoolsSdkModule = {
     rpcUrl: string,
     policy: ExecutionPolicy,
   ): Promise<AsyncJobHandle>;
+  startPrepareRelayExecutionJobPayload?(
+    payload: PrepareRelayExecutionPayload,
+  ): Promise<AsyncJobHandle>;
   getPrepareRelayExecutionJobResult(
     jobId: string,
   ): Promise<PreparedTransactionExecution | null>;
-  registerLocalMnemonicSigner(
-    handle: string,
-    mnemonic: string,
-    index: number,
-  ): Promise<SignerHandle>;
   registerHostProvidedSigner(
     handle: string,
     address: string,
@@ -491,12 +635,14 @@ export type NativePrivacyPoolsSdkModule = {
     finalized: FinalizedTransactionExecution,
     signedTransaction: string,
   ): Promise<SubmittedTransactionExecution>;
+  /** Low-level compatibility/offline formatting API. */
   planWithdrawalTransaction(
     chainId: number,
     poolAddress: string,
     withdrawal: Withdrawal,
     proof: ProofBundle,
   ): Promise<TransactionPlan>;
+  /** Low-level compatibility/offline formatting API. */
   planRelayTransaction(
     chainId: number,
     entrypointAddress: string,
@@ -504,11 +650,82 @@ export type NativePrivacyPoolsSdkModule = {
     proof: ProofBundle,
     scope: string,
   ): Promise<TransactionPlan>;
+  /** Low-level compatibility/offline formatting API. */
   planRagequitTransaction(
     chainId: number,
     poolAddress: string,
     proof: ProofBundle,
   ): Promise<TransactionPlan>;
+  planVerifiedWithdrawalTransactionWithHandle(
+    chainId: number,
+    poolAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  planVerifiedRelayTransactionWithHandle(
+    chainId: number,
+    entrypointAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  planVerifiedRagequitTransactionWithHandle(
+    chainId: number,
+    poolAddress: string,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<TransactionPlan>;
+  preflightVerifiedWithdrawalTransactionWithHandle(
+    chainId: number,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  preflightVerifiedRelayTransactionWithHandle(
+    chainId: number,
+    entrypointAddress: string,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  preflightVerifiedRagequitTransactionWithHandle(
+    chainId: number,
+    poolAddress: string,
+    rpcUrl: string,
+    policy: ExecutionPolicy,
+    proofHandle: VerifiedProofHandle,
+  ): Promise<PreflightedTransactionHandle>;
+  finalizePreflightedTransactionHandle(
+    rpcUrl: string,
+    preflightedHandle: PreflightedTransactionHandle,
+  ): Promise<FinalizedPreflightedTransactionHandle>;
+  submitPreflightedTransactionHandle(
+    rpcUrl: string,
+    signerHandle: string,
+    preflightedHandle: PreflightedTransactionHandle,
+  ): Promise<SubmittedPreflightedTransactionHandle>;
+  submitFinalizedPreflightedTransactionHandle(
+    rpcUrl: string,
+    finalizedHandle: FinalizedPreflightedTransactionHandle,
+    signedTransaction: string,
+  ): Promise<SubmittedPreflightedTransactionHandle>;
+  /** Compatibility/testing escape hatch. Keep execution data in handles for normal integrations. */
+  dangerouslyExportPreflightedTransaction(
+    handle: PreflightedTransactionHandle,
+  ): Promise<PreflightedTransaction>;
+  /** Compatibility/testing escape hatch. Keep execution data in handles for normal integrations. */
+  dangerouslyExportFinalizedPreflightedTransaction(
+    handle: FinalizedPreflightedTransactionHandle,
+  ): Promise<FinalizedPreflightedTransaction>;
+  /** Compatibility/testing escape hatch. Keep execution data in handles for normal integrations. */
+  dangerouslyExportSubmittedPreflightedTransaction(
+    handle: SubmittedPreflightedTransactionHandle,
+  ): Promise<SubmittedPreflightedTransaction>;
+  removeExecutionHandle(
+    handle:
+      | PreflightedTransactionHandle
+      | FinalizedPreflightedTransactionHandle
+      | SubmittedPreflightedTransactionHandle,
+  ): Promise<boolean>;
+  clearExecutionHandles(): Promise<boolean>;
   planPoolStateRootRead(poolAddress: string): Promise<RootRead>;
   planAspRootRead(entrypointAddress: string, poolAddress: string): Promise<RootRead>;
   isCurrentStateRoot(expectedRoot: string, currentRoot: string): Promise<boolean>;
@@ -521,6 +738,17 @@ export type NativePrivacyPoolsSdkModule = {
     kind: string,
     bytes: number[],
   ): Promise<ArtifactVerification>;
+  verifySignedManifest(
+    payloadJson: string,
+    signatureHex: string,
+    publicKeyHex: string,
+  ): Promise<VerifiedSignedManifest>;
+  verifySignedManifestArtifacts(
+    payloadJson: string,
+    signatureHex: string,
+    publicKeyHex: string,
+    artifacts: SignedManifestArtifactBytesInput[],
+  ): Promise<VerifiedSignedManifest>;
   getArtifactStatuses(
     manifestJson: string,
     artifactsRoot: string,
@@ -556,39 +784,76 @@ function requireNativeModule(): NativePrivacyPoolsSdkModule {
   return nativeModule;
 }
 
+const normalizeBackendName = (backend: string): "arkworks" => {
+  if (typeof backend !== "string") {
+    throw new Error(
+      `expected backend string, received ${backend == null ? String(backend) : typeof backend}`,
+    );
+  }
+  return backend.toLowerCase() as "arkworks";
+};
+
+const normalizeProvingResult = (result: ProvingResult): ProvingResult => ({
+  ...result,
+  backend: normalizeBackendName(result.backend),
+});
+
+const normalizePreparedTransactionExecution = (
+  execution: PreparedTransactionExecution,
+): PreparedTransactionExecution => ({
+  ...execution,
+  proving: normalizeProvingResult(execution.proving),
+});
+
+const normalizeFinalizedTransactionExecution = (
+  execution: FinalizedTransactionExecution,
+): FinalizedTransactionExecution => ({
+  ...execution,
+  prepared: normalizePreparedTransactionExecution(execution.prepared),
+});
+
+const normalizeSubmittedTransactionExecution = (
+  execution: SubmittedTransactionExecution,
+): SubmittedTransactionExecution => ({
+  ...execution,
+  prepared: normalizePreparedTransactionExecution(execution.prepared),
+});
+
 export const getVersion = (): Promise<string> => requireNativeModule().getVersion();
 
 export const getStableBackendName = (): Promise<string> =>
-  requireNativeModule().getStableBackendName();
+  coerceAsyncResult(
+    "getStableBackendName",
+    requireNativeModule().getStableBackendName(),
+  ).then(normalizeBackendName);
 
-export const fastBackendSupportedOnTarget = (): Promise<boolean> =>
-  requireNativeModule().fastBackendSupportedOnTarget();
+export const deriveMasterKeysHandle = (
+  mnemonic: string,
+): Promise<SecretHandle> => requireNativeModule().deriveMasterKeysHandle(mnemonic);
 
-export const deriveMasterKeys = (mnemonic: string): Promise<MasterKeys> =>
-  requireNativeModule().deriveMasterKeys(mnemonic);
+export const deriveMasterKeysHandleBytes = (
+  mnemonicBytes: ByteInput,
+): Promise<SecretHandle> =>
+  requireNativeModule().deriveMasterKeysHandleBytes(normalizeByteInput(mnemonicBytes));
 
-export const deriveDepositSecrets = (
-  masterNullifier: string,
-  masterSecret: string,
+export const generateDepositSecretsHandle = (
+  masterKeysHandle: SecretHandle,
   scope: string,
   index: string,
-): Promise<Secrets> =>
-  requireNativeModule().deriveDepositSecrets(
-    masterNullifier,
-    masterSecret,
+): Promise<SecretHandle> =>
+  requireNativeModule().generateDepositSecretsHandle(
+    masterKeysHandle,
     scope,
     index,
   );
 
-export const deriveWithdrawalSecrets = (
-  masterNullifier: string,
-  masterSecret: string,
+export const generateWithdrawalSecretsHandle = (
+  masterKeysHandle: SecretHandle,
   label: string,
   index: string,
-): Promise<Secrets> =>
-  requireNativeModule().deriveWithdrawalSecrets(
-    masterNullifier,
-    masterSecret,
+): Promise<SecretHandle> =>
+  requireNativeModule().generateWithdrawalSecretsHandle(
+    masterKeysHandle,
     label,
     index,
   );
@@ -600,6 +865,32 @@ export const getCommitment = (
   secret: string,
 ): Promise<Commitment> =>
   requireNativeModule().getCommitment(value, label, nullifier, secret);
+
+export const getCommitmentFromHandles = (
+  value: string,
+  label: string,
+  secretsHandle: SecretHandle,
+): Promise<SecretHandle> =>
+  requireNativeModule().getCommitmentFromHandles(value, label, secretsHandle);
+
+export const buildWithdrawalWitnessRequestHandle = (
+  request: WithdrawalWitnessRequest,
+): Promise<SecretHandle> =>
+  requireNativeModule().buildWithdrawalWitnessRequestHandle(request);
+
+export const removeSecretHandle = (
+  handle: SecretHandle,
+): Promise<boolean> => requireNativeModule().removeSecretHandle(handle);
+
+export const clearSecretHandles = (): Promise<boolean> =>
+  requireNativeModule().clearSecretHandles();
+
+export const removeVerifiedProofHandle = (
+  handle: VerifiedProofHandle,
+): Promise<boolean> => requireNativeModule().removeVerifiedProofHandle(handle);
+
+export const clearVerifiedProofHandles = (): Promise<boolean> =>
+  requireNativeModule().clearVerifiedProofHandles();
 
 export const calculateWithdrawalContext = (
   withdrawal: Withdrawal,
@@ -673,31 +964,53 @@ export const removeCommitmentCircuitSession = (
 ): Promise<boolean> => requireNativeModule().removeCommitmentCircuitSession(handle);
 
 export const proveWithdrawal = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
 ): Promise<ProvingResult> =>
-  requireNativeModule().proveWithdrawal(
-    backendProfile,
-    manifestJson,
-    artifactsRoot,
-    request,
-  );
+  coerceAsyncResult(
+    "proveWithdrawal",
+    requireNativeModule().proveWithdrawal(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+    ),
+  ).then(normalizeProvingResult);
 
 export const proveWithdrawalWithSession = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   sessionHandle: string,
   request: WithdrawalWitnessRequest,
 ): Promise<ProvingResult> =>
-  requireNativeModule().proveWithdrawalWithSession(
-    backendProfile,
-    sessionHandle,
-    request,
-  );
+  coerceAsyncResult(
+    "proveWithdrawalWithSession",
+    requireNativeModule().proveWithdrawalWithSession(
+      backendProfile,
+      sessionHandle,
+      request,
+    ),
+  ).then(normalizeProvingResult);
+
+export const proveWithdrawalWithHandles = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+): Promise<ProvingResult> =>
+  coerceAsyncResult(
+    "proveWithdrawalWithHandles",
+    requireNativeModule().proveWithdrawalWithHandles(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      requestHandle,
+    ),
+  ).then(normalizeProvingResult);
 
 export const startProveWithdrawalJob = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
@@ -710,7 +1023,7 @@ export const startProveWithdrawalJob = (
   );
 
 export const startProveWithdrawalJobWithSession = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   sessionHandle: string,
   request: WithdrawalWitnessRequest,
 ): Promise<AsyncJobHandle> =>
@@ -721,7 +1034,7 @@ export const startProveWithdrawalJobWithSession = (
   );
 
 export const verifyWithdrawalProof = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   proof: ProofBundle,
@@ -734,7 +1047,7 @@ export const verifyWithdrawalProof = (
   );
 
 export const verifyWithdrawalProofWithSession = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   sessionHandle: string,
   proof: ProofBundle,
 ): Promise<boolean> =>
@@ -745,31 +1058,124 @@ export const verifyWithdrawalProofWithSession = (
   );
 
 export const proveCommitment = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: CommitmentWitnessRequest,
 ): Promise<ProvingResult> =>
-  requireNativeModule().proveCommitment(
-    backendProfile,
-    manifestJson,
-    artifactsRoot,
-    request,
-  );
+  coerceAsyncResult(
+    "proveCommitment",
+    requireNativeModule().proveCommitment(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+    ),
+  ).then(normalizeProvingResult);
 
 export const proveCommitmentWithSession = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   sessionHandle: string,
   request: CommitmentWitnessRequest,
 ): Promise<ProvingResult> =>
-  requireNativeModule().proveCommitmentWithSession(
+  coerceAsyncResult(
+    "proveCommitmentWithSession",
+    requireNativeModule().proveCommitmentWithSession(
+      backendProfile,
+      sessionHandle,
+      request,
+    ),
+  ).then(normalizeProvingResult);
+
+export const proveCommitmentWithHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+): Promise<ProvingResult> =>
+  coerceAsyncResult(
+    "proveCommitmentWithHandle",
+    requireNativeModule().proveCommitmentWithHandle(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      requestHandle,
+    ),
+  ).then(normalizeProvingResult);
+
+export const proveAndVerifyCommitmentHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+): Promise<VerifiedProofHandle> =>
+  requireNativeModule().proveAndVerifyCommitmentHandle(
     backendProfile,
-    sessionHandle,
-    request,
+    manifestJson,
+    artifactsRoot,
+    requestHandle,
+  );
+
+export const proveAndVerifyWithdrawalHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+): Promise<VerifiedProofHandle> =>
+  requireNativeModule().proveAndVerifyWithdrawalHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    requestHandle,
+  );
+
+export const verifyCommitmentProofForRequestHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle> =>
+  requireNativeModule().verifyCommitmentProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    requestHandle,
+    proof,
+  );
+
+export const verifyRagequitProofForRequestHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle> =>
+  requireNativeModule().verifyRagequitProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    requestHandle,
+    proof,
+  );
+
+export const verifyWithdrawalProofForRequestHandle = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  requestHandle: SecretHandle,
+  proof: ProofBundle,
+): Promise<VerifiedProofHandle> =>
+  requireNativeModule().verifyWithdrawalProofForRequestHandle(
+    backendProfile,
+    manifestJson,
+    artifactsRoot,
+    requestHandle,
+    proof,
   );
 
 export const verifyCommitmentProof = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   proof: ProofBundle,
@@ -782,7 +1188,7 @@ export const verifyCommitmentProof = (
   );
 
 export const verifyCommitmentProofWithSession = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   sessionHandle: string,
   proof: ProofBundle,
 ): Promise<boolean> =>
@@ -798,7 +1204,11 @@ export const pollJobStatus = (jobId: string): Promise<AsyncJobStatus> =>
 export const getProveWithdrawalJobResult = (
   jobId: string,
 ): Promise<ProvingResult | null> =>
-  requireNativeModule().getProveWithdrawalJobResult(jobId);
+  coerceAsyncResult(
+    "getProveWithdrawalJobResult",
+    requireNativeModule().getProveWithdrawalJobResult(jobId),
+  )
+    .then((result) => (result == null ? null : normalizeProvingResult(result)));
 
 export const cancelJob = (jobId: string): Promise<boolean> =>
   requireNativeModule().cancelJob(jobId);
@@ -810,6 +1220,58 @@ const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+
+const buildPrepareWithdrawalExecutionPayload = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): PrepareWithdrawalExecutionPayload => ({
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  request,
+  chainId,
+  poolAddress,
+  rpcUrl,
+  policy,
+});
+
+const buildPrepareRelayExecutionPayload = (
+  backendProfile: "stable",
+  manifestJson: string,
+  artifactsRoot: string,
+  request: WithdrawalWitnessRequest,
+  chainId: number,
+  entrypointAddress: string,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+): PrepareRelayExecutionPayload => ({
+  backendProfile,
+  manifestJson,
+  artifactsRoot,
+  request,
+  chainId,
+  entrypointAddress,
+  poolAddress,
+  rpcUrl,
+  policy,
+});
+
+const coerceAsyncResult = <T>(
+  methodName: string,
+  value: PromiseLike<T> | T,
+): Promise<T> => {
+  if (value === undefined) {
+    throw new Error(`${methodName} returned undefined`);
+  }
+  return Promise.resolve(value);
+};
 
 const abortError = (): Error => {
   const error = new Error("job observation aborted");
@@ -865,8 +1327,10 @@ export const waitForProveWithdrawalJob = (
 ): Promise<ProvingResult> =>
   waitForJob(handle, getProveWithdrawalJobResult, options);
 
+const useAsyncExecutionPreparation = Platform.OS === "android";
+
 export const prepareWithdrawalExecution = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
@@ -874,20 +1338,53 @@ export const prepareWithdrawalExecution = (
   poolAddress: string,
   rpcUrl: string,
   policy: ExecutionPolicy,
-): Promise<PreparedTransactionExecution> =>
-  requireNativeModule().prepareWithdrawalExecution(
-    backendProfile,
-    manifestJson,
-    artifactsRoot,
-    request,
-    chainId,
-    poolAddress,
-    rpcUrl,
-    policy,
-  );
+): Promise<PreparedTransactionExecution> => {
+  if (useAsyncExecutionPreparation) {
+    const payload = buildPrepareWithdrawalExecutionPayload(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      chainId,
+      poolAddress,
+      rpcUrl,
+      policy,
+    );
+    const native = requireNativeModule();
+    if (typeof native.prepareWithdrawalExecutionPayload === "function") {
+      return coerceAsyncResult<PreparedTransactionExecution>(
+        "prepareWithdrawalExecutionPayload",
+        native.prepareWithdrawalExecutionPayload(payload),
+      )
+        .then(normalizePreparedTransactionExecution);
+    }
+    if (typeof native.startPrepareWithdrawalExecutionJobPayload === "function") {
+      return coerceAsyncResult<AsyncJobHandle>(
+        "startPrepareWithdrawalExecutionJobPayload",
+        native.startPrepareWithdrawalExecutionJobPayload(payload),
+      )
+        .then((handle) => waitForPrepareWithdrawalExecutionJob(handle));
+    }
+  }
+
+  return coerceAsyncResult(
+    "prepareWithdrawalExecution",
+    requireNativeModule().prepareWithdrawalExecution(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      chainId,
+      poolAddress,
+      rpcUrl,
+      policy,
+    ),
+  )
+    .then(normalizePreparedTransactionExecution);
+};
 
 export const startPrepareWithdrawalExecutionJob = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
@@ -895,8 +1392,29 @@ export const startPrepareWithdrawalExecutionJob = (
   poolAddress: string,
   rpcUrl: string,
   policy: ExecutionPolicy,
-): Promise<AsyncJobHandle> =>
-  requireNativeModule().startPrepareWithdrawalExecutionJob(
+): Promise<AsyncJobHandle> => {
+  if (useAsyncExecutionPreparation) {
+    const native = requireNativeModule();
+    if (typeof native.startPrepareWithdrawalExecutionJobPayload === "function") {
+      return coerceAsyncResult<AsyncJobHandle>(
+        "startPrepareWithdrawalExecutionJobPayload",
+        native.startPrepareWithdrawalExecutionJobPayload(
+          buildPrepareWithdrawalExecutionPayload(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            poolAddress,
+            rpcUrl,
+            policy,
+          ),
+        ),
+      );
+    }
+  }
+
+  return requireNativeModule().startPrepareWithdrawalExecutionJob(
     backendProfile,
     manifestJson,
     artifactsRoot,
@@ -906,11 +1424,18 @@ export const startPrepareWithdrawalExecutionJob = (
     rpcUrl,
     policy,
   );
+};
 
 export const getPrepareWithdrawalExecutionJobResult = (
   jobId: string,
 ): Promise<PreparedTransactionExecution | null> =>
-  requireNativeModule().getPrepareWithdrawalExecutionJobResult(jobId);
+  coerceAsyncResult(
+    "getPrepareWithdrawalExecutionJobResult",
+    requireNativeModule().getPrepareWithdrawalExecutionJobResult(jobId),
+  )
+    .then((result) =>
+      result == null ? null : normalizePreparedTransactionExecution(result),
+    );
 
 export const waitForPrepareWithdrawalExecutionJob = (
   handle: AsyncJobHandle,
@@ -919,7 +1444,7 @@ export const waitForPrepareWithdrawalExecutionJob = (
   waitForJob(handle, getPrepareWithdrawalExecutionJobResult, options);
 
 export const prepareRelayExecution = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
@@ -928,21 +1453,55 @@ export const prepareRelayExecution = (
   poolAddress: string,
   rpcUrl: string,
   policy: ExecutionPolicy,
-): Promise<PreparedTransactionExecution> =>
-  requireNativeModule().prepareRelayExecution(
-    backendProfile,
-    manifestJson,
-    artifactsRoot,
-    request,
-    chainId,
-    entrypointAddress,
-    poolAddress,
-    rpcUrl,
-    policy,
-  );
+): Promise<PreparedTransactionExecution> => {
+  if (useAsyncExecutionPreparation) {
+    const payload = buildPrepareRelayExecutionPayload(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      chainId,
+      entrypointAddress,
+      poolAddress,
+      rpcUrl,
+      policy,
+    );
+    const native = requireNativeModule();
+    if (typeof native.prepareRelayExecutionPayload === "function") {
+      return coerceAsyncResult<PreparedTransactionExecution>(
+        "prepareRelayExecutionPayload",
+        native.prepareRelayExecutionPayload(payload),
+      )
+        .then(normalizePreparedTransactionExecution);
+    }
+    if (typeof native.startPrepareRelayExecutionJobPayload === "function") {
+      return coerceAsyncResult<AsyncJobHandle>(
+        "startPrepareRelayExecutionJobPayload",
+        native.startPrepareRelayExecutionJobPayload(payload),
+      )
+        .then((handle) => waitForPrepareRelayExecutionJob(handle));
+    }
+  }
+
+  return coerceAsyncResult(
+    "prepareRelayExecution",
+    requireNativeModule().prepareRelayExecution(
+      backendProfile,
+      manifestJson,
+      artifactsRoot,
+      request,
+      chainId,
+      entrypointAddress,
+      poolAddress,
+      rpcUrl,
+      policy,
+    ),
+  )
+    .then(normalizePreparedTransactionExecution);
+};
 
 export const startPrepareRelayExecutionJob = (
-  backendProfile: "stable" | "fast",
+  backendProfile: "stable",
   manifestJson: string,
   artifactsRoot: string,
   request: WithdrawalWitnessRequest,
@@ -951,8 +1510,30 @@ export const startPrepareRelayExecutionJob = (
   poolAddress: string,
   rpcUrl: string,
   policy: ExecutionPolicy,
-): Promise<AsyncJobHandle> =>
-  requireNativeModule().startPrepareRelayExecutionJob(
+): Promise<AsyncJobHandle> => {
+  if (useAsyncExecutionPreparation) {
+    const native = requireNativeModule();
+    if (typeof native.startPrepareRelayExecutionJobPayload === "function") {
+      return coerceAsyncResult<AsyncJobHandle>(
+        "startPrepareRelayExecutionJobPayload",
+        native.startPrepareRelayExecutionJobPayload(
+          buildPrepareRelayExecutionPayload(
+            backendProfile,
+            manifestJson,
+            artifactsRoot,
+            request,
+            chainId,
+            entrypointAddress,
+            poolAddress,
+            rpcUrl,
+            policy,
+          ),
+        ),
+      );
+    }
+  }
+
+  return requireNativeModule().startPrepareRelayExecutionJob(
     backendProfile,
     manifestJson,
     artifactsRoot,
@@ -963,24 +1544,24 @@ export const startPrepareRelayExecutionJob = (
     rpcUrl,
     policy,
   );
+};
 
 export const getPrepareRelayExecutionJobResult = (
   jobId: string,
 ): Promise<PreparedTransactionExecution | null> =>
-  requireNativeModule().getPrepareRelayExecutionJobResult(jobId);
+  coerceAsyncResult(
+    "getPrepareRelayExecutionJobResult",
+    requireNativeModule().getPrepareRelayExecutionJobResult(jobId),
+  )
+    .then((result) =>
+      result == null ? null : normalizePreparedTransactionExecution(result),
+    );
 
 export const waitForPrepareRelayExecutionJob = (
   handle: AsyncJobHandle,
   options?: WaitForJobOptions,
 ): Promise<PreparedTransactionExecution> =>
   waitForJob(handle, getPrepareRelayExecutionJobResult, options);
-
-export const registerLocalMnemonicSigner = (
-  handle: string,
-  mnemonic: string,
-  index: number,
-): Promise<SignerHandle> =>
-  requireNativeModule().registerLocalMnemonicSigner(handle, mnemonic, index);
 
 export const registerHostProvidedSigner = (
   handle: string,
@@ -1001,41 +1582,55 @@ export const finalizePreparedTransaction = (
   rpcUrl: string,
   prepared: PreparedTransactionExecution,
 ): Promise<FinalizedTransactionExecution> =>
-  requireNativeModule().finalizePreparedTransaction(rpcUrl, prepared);
+  coerceAsyncResult(
+    "finalizePreparedTransaction",
+    requireNativeModule().finalizePreparedTransaction(rpcUrl, prepared),
+  )
+    .then(normalizeFinalizedTransactionExecution);
 
 export const finalizePreparedTransactionForSigner = (
   rpcUrl: string,
   signerHandle: string,
   prepared: PreparedTransactionExecution,
 ): Promise<FinalizedTransactionExecution> =>
-  requireNativeModule().finalizePreparedTransactionForSigner(
-    rpcUrl,
-    signerHandle,
-    prepared,
-  );
+  coerceAsyncResult(
+    "finalizePreparedTransactionForSigner",
+    requireNativeModule().finalizePreparedTransactionForSigner(
+      rpcUrl,
+      signerHandle,
+      prepared,
+    ),
+  ).then(normalizeFinalizedTransactionExecution);
 
 export const submitPreparedTransaction = (
   rpcUrl: string,
   signerHandle: string,
   prepared: PreparedTransactionExecution,
 ): Promise<SubmittedTransactionExecution> =>
-  requireNativeModule().submitPreparedTransaction(
-    rpcUrl,
-    signerHandle,
-    prepared,
-  );
+  coerceAsyncResult(
+    "submitPreparedTransaction",
+    requireNativeModule().submitPreparedTransaction(
+      rpcUrl,
+      signerHandle,
+      prepared,
+    ),
+  ).then(normalizeSubmittedTransactionExecution);
 
 export const submitSignedTransaction = (
   rpcUrl: string,
   finalized: FinalizedTransactionExecution,
   signedTransaction: string,
 ): Promise<SubmittedTransactionExecution> =>
-  requireNativeModule().submitSignedTransaction(
-    rpcUrl,
-    finalized,
-    signedTransaction,
-  );
+  coerceAsyncResult(
+    "submitSignedTransaction",
+    requireNativeModule().submitSignedTransaction(
+      rpcUrl,
+      finalized,
+      signedTransaction,
+    ),
+  ).then(normalizeSubmittedTransactionExecution);
 
+/** Low-level compatibility/offline formatting API. */
 export const planWithdrawalTransaction = (
   chainId: number,
   poolAddress: string,
@@ -1049,6 +1644,7 @@ export const planWithdrawalTransaction = (
     proof,
   );
 
+/** Low-level compatibility/offline formatting API. */
 export const planRelayTransaction = (
   chainId: number,
   entrypointAddress: string,
@@ -1064,12 +1660,134 @@ export const planRelayTransaction = (
     scope,
   );
 
+/** Low-level compatibility/offline formatting API. */
 export const planRagequitTransaction = (
   chainId: number,
   poolAddress: string,
   proof: ProofBundle,
 ): Promise<TransactionPlan> =>
   requireNativeModule().planRagequitTransaction(chainId, poolAddress, proof);
+
+export const planVerifiedWithdrawalTransactionWithHandle = (
+  chainId: number,
+  poolAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planVerifiedWithdrawalTransactionWithHandle(
+    chainId,
+    poolAddress,
+    proofHandle,
+  );
+
+export const planVerifiedRelayTransactionWithHandle = (
+  chainId: number,
+  entrypointAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planVerifiedRelayTransactionWithHandle(
+    chainId,
+    entrypointAddress,
+    proofHandle,
+  );
+
+export const planVerifiedRagequitTransactionWithHandle = (
+  chainId: number,
+  poolAddress: string,
+  proofHandle: VerifiedProofHandle,
+): Promise<TransactionPlan> =>
+  requireNativeModule().planVerifiedRagequitTransactionWithHandle(
+    chainId,
+    poolAddress,
+    proofHandle,
+  );
+
+export const preflightVerifiedWithdrawalTransactionWithHandle = (
+  chainId: number,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle> =>
+  requireNativeModule().preflightVerifiedWithdrawalTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+
+export const preflightVerifiedRelayTransactionWithHandle = (
+  chainId: number,
+  entrypointAddress: string,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle> =>
+  requireNativeModule().preflightVerifiedRelayTransactionWithHandle(
+    chainId,
+    entrypointAddress,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+
+export const preflightVerifiedRagequitTransactionWithHandle = (
+  chainId: number,
+  poolAddress: string,
+  rpcUrl: string,
+  policy: ExecutionPolicy,
+  proofHandle: VerifiedProofHandle,
+): Promise<PreflightedTransactionHandle> =>
+  requireNativeModule().preflightVerifiedRagequitTransactionWithHandle(
+    chainId,
+    poolAddress,
+    rpcUrl,
+    policy,
+    proofHandle,
+  );
+
+export const finalizePreflightedTransactionHandle = (
+  rpcUrl: string,
+  preflightedHandle: PreflightedTransactionHandle,
+): Promise<FinalizedPreflightedTransactionHandle> =>
+  requireNativeModule().finalizePreflightedTransactionHandle(
+    rpcUrl,
+    preflightedHandle,
+  );
+
+export const submitPreflightedTransactionHandle = (
+  rpcUrl: string,
+  signerHandle: string,
+  preflightedHandle: PreflightedTransactionHandle,
+): Promise<SubmittedPreflightedTransactionHandle> =>
+  requireNativeModule().submitPreflightedTransactionHandle(
+    rpcUrl,
+    signerHandle,
+    preflightedHandle,
+  );
+
+export const submitFinalizedPreflightedTransactionHandle = (
+  rpcUrl: string,
+  finalizedHandle: FinalizedPreflightedTransactionHandle,
+  signedTransaction: string,
+): Promise<SubmittedPreflightedTransactionHandle> =>
+  requireNativeModule().submitFinalizedPreflightedTransactionHandle(
+    rpcUrl,
+    finalizedHandle,
+    signedTransaction,
+  );
+
+export const removeExecutionHandle = (
+  handle:
+    | PreflightedTransactionHandle
+    | FinalizedPreflightedTransactionHandle
+    | SubmittedPreflightedTransactionHandle,
+): Promise<boolean> => requireNativeModule().removeExecutionHandle(handle);
+
+export const clearExecutionHandles = (): Promise<boolean> =>
+  requireNativeModule().clearExecutionHandles();
 
 export const planPoolStateRootRead = (poolAddress: string): Promise<RootRead> =>
   requireNativeModule().planPoolStateRootRead(poolAddress);
@@ -1099,6 +1817,30 @@ export const verifyArtifactBytes = (
 ): Promise<ArtifactVerification> =>
   requireNativeModule().verifyArtifactBytes(manifestJson, circuit, kind, bytes);
 
+export const verifySignedManifest = (
+  payloadJson: string,
+  signatureHex: string,
+  publicKeyHex: string,
+): Promise<VerifiedSignedManifest> =>
+  requireNativeModule().verifySignedManifest(
+    payloadJson,
+    signatureHex,
+    publicKeyHex,
+  );
+
+export const verifySignedManifestArtifacts = (
+  payloadJson: string,
+  signatureHex: string,
+  publicKeyHex: string,
+  artifacts: SignedManifestArtifactBytesInput[],
+): Promise<VerifiedSignedManifest> =>
+  requireNativeModule().verifySignedManifestArtifacts(
+    payloadJson,
+    signatureHex,
+    publicKeyHex,
+    artifacts,
+  );
+
 export const getArtifactStatuses = (
   manifestJson: string,
   artifactsRoot: string,
@@ -1122,3 +1864,19 @@ export const checkpointRecovery = (
   policy: RecoveryPolicy,
 ): Promise<RecoveryCheckpoint> =>
   requireNativeModule().checkpointRecovery(events, policy);
+
+function normalizeByteInput(bytes: ByteInput): number[] {
+  if (Array.isArray(bytes)) {
+    return bytes;
+  }
+
+  if (bytes instanceof Uint8Array) {
+    return Array.from(bytes);
+  }
+
+  if (bytes instanceof ArrayBuffer) {
+    return Array.from(new Uint8Array(bytes));
+  }
+
+  throw new TypeError("mnemonic bytes must be a Uint8Array, ArrayBuffer, or number[]");
+}

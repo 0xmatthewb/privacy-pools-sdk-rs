@@ -1,7 +1,18 @@
 {
-  "mnemonic": "test test test test test test test test test test test junk",
-  "keys": {
-    "masterNullifier": "16629217087516280053769625512741000936965671973118241282486996830438009025879",
-    "masterSecret": "9843793310547505184827673578253843418217689387365691544946232242162772441433"
-  }
+  "cases": [
+    {
+      "mnemonic": "test test test test test test test test test test test junk",
+      "keys": {
+        "masterNullifier": "16629217087516280053769625512741000936965671973118241282486996830438009025879",
+        "masterSecret": "9843793310547505184827673578253843418217689387365691544946232242162772441433"
+      }
+    },
+    {
+      "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+      "keys": {
+        "masterNullifier": "16792479831402923399707222830884773172426517887448891342496106270318428691489",
+        "masterSecret": "9779158011193307544582690222575295637318027923902748717818686254598144125628"
+      }
+    }
+  ]
 }

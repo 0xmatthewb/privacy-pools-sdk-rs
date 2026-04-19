@@ -32,6 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             value,
             precommitment_hash: legacy_deposit.preimage.precommitment.hash,
             block_number: 10,
+            transaction_index: 0,
+            log_index: 0,
             transaction_hash: b256!(
                 "0000000000000000000000000000000000000000000000000000000000000001"
             ),
@@ -41,6 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             spent_nullifier_hash: sdk.compute_nullifier_hash(&legacy_nullifier)?,
             new_commitment_hash: migrated_commitment.hash,
             block_number: 20,
+            transaction_index: 0,
+            log_index: 0,
             transaction_hash: b256!(
                 "0000000000000000000000000000000000000000000000000000000000000002"
             ),

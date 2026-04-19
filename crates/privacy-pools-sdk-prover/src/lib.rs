@@ -5,7 +5,7 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::{Groth16, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
 use ark_std::UniformRand;
-use ark_std::rand::thread_rng;
+use ark_std::rand::rngs::OsRng;
 #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 use circom_prover::prover::ProofLib;
 use circom_prover::prover::{
@@ -27,16 +27,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 use std::collections::HashMap;
+#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
+use std::thread::JoinHandle;
 use std::{
     io::Cursor,
     path::PathBuf,
     str::FromStr,
     sync::{Arc, OnceLock},
 };
-#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
-use std::{io::Write, thread::JoinHandle};
-#[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
-use tempfile::NamedTempFile;
 use thiserror::Error;
 
 #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
@@ -50,13 +48,11 @@ rust_witness::witness!(withdraw);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BackendProfile {
     Stable,
-    Fast,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProverBackend {
     Arkworks,
-    Rapidsnark,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,20 +70,12 @@ pub struct ProvingResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct BackendPolicy {
-    pub allow_fast_backend: bool,
-}
+pub struct BackendPolicy;
 
 #[derive(Debug, Error)]
 pub enum ProverError {
     #[error(transparent)]
     Artifact(#[from] artifacts::ArtifactError),
-    #[error("fast prover backend is not enabled")]
-    FastBackendDisabled,
-    #[error("fast prover backend is not compiled into this build")]
-    FastBackendNotCompiled,
-    #[error("rapidsnark is not supported on this target")]
-    UnsupportedFastTarget,
     #[error("proof generation requires an explicit witness function")]
     WitnessFunctionRequired,
     #[error("no compiled witness adapter is available for circuit `{0}`")]
@@ -124,6 +112,12 @@ pub struct PreparedCircuitArtifacts {
     inner: Arc<PreparedCircuitArtifactsInner>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WitnessFormat {
+    pub field_modulus: BigUint,
+    pub witness_count: usize,
+}
+
 struct PreparedCircuitArtifactsInner {
     circuit: String,
     artifact_version: String,
@@ -154,22 +148,10 @@ enum ZkeyCurve {
 impl NativeProofEngine {
     pub fn from_policy(
         profile: BackendProfile,
-        policy: BackendPolicy,
+        _policy: BackendPolicy,
     ) -> Result<Self, ProverError> {
         let backend = match profile {
             BackendProfile::Stable => ProverBackend::Arkworks,
-            BackendProfile::Fast => {
-                if !policy.allow_fast_backend {
-                    return Err(ProverError::FastBackendDisabled);
-                }
-                if !cfg!(feature = "rapidsnark") {
-                    return Err(ProverError::FastBackendNotCompiled);
-                }
-                if !rapidsnark_supported_target() {
-                    return Err(ProverError::UnsupportedFastTarget);
-                }
-                ProverBackend::Rapidsnark
-            }
         };
 
         Ok(Self { backend })
@@ -253,13 +235,6 @@ impl NativeProofEngine {
     fn proof_lib(&self) -> Result<ProofLib, ProverError> {
         match self.backend {
             ProverBackend::Arkworks => Ok(ProofLib::Arkworks),
-            ProverBackend::Rapidsnark => {
-                if cfg!(feature = "rapidsnark") {
-                    Ok(ProofLib::Rapidsnark)
-                } else {
-                    Err(ProverError::FastBackendNotCompiled)
-                }
-            }
         }
     }
 }
@@ -303,6 +278,10 @@ impl PreparedCircuitArtifacts {
         &self.inner.artifact_version
     }
 
+    pub fn witness_format(&self) -> Result<WitnessFormat, ProverError> {
+        Ok(self.prepare_arkworks_circuit()?.witness_format())
+    }
+
     #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
     pub fn prove_with_witness(
         &self,
@@ -310,22 +289,8 @@ impl PreparedCircuitArtifacts {
         input_json: &str,
         witness_fn: WitnessFn,
     ) -> Result<ProvingResult, ProverError> {
-        let proof = match engine.backend {
-            ProverBackend::Arkworks => {
-                let witness_thread = generate_witness(witness_fn, input_json.to_owned());
-                self.prepare_arkworks_circuit()?.prove(witness_thread)?
-            }
-            ProverBackend::Rapidsnark => {
-                let zkey_file = self.materialize_zkey_file()?;
-                CircomProver::prove(
-                    engine.proof_lib()?,
-                    witness_fn,
-                    input_json.to_owned(),
-                    zkey_file.path().to_string_lossy().into_owned(),
-                )
-                .map_err(|error| ProverError::Circom(error.to_string()))?
-            }
-        };
+        let witness_thread = generate_witness(witness_fn, input_json.to_owned());
+        let proof = self.prepare_arkworks_circuit()?.prove(witness_thread)?;
 
         Ok(ProvingResult {
             backend: engine.backend,
@@ -358,7 +323,7 @@ impl PreparedCircuitArtifacts {
 
     pub fn verify(
         &self,
-        engine: &NativeProofEngine,
+        _engine: &NativeProofEngine,
         proof: &ProofBundle,
     ) -> Result<bool, ProverError> {
         let circom_proof = bundle_to_circom_proof(proof)?;
@@ -367,34 +332,7 @@ impl PreparedCircuitArtifacts {
             return verify_prepared_verifier_circom(verifier, &circom_proof);
         }
 
-        match engine.backend {
-            ProverBackend::Arkworks => self.prepare_arkworks_circuit()?.verify(&circom_proof),
-            ProverBackend::Rapidsnark => {
-                #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
-                {
-                    let zkey_file = self.materialize_zkey_file()?;
-                    CircomProver::verify(
-                        engine.proof_lib()?,
-                        circom_proof,
-                        zkey_file.path().to_string_lossy().into_owned(),
-                    )
-                    .map_err(|error| ProverError::Circom(error.to_string()))
-                }
-                #[cfg(not(all(feature = "native-witness", not(target_arch = "wasm32"))))]
-                {
-                    Err(ProverError::UnsupportedFastTarget)
-                }
-            }
-        }
-    }
-
-    #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
-    fn materialize_zkey_file(&self) -> Result<NamedTempFile, ProverError> {
-        let mut file =
-            NamedTempFile::new().map_err(|error| ProverError::Circom(error.to_string()))?;
-        file.write_all(&self.inner.zkey_bytes)
-            .map_err(|error| ProverError::Circom(error.to_string()))?;
-        Ok(file)
+        self.prepare_arkworks_circuit()?.verify(&circom_proof)
     }
 
     fn prepare_arkworks_circuit(&self) -> Result<&PreparedArkworksCircuit, ProverError> {
@@ -464,6 +402,32 @@ impl PreparedArkworksCircuit {
             }
         }
     }
+
+    fn witness_format(&self) -> WitnessFormat {
+        match self {
+            Self::Bn254 { matrices, .. } => WitnessFormat {
+                field_modulus: BigUint::from_bytes_le(Bn254Fr::MODULUS.to_bytes_le().as_ref()),
+                witness_count: expected_witness_count(
+                    matrices.num_instance_variables,
+                    matrices.num_witness_variables,
+                ),
+            },
+            Self::Bls12_381 { matrices, .. } => WitnessFormat {
+                field_modulus: BigUint::from_bytes_le(Bls12_381Fr::MODULUS.to_bytes_le().as_ref()),
+                witness_count: expected_witness_count(
+                    matrices.num_instance_variables,
+                    matrices.num_witness_variables,
+                ),
+            },
+        }
+    }
+}
+
+fn expected_witness_count(instance_variables: usize, witness_variables: usize) -> usize {
+    instance_variables
+        .checked_add(witness_variables)
+        .and_then(|count| count.checked_sub(1))
+        .unwrap_or(instance_variables)
 }
 
 #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
@@ -810,7 +774,7 @@ fn prove_with_prepared_key_bn254(
         .iter()
         .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
         .collect::<Vec<_>>();
-    let mut rng = thread_rng();
+    let mut rng = OsRng;
     let r = Bn254Fr::rand(&mut rng);
     let s = Bn254Fr::rand(&mut rng);
     let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
@@ -844,7 +808,7 @@ fn prove_with_prepared_key_bls12_381(
         .iter()
         .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
         .collect::<Vec<_>>();
-    let mut rng = thread_rng();
+    let mut rng = OsRng;
     let r = Bls12_381Fr::rand(&mut rng);
     let s = Bls12_381Fr::rand(&mut rng);
     let proof = Groth16::<Bls12_381, CircomReduction>::create_proof_with_reduction_and_matrices(
@@ -931,62 +895,24 @@ impl<'a> ByteReader<'a> {
     }
 }
 
-pub fn rapidsnark_supported_target() -> bool {
-    matches!(
-        (std::env::consts::OS, std::env::consts::ARCH),
-        ("ios", "aarch64")
-            | ("android", "aarch64")
-            | ("android", "x86_64")
-            | ("macos", "aarch64")
-            | ("macos", "x86_64")
-            | ("linux", "aarch64")
-            | ("linux", "x86_64")
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigUint;
     use privacy_pools_sdk_artifacts::{
         ArtifactBytes, ArtifactDescriptor, ArtifactKind, ArtifactManifest,
     };
     use privacy_pools_sdk_core::{CommitmentCircuitInput, parse_decimal_field};
     use serde_json::Value;
+    use std::fs;
 
-    #[test]
-    fn stable_backend_is_arkworks() {
-        let engine =
-            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
-                .unwrap();
-        assert_eq!(engine.backend(), ProverBackend::Arkworks);
-    }
-
-    #[test]
-    fn generic_prove_requires_witness_function() {
-        let engine =
-            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
-                .unwrap();
-        let request = ProvingRequest {
-            circuit: "withdraw".to_owned(),
-            input_json: "{}".to_owned(),
-            artifact_version: "0.1.0-alpha.1".to_owned(),
-            zkey_path: PathBuf::from("/tmp/withdraw.zkey"),
-        };
-
-        assert!(matches!(
-            engine.prove(&request),
-            Err(ProverError::WitnessFunctionRequired)
-        ));
-    }
-
-    #[test]
-    fn serializes_withdrawal_input_for_default_witness_backends() {
+    fn withdrawal_fixture_input() -> WithdrawalCircuitInput {
         let fixture: Value = serde_json::from_str(include_str!(
             "../../../fixtures/vectors/withdrawal-circuit-input.json"
         ))
         .unwrap();
 
-        let input = WithdrawalCircuitInput {
+        WithdrawalCircuitInput {
             withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
                 .unwrap(),
             state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
@@ -1024,11 +950,110 @@ mod tests {
                 .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
                 .collect(),
             asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
+        }
+    }
+
+    fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> u32 {
+        let end = *cursor + 4;
+        let value = u32::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+        *cursor = end;
+        value
+    }
+
+    fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> u64 {
+        let end = *cursor + 8;
+        let value = u64::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+        *cursor = end;
+        value
+    }
+
+    fn read_wtns_values(path: &PathBuf) -> Vec<String> {
+        let bytes = fs::read(path).unwrap();
+        let mut cursor = 0usize;
+
+        assert_eq!(&bytes[..4], b"wtns");
+        cursor += 4;
+        assert_eq!(read_u32_le(&bytes, &mut cursor), 2);
+
+        let section_count = read_u32_le(&bytes, &mut cursor);
+        let mut field_bytes = None;
+        let mut witness_count = None;
+        let mut witness_values = None;
+
+        for _ in 0..section_count {
+            let section_id = read_u32_le(&bytes, &mut cursor);
+            let section_len = read_u64_le(&bytes, &mut cursor) as usize;
+            let section_start = cursor;
+            let section_end = section_start + section_len;
+
+            match section_id {
+                1 => {
+                    let n8 = read_u32_le(&bytes, &mut cursor) as usize;
+                    cursor += n8;
+                    let n_witness = read_u32_le(&bytes, &mut cursor) as usize;
+                    field_bytes = Some(n8);
+                    witness_count = Some(n_witness);
+                }
+                2 => {
+                    let n8 = field_bytes.expect("wtns header precedes witness section");
+                    let n_witness =
+                        witness_count.expect("wtns header declares witness count first");
+                    let mut values = Vec::with_capacity(n_witness);
+                    for _ in 0..n_witness {
+                        let end = cursor + n8;
+                        values.push(BigUint::from_bytes_le(&bytes[cursor..end]).to_string());
+                        cursor = end;
+                    }
+                    witness_values = Some(values);
+                }
+                _ => {
+                    cursor = section_end;
+                }
+            }
+
+            assert_eq!(cursor, section_end);
+        }
+
+        witness_values.expect("wtns witness section present")
+    }
+
+    #[test]
+    fn stable_backend_is_arkworks() {
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
+        assert_eq!(engine.backend(), ProverBackend::Arkworks);
+    }
+
+    #[test]
+    fn generic_prove_requires_witness_function() {
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
+        let request = ProvingRequest {
+            circuit: "withdraw".to_owned(),
+            input_json: "{}".to_owned(),
+            artifact_version: "0.1.0-alpha.1".to_owned(),
+            zkey_path: PathBuf::from("/tmp/withdraw.zkey"),
         };
 
-        let normalized: Value =
-            serde_json::from_str(&serialize_withdrawal_circuit_input(&input).unwrap()).unwrap();
+        assert!(matches!(
+            engine.prove(&request),
+            Err(ProverError::WitnessFunctionRequired)
+        ));
+    }
+
+    #[test]
+    fn serializes_withdrawal_input_for_default_witness_backends() {
+        let input = withdrawal_fixture_input();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../fixtures/vectors/withdrawal-circuit-input.json"
+        ))
+        .unwrap();
+
+        let serialized = serialize_withdrawal_circuit_input(&input).unwrap();
+        let normalized: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(normalized, fixture["expected"]["normalizedInputs"]);
+        assert_eq!(
+            serialized,
+            serde_json::to_string(&fixture["expected"]["normalizedInputs"]).unwrap()
+        );
     }
 
     #[test]
@@ -1098,61 +1123,25 @@ mod tests {
 
     #[test]
     fn compiled_withdraw_witness_generates_values_from_reference_input() {
-        let fixture: Value = serde_json::from_str(include_str!(
-            "../../../fixtures/vectors/withdrawal-circuit-input.json"
-        ))
-        .unwrap();
-
-        let input = WithdrawalCircuitInput {
-            withdrawn_value: parse_decimal_field(fixture["withdrawalAmount"].as_str().unwrap())
-                .unwrap(),
-            state_root: parse_decimal_field(fixture["stateWitness"]["root"].as_str().unwrap())
-                .unwrap(),
-            state_tree_depth: fixture["stateWitness"]["depth"].as_u64().unwrap() as usize,
-            asp_root: parse_decimal_field(fixture["aspWitness"]["root"].as_str().unwrap()).unwrap(),
-            asp_tree_depth: fixture["aspWitness"]["depth"].as_u64().unwrap() as usize,
-            context: parse_decimal_field(fixture["expected"]["context"].as_str().unwrap()).unwrap(),
-            label: parse_decimal_field(fixture["label"].as_str().unwrap()).unwrap(),
-            existing_value: parse_decimal_field(fixture["existingValue"].as_str().unwrap())
-                .unwrap(),
-            existing_nullifier: parse_decimal_field(fixture["existingNullifier"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            existing_secret: parse_decimal_field(fixture["existingSecret"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            new_nullifier: parse_decimal_field(fixture["newNullifier"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            new_secret: parse_decimal_field(fixture["newSecret"].as_str().unwrap())
-                .unwrap()
-                .into(),
-            state_siblings: fixture["stateWitness"]["siblings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
-                .collect(),
-            state_index: fixture["stateWitness"]["index"].as_u64().unwrap() as usize,
-            asp_siblings: fixture["aspWitness"]["siblings"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|value| parse_decimal_field(value.as_str().unwrap()).unwrap())
-                .collect(),
-            asp_index: fixture["aspWitness"]["index"].as_u64().unwrap() as usize,
-        };
-
+        let input = withdrawal_fixture_input();
         let witness = generate_withdrawal_witness(&input).unwrap();
         assert!(!witness.is_empty());
         assert_eq!(witness[0], "1");
     }
 
     #[test]
+    fn compiled_withdraw_witness_matches_snarkjs_wtns_golden() {
+        let witness = generate_withdrawal_witness(&withdrawal_fixture_input()).unwrap();
+        let golden_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/vectors/withdrawal-witness-golden.wtns");
+        let golden = read_wtns_values(&golden_path);
+
+        assert_eq!(witness, golden);
+    }
+
+    #[test]
     fn compiled_commitment_proof_path_uses_internal_witness_adapter() {
-        let engine =
-            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
-                .unwrap();
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
         let request = ProvingRequest {
             circuit: "commitment".to_owned(),
             input_json: "{\"foo\":[\"1\"]}".to_owned(),
@@ -1168,9 +1157,7 @@ mod tests {
 
     #[test]
     fn compiled_withdraw_proof_path_uses_internal_witness_adapter() {
-        let engine =
-            NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy::default())
-                .unwrap();
+        let engine = NativeProofEngine::from_policy(BackendProfile::Stable, BackendPolicy).unwrap();
         let request = ProvingRequest {
             circuit: "withdraw".to_owned(),
             input_json: "{\"foo\":[\"1\"]}".to_owned(),

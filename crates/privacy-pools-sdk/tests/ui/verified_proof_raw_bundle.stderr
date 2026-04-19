@@ -1,0 +1,90 @@
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:14:9
+   |
+12 |     let _ = sdk.preflight_verified_withdrawal_transaction_with_client(
+   |                 ----------------------------------------------------- arguments to this method are incorrect
+13 |         withdrawal_config,
+14 |         proof,
+   |         ^^^^^ expected `&VerifiedWithdrawalProof`, found `&ProofBundle`
+   |
+   = note: expected reference `&VerifiedWithdrawalProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub async fn preflight_verified_withdrawal_transaction_with_client<
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:17:80
+   |
+17 |     let _ = sdk.preflight_verified_relay_transaction_with_client(relay_config, proof, client);
+   |                 ------------------------------------------------               ^^^^^ expected `&VerifiedWithdrawalProof`, found `&ProofBundle`
+   |                 |
+   |                 arguments to this method are incorrect
+   |
+   = note: expected reference `&VerifiedWithdrawalProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub async fn preflight_verified_relay_transaction_with_client<C: chain::ExecutionClient>(
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:18:86
+   |
+18 |     let _ = sdk.preflight_verified_ragequit_transaction_with_client(ragequit_config, proof, client);
+   |                 ---------------------------------------------------                  ^^^^^ expected `&VerifiedRagequitProof`, found `&ProofBundle`
+   |                 |
+   |                 arguments to this method are incorrect
+   |
+   = note: expected reference `&VerifiedRagequitProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub async fn preflight_verified_ragequit_transaction_with_client<C: chain::ExecutionClient>(
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:38:111
+   |
+38 |     let _ = sdk.plan_verified_withdrawal_transaction(1, address!("2222222222222222222222222222222222222222"), &proof);
+   |                 ------------------------------------ arguments to this method are incorrect                   ^^^^^^ expected `&VerifiedWithdrawalProof`, found `&ProofBundle`
+   |
+   = note: expected reference `&VerifiedWithdrawalProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn plan_verified_withdrawal_transaction(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:39:106
+   |
+39 |     let _ = sdk.plan_verified_relay_transaction(1, address!("2222222222222222222222222222222222222222"), &proof);
+   |                 ------------------------------- arguments to this method are incorrect                   ^^^^^^ expected `&VerifiedWithdrawalProof`, found `&ProofBundle`
+   |
+   = note: expected reference `&VerifiedWithdrawalProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn plan_verified_relay_transaction(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/verified_proof_raw_bundle.rs:40:109
+   |
+40 |     let _ = sdk.plan_verified_ragequit_transaction(1, address!("2222222222222222222222222222222222222222"), &proof);
+   |                 ---------------------------------- arguments to this method are incorrect                   ^^^^^^ expected `&VerifiedRagequitProof`, found `&ProofBundle`
+   |
+   = note: expected reference `&VerifiedRagequitProof`
+              found reference `&ProofBundle`
+note: method defined here
+  --> src/lib.rs
+   |
+   |     pub fn plan_verified_ragequit_transaction(
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

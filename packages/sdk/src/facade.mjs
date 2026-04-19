@@ -30,6 +30,16 @@ export const ErrorCode = Object.freeze({
   CompatibilityUnsupported: "compatibility_unsupported",
   MissingManifest: "missing_manifest",
   MissingArtifact: "missing_artifact",
+  chainIdMismatch: "chain-id-mismatch",
+  invalidSignedTransaction: "invalid-signed-transaction",
+  signerRequiresExternalSigning: "signer-requires-external-signing",
+  unmatchedRagequit: "unmatched-ragequit",
+  registryFull: "registry-full",
+  handleAlreadyRegistered: "handle-already-registered",
+  payloadTooLarge: "payload-too-large",
+  invalidMnemonic: "invalid-mnemonic",
+  invalidRelayData: "invalid-relay-data",
+  operationFailed: "operation-failed",
 });
 
 export const DEFAULT_LOG_FETCH_CONFIG = Object.freeze({
@@ -43,7 +53,7 @@ export const DEFAULT_LOG_FETCH_CONFIG = Object.freeze({
 
 const EVENT_ABI = Object.freeze({
   deposits:
-    "event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _merkleRoot)",
+    "event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _precommitmentHash)",
   withdrawals:
     "event Withdrawn(address indexed _processooor, uint256 _value, uint256 _spentNullifier, uint256 _newCommitment)",
   ragequits:
@@ -156,12 +166,26 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
     constructor(options = {}) {
       this.client = options.client ?? new PrivacyPoolsSdkClient();
       this.artifactsRoot = options.artifactsRoot ?? options.baseUrl;
-      this.manifests = {
-        [CircuitName.Withdraw]:
-          options.withdrawalManifestJson ?? options.withdrawManifestJson ?? options.manifestJson,
-        [CircuitName.Commitment]:
-          options.commitmentManifestJson ?? options.manifestJson,
+      this.allowUnsignedArtifactsForTesting =
+        options.allowUnsignedArtifactsForTesting === true;
+      this.signedManifestPublicKey = options.signedManifestPublicKey ?? null;
+      this.manifestSources = {
+        [CircuitName.Withdraw]: Object.freeze({
+          manifestJson:
+            options.withdrawalManifestJson ??
+            options.withdrawManifestJson ??
+            options.manifestJson ??
+            null,
+          signedManifestJson:
+            options.withdrawalSignedManifestJson ?? options.signedManifestJson ?? null,
+        }),
+        [CircuitName.Commitment]: Object.freeze({
+          manifestJson: options.commitmentManifestJson ?? options.manifestJson ?? null,
+          signedManifestJson:
+            options.commitmentSignedManifestJson ?? options.signedManifestJson ?? null,
+        }),
       };
+      this.resolvedManifests = new Map();
       this.initialized = false;
       this.version = Version.Latest;
       this.binaries = undefined;
@@ -202,15 +226,8 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
       return Object.entries(artifacts).map(([kind, bytes]) => ({ kind, bytes }));
     }
 
-    manifestFor(circuitName) {
-      const manifestJson = this.manifests[circuitName];
-      if (!manifestJson) {
-        throw new CircuitInitialization(
-          `manifestJson is required for circuit ${circuitName}`,
-          { circuitName },
-        );
-      }
-      return manifestJson;
+    async manifestFor(circuitName) {
+      return (await this.#resolveManifest(circuitName)).manifestJson;
     }
 
     rootFor(circuitName) {
@@ -239,9 +256,8 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         throw new CircuitInitialization("merkleTree artifacts are not shipped by this SDK yet");
       }
 
-      const manifestJson = this.manifestFor(circuitName);
-      const manifest = JSON.parse(manifestJson);
-      const descriptors = manifest.artifacts?.filter(
+      const manifestResolution = await this.#resolveManifest(circuitName);
+      const descriptors = manifestResolution.manifest.artifacts?.filter(
         (artifact) => artifact.circuit === circuitName,
       );
       if (!descriptors?.length) {
@@ -258,16 +274,95 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
           }
           return {
             kind: descriptor.kind,
+            filename: descriptor.filename,
             bytes: new Uint8Array(await response.arrayBuffer()),
           };
         }),
       );
 
-      await this.client.verifyArtifactBytes(manifestJson, circuitName, artifacts);
+      if (manifestResolution.signedManifest) {
+        await this.client.verifySignedManifestArtifacts(
+          manifestResolution.signedManifest.payloadJson,
+          manifestResolution.signedManifest.signatureHex,
+          this.#signedManifestPublicKey(circuitName),
+          artifacts.map((artifact) => ({
+            filename: artifact.filename,
+            bytes: artifact.bytes,
+          })),
+        );
+      } else {
+        await this.client.verifyArtifactBytes(
+          manifestResolution.manifestJson,
+          circuitName,
+          artifacts.map((artifact) => ({
+            kind: artifact.kind,
+            bytes: artifact.bytes,
+          })),
+        );
+      }
       return artifacts.reduce((result, artifact) => {
         result[artifact.kind] = artifact.bytes;
         return result;
       }, {});
+    }
+
+    #signedManifestPublicKey(circuitName) {
+      if (this.signedManifestPublicKey) {
+        return this.signedManifestPublicKey;
+      }
+      throw new CircuitInitialization(
+        `signedManifestPublicKey is required for circuit ${circuitName}`,
+        { circuitName },
+      );
+    }
+
+    async #resolveManifest(circuitName) {
+      const cached = this.resolvedManifests.get(circuitName);
+      if (cached) {
+        return cached;
+      }
+
+      const source = this.manifestSources[circuitName];
+      if (!source?.signedManifestJson && !source?.manifestJson) {
+        throw new CircuitInitialization(
+          `manifestJson or signedManifestJson is required for circuit ${circuitName}`,
+          { circuitName },
+        );
+      }
+
+      let resolved;
+      if (source.signedManifestJson) {
+        const signedManifest = parseSignedManifestEnvelope(
+          source.signedManifestJson,
+          circuitName,
+        );
+        const verified = await this.client.verifySignedManifest(
+          signedManifest.payloadJson,
+          signedManifest.signatureHex,
+          this.#signedManifestPublicKey(circuitName),
+        );
+        const manifest = verified?.payload?.manifest ?? signedManifest.payload.manifest;
+        resolved = {
+          manifest,
+          manifestJson: JSON.stringify(manifest),
+          signedManifest,
+        };
+      } else {
+        if (!this.allowUnsignedArtifactsForTesting) {
+          throw new CircuitInitialization(
+            `unsigned manifestJson is disabled for circuit ${circuitName}; set allowUnsignedArtifactsForTesting: true to opt into the test-only path`,
+            { circuitName },
+          );
+        }
+        resolved = {
+          manifest: JSON.parse(source.manifestJson),
+          manifestJson: source.manifestJson,
+          signedManifest: null,
+        };
+      }
+
+      this.resolvedManifests.set(circuitName, resolved);
+      return resolved;
     }
   }
 
@@ -285,7 +380,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
         decimalString(secret),
       );
       const session = await this.client.prepareCommitmentCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Commitment),
+        await this.circuits.manifestFor(CircuitName.Commitment),
         await this.circuits.artifactInputsFor(CircuitName.Commitment),
       );
       try {
@@ -302,7 +397,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
 
     async verifyCommitment(proof) {
       const session = await this.client.prepareCommitmentCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Commitment),
+        await this.circuits.manifestFor(CircuitName.Commitment),
         await this.circuits.artifactInputsFor(CircuitName.Commitment),
       );
       try {
@@ -326,7 +421,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
     async proveWithdrawal(commitment, input) {
       const request = toWithdrawalRequest(commitment, input);
       const session = await this.client.prepareWithdrawalCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Withdraw),
+        await this.circuits.manifestFor(CircuitName.Withdraw),
         await this.circuits.artifactInputsFor(CircuitName.Withdraw),
       );
       try {
@@ -343,7 +438,7 @@ export function createRuntimeFacade(PrivacyPoolsSdkClient) {
 
     async verifyWithdrawal(proof) {
       const session = await this.client.prepareWithdrawalCircuitSessionFromBytes(
-        this.circuits.manifestFor(CircuitName.Withdraw),
+        await this.circuits.manifestFor(CircuitName.Withdraw),
         await this.circuits.artifactInputsFor(CircuitName.Withdraw),
       );
       try {
@@ -774,6 +869,58 @@ function normalizeArtifactsRoot(root) {
   return value.endsWith("/") ? value : `${value}/`;
 }
 
+function parseSignedManifestEnvelope(signedManifestJson, circuitName) {
+  let envelope;
+  try {
+    envelope = JSON.parse(signedManifestJson);
+  } catch (error) {
+    throw new CircuitInitialization(
+      `signed manifest JSON is invalid for circuit ${circuitName}`,
+      errorDetails(error),
+    );
+  }
+
+  let payload = envelope?.payload;
+  if (typeof envelope?.payloadJson === "string") {
+    try {
+      payload = JSON.parse(envelope.payloadJson);
+    } catch (error) {
+      throw new CircuitInitialization(
+        `signed manifest payload JSON is invalid for circuit ${circuitName}`,
+        errorDetails(error),
+      );
+    }
+  }
+  const payloadJson =
+    typeof envelope?.payloadJson === "string"
+      ? envelope.payloadJson
+      : payload
+        ? JSON.stringify(payload)
+        : null;
+  const signatureHex =
+    envelope?.signatureHex ?? envelope?.signature ?? envelope?.signature_hex ?? null;
+
+  if (!payload || !payloadJson || typeof signatureHex !== "string" || !signatureHex) {
+    throw new CircuitInitialization(
+      `signed manifest JSON must include payload and signature for circuit ${circuitName}`,
+      { circuitName },
+    );
+  }
+
+  if (!payload?.manifest?.artifacts?.length) {
+    throw new CircuitInitialization(
+      `signed manifest JSON does not declare artifacts for circuit ${circuitName}`,
+      { circuitName },
+    );
+  }
+
+  return Object.freeze({
+    payload,
+    payloadJson,
+    signatureHex,
+  });
+}
+
 function normalizeSecretArgs(args, scopeName) {
   if (args.length === 3 && typeof args[0] === "object") {
     return {
@@ -1100,9 +1247,17 @@ function toDepositEvent(log) {
   const depositor = args._depositor;
   const commitment = requiredEventField(args._commitment, "deposit commitment");
   const label = requiredEventField(args._label, "deposit label");
-  const value = args._value ?? 0n;
-  const precommitment = requiredEventField(args._merkleRoot, "deposit precommitment");
+  const value = requiredEventField(args._value, "deposit value");
+  const precommitment = requiredEventField(
+    args._precommitmentHash,
+    "deposit precommitment",
+  );
   const blockNumber = requiredEventField(log.blockNumber, "deposit blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "deposit transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "deposit logIndex");
   const transactionHash = requiredEventField(log.transactionHash, "deposit transactionHash");
   if (!depositor) {
     throw new DataError("invalid deposit log: missing depositor");
@@ -1117,6 +1272,10 @@ function toDepositEvent(log) {
     precommitmentHash: BigInt(precommitment),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1137,6 +1296,11 @@ function toWithdrawalEvent(log) {
     "withdrawal newCommitment",
   );
   const blockNumber = requiredEventField(log.blockNumber, "withdrawal blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "withdrawal transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "withdrawal logIndex");
   const transactionHash = requiredEventField(
     log.transactionHash,
     "withdrawal transactionHash",
@@ -1150,6 +1314,10 @@ function toWithdrawalEvent(log) {
     newCommitmentHash: BigInt(newCommitment),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1163,8 +1331,13 @@ function toRagequitEvent(log) {
   const ragequitter = args._ragequitter;
   const commitment = requiredEventField(args._commitment, "ragequit commitment");
   const label = requiredEventField(args._label, "ragequit label");
-  const value = args._value ?? 0n;
+  const value = requiredEventField(args._value, "ragequit value");
   const blockNumber = requiredEventField(log.blockNumber, "ragequit blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "ragequit transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "ragequit logIndex");
   const transactionHash = requiredEventField(log.transactionHash, "ragequit transactionHash");
   if (!ragequitter) {
     throw new DataError("invalid ragequit log: missing ragequitter");
@@ -1177,6 +1350,10 @@ function toRagequitEvent(log) {
     value: BigInt(value),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1248,6 +1425,8 @@ function normalizeDepositEvent(event) {
       event.precommitmentHash ?? event.precommitment_hash ?? event.precommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }
@@ -1268,6 +1447,8 @@ function normalizeWithdrawalEvent(event) {
         event.newCommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }
@@ -1280,6 +1461,8 @@ function normalizeRagequitEvent(event) {
     label: decimalString(event.label),
     value: decimalString(event.value),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }

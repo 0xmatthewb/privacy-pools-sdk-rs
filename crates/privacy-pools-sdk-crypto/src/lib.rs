@@ -338,20 +338,22 @@ mod tests {
     #[test]
     fn matches_legacy_account_derivation_vector() {
         let fixture = legacy_vector();
-        let mnemonic = fixture["mnemonic"].as_str().unwrap();
-        let safe_keys = generate_master_keys(mnemonic).unwrap();
-        let legacy_keys = generate_legacy_master_keys(mnemonic).unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let mnemonic = case["mnemonic"].as_str().unwrap();
+            let safe_keys = generate_master_keys(mnemonic).unwrap();
+            let legacy_keys = generate_legacy_master_keys(mnemonic).unwrap();
 
-        assert_eq!(
-            legacy_keys.master_nullifier.dangerously_expose_field(),
-            U256::from_str(fixture["keys"]["masterNullifier"].as_str().unwrap()).unwrap()
-        );
-        assert_eq!(
-            legacy_keys.master_secret.dangerously_expose_field(),
-            U256::from_str(fixture["keys"]["masterSecret"].as_str().unwrap()).unwrap()
-        );
-        assert_ne!(legacy_keys.master_nullifier, safe_keys.master_nullifier);
-        assert_ne!(legacy_keys.master_secret, safe_keys.master_secret);
+            assert_eq!(
+                legacy_keys.master_nullifier.dangerously_expose_field(),
+                U256::from_str(case["keys"]["masterNullifier"].as_str().unwrap()).unwrap()
+            );
+            assert_eq!(
+                legacy_keys.master_secret.dangerously_expose_field(),
+                U256::from_str(case["keys"]["masterSecret"].as_str().unwrap()).unwrap()
+            );
+            assert_ne!(legacy_keys.master_nullifier, safe_keys.master_nullifier);
+            assert_ne!(legacy_keys.master_secret, safe_keys.master_secret);
+        }
     }
 
     #[test]

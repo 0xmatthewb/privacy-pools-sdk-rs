@@ -1,0 +1,34 @@
+{
+  "devices": [
+    {
+      "id": "desktop-stable",
+      "label": "desktop",
+      "model": "reference-desktop",
+      "deviceClass": "desktop-reference",
+      "evidence": [
+        "rust-desktop-stable.json",
+        "node-desktop-stable.json",
+        "browser-desktop-stable.json",
+        "browser-desktop-threaded.json"
+      ]
+    },
+    {
+      "id": "react-native-ios-stable",
+      "label": "ios",
+      "model": "reference-ios-device",
+      "deviceClass": "ios-reference",
+      "evidence": [
+        "react-native-ios-stable.json"
+      ]
+    },
+    {
+      "id": "react-native-android-stable",
+      "label": "android",
+      "model": "reference-android-device",
+      "deviceClass": "android-reference",
+      "evidence": [
+        "react-native-android-stable.json"
+      ]
+    }
+  ]
+}

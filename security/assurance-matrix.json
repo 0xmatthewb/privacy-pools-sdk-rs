@@ -1,0 +1,107 @@
+[
+  {
+    "runtime": "rust",
+    "profiles": ["pr", "nightly", "release"],
+    "scenario_tags": [
+      "deterministic-derivation",
+      "merkle-witness",
+      "manifest-artifact-tamper-rejection",
+      "cross-circuit-replay-rejection",
+      "malformed-input-rejection",
+      "wrong-root-rejection",
+      "wrong-chain-id-rejection",
+      "wrong-code-hash-rejection",
+      "wrong-signer-rejection",
+      "handle-kind-mismatch-rejection",
+      "secret-redaction-serialization-rejection",
+      "artifact-fingerprint-drift",
+      "verification-key-drift"
+    ]
+  },
+  {
+    "runtime": "rust",
+    "profiles": ["nightly", "release"],
+    "scenario_tags": [
+      "public-signal-canonicalization",
+      "proof-field-canonicalization",
+      "v1-proof-interoperability",
+      "proof-tamper-rejection"
+    ]
+  },
+  {
+    "runtime": "node",
+    "profiles": ["pr", "nightly", "release"],
+    "scenario_tags": [
+      "deterministic-derivation",
+      "merkle-witness",
+      "manifest-artifact-tamper-rejection",
+      "proof-tamper-rejection",
+      "malformed-input-rejection",
+      "wrong-root-rejection",
+      "wrong-chain-id-rejection",
+      "wrong-code-hash-rejection",
+      "wrong-signer-rejection",
+      "stale-session-rejection",
+      "handle-kind-mismatch-rejection"
+    ]
+  },
+  {
+    "runtime": "node",
+    "profiles": ["nightly", "release"],
+    "scenario_tags": [
+      "stateful-wrapper-parity",
+      "secret-redaction-serialization-rejection"
+    ]
+  },
+  {
+    "runtime": "browser",
+    "profiles": ["pr", "nightly", "release"],
+    "scenario_tags": [
+      "deterministic-derivation",
+      "merkle-witness",
+      "manifest-artifact-tamper-rejection",
+      "malformed-input-rejection",
+      "signed-manifest-prove-verify-happy-path"
+    ]
+  },
+  {
+    "runtime": "browser",
+    "profiles": ["nightly", "release"],
+    "scenario_tags": [
+      "proof-tamper-rejection",
+      "stale-session-rejection",
+      "handle-kind-mismatch-rejection",
+      "wrong-root-rejection",
+      "wrong-chain-id-rejection",
+      "wrong-code-hash-rejection",
+      "wrong-signer-rejection",
+      "secret-redaction-serialization-rejection"
+    ]
+  },
+  {
+    "runtime": "react-native",
+    "profiles": ["pr", "nightly", "release"],
+    "scenario_tags": [
+      "deterministic-derivation",
+      "merkle-witness"
+    ]
+  },
+  {
+    "runtime": "react-native",
+    "profiles": ["nightly", "release"],
+    "scenario_tags": [
+      "stateful-wrapper-parity",
+      "react-native-app-smoke",
+      "react-native-app-parity",
+      "manifest-artifact-tamper-rejection",
+      "proof-tamper-rejection",
+      "stale-session-rejection",
+      "handle-kind-mismatch-rejection",
+      "wrong-root-rejection",
+      "wrong-chain-id-rejection",
+      "wrong-code-hash-rejection",
+      "wrong-signer-rejection",
+      "secret-redaction-serialization-rejection"
+    ]
+  }
+]

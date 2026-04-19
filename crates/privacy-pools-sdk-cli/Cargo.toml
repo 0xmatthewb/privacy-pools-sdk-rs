@@ -11,10 +11,13 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 alloy-primitives = { workspace = true, features = ["serde"] }
-privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
+hex.workspace = true
+privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk", features = ["local-mnemonic", "local-signer-client"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sysinfo = "0.38.4"
+tokio.workspace = true
 
 [lints]
 workspace = true

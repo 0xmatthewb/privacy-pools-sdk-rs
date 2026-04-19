@@ -22,6 +22,9 @@ Current status:
   with a default capacity of four sessions; call `clearCircuitSessionCache()` on
   a client or `clearBrowserCircuitSessionCache()` from the runtime to release
   cached browser session artifacts and their matching Rust/WASM sessions
+- browser callers should invoke `proveWithdrawalWithSession()` from a Web
+  Worker via `createWorkerClient(...)`; calling it on the main thread will
+  freeze the page until proof generation completes
 - the v1 facade can fetch public deposit, withdrawal, and ragequit logs through
   caller-provided RPC/client transport, then pass those public event DTOs into
   Rust-backed recovery helpers; mnemonics, nullifier secrets, witnesses, and
@@ -45,5 +48,8 @@ Useful commands:
 - `npm run build:web:release` builds the browser WASM bundle in release mode
 - `npm run test:node` runs the Node and Node-worker integration tests
 - `npm run test:browser` runs the Chromium module-worker integration tests
-- `npm run check:generated` rebuilds browser WASM bindings and fails on drift
+- `npm run check:generated` rebuilds browser bindings and enforces deterministic
+  JS/TypeScript interface drift plus browser WASM structural invariants
+- exact packaged `privacy_pools_sdk_web_bg.wasm` validation happens in the
+  canonical Linux release packaging path, not the fast PR drift gate
 - `npm test` builds both runtimes and runs the full SDK CI test suite

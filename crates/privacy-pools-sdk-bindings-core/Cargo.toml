@@ -1,0 +1,19 @@
+[package]
+name = "privacy-pools-sdk-bindings-core"
+version = "0.1.0"
+description = "Shared non-crypto helpers for Privacy Pools bindings surfaces"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../privacy-pools-sdk-artifacts" }
+privacy-pools-sdk-core = { version = "0.1.0", path = "../privacy-pools-sdk-core" }
+privacy-pools-sdk-prover = { version = "0.1.0", path = "../privacy-pools-sdk-prover", default-features = false }
+privacy-pools-sdk-recovery = { version = "0.1.0", path = "../privacy-pools-sdk-recovery" }
+thiserror.workspace = true
+
+[lints]
+workspace = true

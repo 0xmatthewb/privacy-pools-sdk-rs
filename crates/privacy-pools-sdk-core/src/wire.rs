@@ -1,3 +1,10 @@
+//! Compatibility wire types for cross-language SDK and circuit payloads.
+//!
+//! `WireCommitment` is an explicit declassification boundary. It derives
+//! `Serialize` and `Debug`, and any caller that writes it to logs, crash
+//! reports, analytics, or persistent storage will leak commitment preimage
+//! secrets in plaintext.
+
 use crate::{
     CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentPreimage,
     CommitmentWitnessRequest, CoreError, FieldElement, MasterKeys, Nullifier, Precommitment,
@@ -82,11 +89,11 @@ pub struct WireWithdrawalCircuitInput {
     pub state_root: String,
     #[serde(rename = "stateTreeDepth", alias = "state_tree_depth")]
     pub state_tree_depth: usize,
-    #[serde(rename = "ASPRoot", alias = "aspRoot", alias = "asp_root")]
+    #[serde(rename = "aspRoot", alias = "ASPRoot", alias = "asp_root")]
     pub asp_root: String,
     #[serde(
-        rename = "ASPTreeDepth",
-        alias = "aspTreeDepth",
+        rename = "aspTreeDepth",
+        alias = "ASPTreeDepth",
         alias = "asp_tree_depth"
     )]
     pub asp_tree_depth: usize,

@@ -7,7 +7,7 @@ use privacy_pools_sdk_crypto::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const MAX_CONSECUTIVE_DEPOSIT_MISSES: u64 = 10;
+const MAX_CONSECUTIVE_DEPOSIT_MISSES: u64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompatibilityMode {
@@ -65,6 +65,8 @@ pub struct DepositEvent {
     pub value: FieldElement,
     pub precommitment_hash: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -74,6 +76,8 @@ pub struct WithdrawalEvent {
     pub spent_nullifier_hash: FieldElement,
     pub new_commitment_hash: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -83,6 +87,8 @@ pub struct RagequitEvent {
     pub label: FieldElement,
     pub value: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -190,6 +196,8 @@ pub enum RecoveryError {
     },
     #[error("duplicate ragequit event for scope {scope} and label {label}")]
     DuplicateRagequitEvent { scope: Scope, label: FieldElement },
+    #[error("unmatched ragequit event for scope {scope} and label {label}")]
+    UnmatchedRagequitEvent { scope: Scope, label: FieldElement },
     #[error("deposit commitment mismatch for scope {scope}: expected {expected}, got {actual}")]
     DepositCommitmentMismatch {
         scope: String,
@@ -302,8 +310,12 @@ pub fn recover_account_state_with_keyset(
             )?;
             process_withdrawal_events(&mut safe_book, &keyset.safe, pool.scope, &withdrawals)?;
 
-            process_ragequit_events(&mut legacy_book, pool.scope, &ragequits)?;
-            process_ragequit_events(&mut safe_book, pool.scope, &ragequits)?;
+            process_compatibility_ragequit_events(
+                &mut legacy_book,
+                &mut safe_book,
+                pool.scope,
+                &ragequits,
+            )?;
         } else {
             process_deposit_events(&mut safe_book, &keyset.safe, pool.scope, &deposits, 0)?;
             process_withdrawal_events(&mut safe_book, &keyset.safe, pool.scope, &withdrawals)?;
@@ -371,8 +383,11 @@ fn validate_pool_inputs(pools: &[PoolRecoveryInput]) -> Result<(), RecoveryError
 }
 
 fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(deposit_event_cursor);
+
     let mut normalized: Vec<DepositEvent> = Vec::new();
-    for event in events {
+    for event in &ordered {
         if let Some(existing) = normalized
             .iter_mut()
             .find(|candidate| candidate.precommitment_hash == event.precommitment_hash)
@@ -384,7 +399,7 @@ fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>
                 continue;
             }
 
-            if event.block_number < existing.block_number {
+            if deposit_event_cursor(event) < deposit_event_cursor(existing) {
                 *existing = event.clone();
             }
 
@@ -400,13 +415,15 @@ fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>
 fn normalize_withdrawal_events(
     events: &[WithdrawalEvent],
 ) -> Result<Vec<WithdrawalEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(withdrawal_event_cursor);
+
     let mut normalized: Vec<WithdrawalEvent> = Vec::new();
-    for event in events {
-        if let Some(existing) = normalized
-            .iter_mut()
-            .find(|candidate| candidate.spent_nullifier_hash == event.spent_nullifier_hash)
+    for event in &ordered {
+        if normalized
+            .iter()
+            .any(|candidate| candidate.spent_nullifier_hash == event.spent_nullifier_hash)
         {
-            *existing = event.clone();
             continue;
         }
 
@@ -419,13 +436,15 @@ fn normalize_withdrawal_events(
 fn normalize_ragequit_events(
     events: &[RagequitEvent],
 ) -> Result<Vec<RagequitEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(ragequit_event_cursor);
+
     let mut normalized: Vec<RagequitEvent> = Vec::new();
-    for event in events {
-        if let Some(existing) = normalized
-            .iter_mut()
-            .find(|candidate| candidate.label == event.label)
+    for event in &ordered {
+        if normalized
+            .iter()
+            .any(|candidate| candidate.label == event.label)
         {
-            *existing = event.clone();
             continue;
         }
 
@@ -612,9 +631,45 @@ fn process_ragequit_events(
     ragequit_events: &[RagequitEvent],
 ) -> Result<(), RecoveryError> {
     for event in ragequit_events {
-        let _ = book.attach_ragequit(scope, event.label, event.clone());
+        if !book.attach_ragequit(scope, event.label, event.clone()) {
+            return Err(RecoveryError::UnmatchedRagequitEvent {
+                scope,
+                label: event.label,
+            });
+        }
     }
     Ok(())
+}
+
+fn process_compatibility_ragequit_events(
+    legacy_book: &mut RecoveryBook,
+    safe_book: &mut RecoveryBook,
+    scope: Scope,
+    ragequit_events: &[RagequitEvent],
+) -> Result<(), RecoveryError> {
+    for event in ragequit_events {
+        let attached_legacy = legacy_book.attach_ragequit(scope, event.label, event.clone());
+        let attached_safe = safe_book.attach_ragequit(scope, event.label, event.clone());
+        if !attached_legacy && !attached_safe {
+            return Err(RecoveryError::UnmatchedRagequitEvent {
+                scope,
+                label: event.label,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn deposit_event_cursor(event: &DepositEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
+}
+
+fn withdrawal_event_cursor(event: &WithdrawalEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
+}
+
+fn ragequit_event_cursor(event: &RagequitEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
 }
 
 #[derive(Debug, Default, Clone)]
@@ -788,8 +843,7 @@ impl RecoveryBook {
     }
 
     fn into_scopes(mut self) -> Vec<RecoveredScope> {
-        self.scopes
-            .sort_by(|left, right| left.scope.cmp(&right.scope));
+        self.scopes.sort_by_key(|left| left.scope);
         self.scopes
     }
 }
@@ -820,6 +874,8 @@ mod tests {
             value,
             precommitment_hash,
             block_number,
+            transaction_index: seed,
+            log_index: seed,
             transaction_hash: tx_hash(seed),
         }
     }
@@ -836,6 +892,8 @@ mod tests {
             spent_nullifier_hash,
             new_commitment_hash,
             block_number,
+            transaction_index: seed,
+            log_index: seed,
             transaction_hash: tx_hash(seed),
         }
     }
@@ -1296,6 +1354,8 @@ mod tests {
                     label: ragequit_label,
                     value: U256::from(250_u64),
                     block_number: 50,
+                    transaction_index: 5,
+                    log_index: 5,
                     transaction_hash: tx_hash(5),
                 }],
             }],
@@ -1387,7 +1447,7 @@ mod tests {
     }
 
     #[test]
-    fn canonicalizes_duplicate_withdrawal_events_with_last_write_wins() {
+    fn canonicalizes_duplicate_withdrawal_events_with_earliest_write_wins() {
         let keyset = derived_keyset(TEST_MNEMONIC, false);
         let scope = U256::from(123_u64);
         let label = U256::from(555_u64);
@@ -1413,17 +1473,19 @@ mod tests {
         };
 
         let normalized = normalize_withdrawal_events(&input.withdrawal_events).unwrap();
-        assert_eq!(normalized, vec![later]);
+        assert_eq!(normalized, vec![earlier]);
     }
 
     #[test]
-    fn canonicalizes_duplicate_ragequit_events_with_last_write_wins() {
+    fn canonicalizes_duplicate_ragequit_events_with_earliest_write_wins() {
         let label = U256::from(77_u64);
         let earlier = RagequitEvent {
             commitment_hash: U256::from(1_u64),
             label,
             value: U256::from(2_u64),
             block_number: 1,
+            transaction_index: 1,
+            log_index: 1,
             transaction_hash: tx_hash(1),
         };
         let later = RagequitEvent {
@@ -1431,11 +1493,110 @@ mod tests {
             label,
             value: U256::from(4_u64),
             block_number: 2,
+            transaction_index: 2,
+            log_index: 2,
             transaction_hash: tx_hash(2),
         };
 
-        let normalized = normalize_ragequit_events(&[earlier, later.clone()]).unwrap();
-        assert_eq!(normalized, vec![later]);
+        let normalized = normalize_ragequit_events(&[earlier.clone(), later.clone()]).unwrap();
+        assert_eq!(normalized, vec![earlier]);
+    }
+
+    #[test]
+    fn recovers_from_out_of_order_rpc_inputs_end_to_end() {
+        let keyset = derived_keyset(TEST_MNEMONIC, false);
+        let scope = U256::from(777_u64);
+
+        let deposit_a_label = U256::from(111_u64);
+        let deposit_a_value = U256::from(1_000_u64);
+        let (deposit_a_nullifier, deposit_a_secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::ZERO).unwrap();
+        let deposit_a = build_commitment(
+            deposit_a_value,
+            deposit_a_label,
+            &deposit_a_nullifier,
+            deposit_a_secret,
+        )
+        .unwrap();
+
+        let withdrawal_a_value = U256::from(250_u64);
+        let (withdraw_a_nullifier, withdraw_a_secret) =
+            generate_withdrawal_secrets(&keyset.safe, deposit_a_label, U256::ZERO).unwrap();
+        let withdrawal_a_child = build_commitment(
+            deposit_a_value - withdrawal_a_value,
+            deposit_a_label,
+            withdraw_a_nullifier,
+            withdraw_a_secret,
+        )
+        .unwrap();
+
+        let deposit_b_label = U256::from(222_u64);
+        let deposit_b_value = U256::from(500_u64);
+        let (deposit_b_nullifier, deposit_b_secret) =
+            generate_deposit_secrets(&keyset.safe, scope, U256::from(1_u64)).unwrap();
+        let deposit_b = build_commitment(
+            deposit_b_value,
+            deposit_b_label,
+            deposit_b_nullifier,
+            deposit_b_secret,
+        )
+        .unwrap();
+
+        let recovered = recover_account_state_with_keyset(
+            &keyset,
+            &[PoolRecoveryInput {
+                scope,
+                deposit_events: vec![
+                    DepositEvent {
+                        commitment_hash: deposit_b.hash,
+                        label: deposit_b_label,
+                        value: deposit_b_value,
+                        precommitment_hash: deposit_b.preimage.precommitment.hash,
+                        block_number: 30,
+                        transaction_index: 1,
+                        log_index: 9,
+                        transaction_hash: tx_hash(3),
+                    },
+                    DepositEvent {
+                        commitment_hash: deposit_a.hash,
+                        label: deposit_a_label,
+                        value: deposit_a_value,
+                        precommitment_hash: deposit_a.preimage.precommitment.hash,
+                        block_number: 10,
+                        transaction_index: 0,
+                        log_index: 4,
+                        transaction_hash: tx_hash(1),
+                    },
+                ],
+                withdrawal_events: vec![WithdrawalEvent {
+                    withdrawn_value: withdrawal_a_value,
+                    spent_nullifier_hash: hash_nullifier(&deposit_a_nullifier).unwrap(),
+                    new_commitment_hash: withdrawal_a_child.hash,
+                    block_number: 20,
+                    transaction_index: 0,
+                    log_index: 7,
+                    transaction_hash: tx_hash(2),
+                }],
+                ragequit_events: Vec::new(),
+            }],
+            RecoveryPolicy::default(),
+        )
+        .unwrap();
+
+        assert_eq!(recovered.safe_scopes.len(), 1);
+        assert_eq!(recovered.safe_scopes[0].accounts.len(), 2);
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].deposit.hash,
+            deposit_a.hash
+        );
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[0].children[0].hash,
+            withdrawal_a_child.hash
+        );
+        assert_eq!(
+            recovered.safe_scopes[0].accounts[1].deposit.hash,
+            deposit_b.hash
+        );
     }
 
     #[test]

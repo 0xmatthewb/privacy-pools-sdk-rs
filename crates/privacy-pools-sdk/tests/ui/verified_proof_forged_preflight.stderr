@@ -1,0 +1,7 @@
+error[E0451]: fields `plan` and `preflight` of struct `PreflightedTransaction` are private
+ --> tests/ui/verified_proof_forged_preflight.rs:4:44
+  |
+4 |     let _forged = PreflightedTransaction { plan, preflight };
+  |                                            ^^^^  ^^^^^^^^^ private field
+  |                                            |
+  |                                            private field

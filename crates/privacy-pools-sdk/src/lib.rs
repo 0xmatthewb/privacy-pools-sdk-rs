@@ -74,8 +74,85 @@ pub struct PreparedTransactionExecution {
 /// Transaction plan paired with the preflight report that validated it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreflightedTransaction {
-    pub plan: core::TransactionPlan,
-    pub preflight: core::ExecutionPreflightReport,
+    plan: core::TransactionPlan,
+    preflight: core::ExecutionPreflightReport,
+}
+
+/// A preflighted transaction after nonce, gas, and fee finalization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinalizedPreflightedTransaction {
+    transaction: PreflightedTransaction,
+    request: core::FinalizedTransactionRequest,
+}
+
+/// A preflighted transaction plus its submitted-chain receipt summary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubmittedPreflightedTransaction {
+    transaction: PreflightedTransaction,
+    receipt: core::TransactionReceiptSummary,
+}
+
+impl PreflightedTransaction {
+    fn new(plan: core::TransactionPlan, preflight: core::ExecutionPreflightReport) -> Self {
+        Self { plan, preflight }
+    }
+
+    pub fn plan(&self) -> &core::TransactionPlan {
+        &self.plan
+    }
+
+    pub fn preflight(&self) -> &core::ExecutionPreflightReport {
+        &self.preflight
+    }
+
+    pub fn into_parts(self) -> (core::TransactionPlan, core::ExecutionPreflightReport) {
+        (self.plan, self.preflight)
+    }
+}
+
+impl FinalizedPreflightedTransaction {
+    fn new(
+        transaction: PreflightedTransaction,
+        request: core::FinalizedTransactionRequest,
+    ) -> Self {
+        Self {
+            transaction,
+            request,
+        }
+    }
+
+    pub fn transaction(&self) -> &PreflightedTransaction {
+        &self.transaction
+    }
+
+    pub fn request(&self) -> &core::FinalizedTransactionRequest {
+        &self.request
+    }
+
+    pub fn into_parts(self) -> (PreflightedTransaction, core::FinalizedTransactionRequest) {
+        (self.transaction, self.request)
+    }
+}
+
+impl SubmittedPreflightedTransaction {
+    fn new(transaction: PreflightedTransaction, receipt: core::TransactionReceiptSummary) -> Self {
+        Self {
+            transaction,
+            receipt,
+        }
+    }
+
+    pub fn transaction(&self) -> &PreflightedTransaction {
+        &self.transaction
+    }
+
+    pub fn receipt(&self) -> &core::TransactionReceiptSummary {
+        &self.receipt
+    }
+
+    pub fn into_parts(self) -> (PreflightedTransaction, core::TransactionReceiptSummary) {
+        (self.transaction, self.receipt)
+    }
 }
 
 /// Commitment proof that has been verified against the request that created it.
@@ -173,7 +250,7 @@ impl PrivacyPoolsClientConfig {
     /// Creates client defaults using the stable proof backend.
     pub fn new(manifest: artifacts::ArtifactManifest, artifact_root: impl Into<PathBuf>) -> Self {
         Self {
-            backend_policy: BackendPolicy::default(),
+            backend_policy: BackendPolicy,
             profile: BackendProfile::Stable,
             manifest,
             artifact_root: artifact_root.into(),
@@ -290,6 +367,39 @@ impl<C: chain::ExecutionClient> PrivacyPoolsClient<C> {
             )
             .await
     }
+
+    /// Plans and preflights a request-bound verified withdrawal proof.
+    pub async fn preflight_verified_withdrawal_transaction(
+        &self,
+        config: &core::WithdrawalExecutionConfig,
+        proof: &VerifiedWithdrawalProof,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        self.sdk
+            .preflight_verified_withdrawal_transaction_with_client(config, proof, &self.client)
+            .await
+    }
+
+    /// Plans and preflights a request-bound verified relay proof.
+    pub async fn preflight_verified_relay_transaction(
+        &self,
+        config: &core::RelayExecutionConfig,
+        proof: &VerifiedWithdrawalProof,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        self.sdk
+            .preflight_verified_relay_transaction_with_client(config, proof, &self.client)
+            .await
+    }
+
+    /// Plans and preflights a request-bound verified ragequit proof.
+    pub async fn preflight_verified_ragequit_transaction(
+        &self,
+        config: &core::RagequitExecutionConfig,
+        proof: &VerifiedRagequitProof,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        self.sdk
+            .preflight_verified_ragequit_transaction_with_client(config, proof, &self.client)
+            .await
+    }
 }
 
 impl<C: chain::SubmissionClient> PrivacyPoolsClient<C> {
@@ -300,6 +410,16 @@ impl<C: chain::SubmissionClient> PrivacyPoolsClient<C> {
     ) -> Result<SubmittedTransactionExecution, SdkError> {
         self.sdk
             .submit_prepared_transaction_with_client(prepared, &self.client)
+            .await
+    }
+
+    /// Reconfirms and submits a preflighted transaction using the owned client.
+    pub async fn submit_preflighted_transaction(
+        &self,
+        transaction: PreflightedTransaction,
+    ) -> Result<SubmittedPreflightedTransaction, SdkError> {
+        self.sdk
+            .submit_preflighted_transaction_with_client(transaction, &self.client)
             .await
     }
 }
@@ -315,6 +435,16 @@ impl<C: chain::FinalizationClient> PrivacyPoolsClient<C> {
             .await
     }
 
+    /// Finalizes nonce, gas, and fee fields for a preflighted transaction.
+    pub async fn finalize_preflighted_transaction(
+        &self,
+        transaction: PreflightedTransaction,
+    ) -> Result<FinalizedPreflightedTransaction, SdkError> {
+        self.sdk
+            .finalize_preflighted_transaction_with_client(transaction, &self.client)
+            .await
+    }
+
     /// Reconfirms and submits an application-signed finalized transaction.
     pub async fn submit_finalized_transaction(
         &self,
@@ -323,6 +453,21 @@ impl<C: chain::FinalizationClient> PrivacyPoolsClient<C> {
     ) -> Result<SubmittedTransactionExecution, SdkError> {
         self.sdk
             .submit_finalized_transaction_with_client(finalized, signed_transaction, &self.client)
+            .await
+    }
+
+    /// Reconfirms and submits an application-signed finalized preflighted transaction.
+    pub async fn submit_finalized_preflighted_transaction(
+        &self,
+        finalized: FinalizedPreflightedTransaction,
+        signed_transaction: &[u8],
+    ) -> Result<SubmittedPreflightedTransaction, SdkError> {
+        self.sdk
+            .submit_finalized_preflighted_transaction_with_client(
+                finalized,
+                signed_transaction,
+                &self.client,
+            )
             .await
     }
 }
@@ -1038,10 +1183,11 @@ impl PrivacyPoolsSdk {
         ))
     }
 
-    pub fn fast_backend_supported_on_target(&self) -> bool {
-        privacy_pools_sdk_prover::rapidsnark_supported_target()
-    }
-
+    /// Generates master keys using the shipped v1-compatible derivation path.
+    ///
+    /// This intentionally matches the deployed TS SDK path that derives
+    /// BIP-44 account private keys and Poseidon-hashes those raw scalars. It
+    /// does not follow the unused legacy TS `genMasterKeys` helper variant.
     pub fn generate_master_keys(
         &self,
         mnemonic: &str,
@@ -1169,7 +1315,7 @@ impl PrivacyPoolsSdk {
     }
 
     pub fn plan_pool_state_root_read(&self, pool_address: Address) -> core::RootRead {
-        chain::state_root_read(pool_address)
+        chain::state_root_read(pool_address, core::ReadConsistency::Latest)
     }
 
     pub fn artifact_statuses(
@@ -1262,7 +1408,11 @@ impl PrivacyPoolsSdk {
         entrypoint_address: Address,
         pool_address: Address,
     ) -> core::RootRead {
-        chain::asp_root_read(entrypoint_address, pool_address)
+        chain::asp_root_read(
+            entrypoint_address,
+            pool_address,
+            core::ReadConsistency::Latest,
+        )
     }
 
     pub fn is_current_state_root(&self, expected_root: U256, current_root: U256) -> bool {
@@ -1276,6 +1426,9 @@ impl PrivacyPoolsSdk {
         chain::format_groth16_proof(proof)
     }
 
+    /// Low-level compatibility/offline formatting API. Do not use this for
+    /// execution unless the proof has been request-bound verified; prefer
+    /// [`PrivacyPoolsSdk::plan_verified_withdrawal_transaction`].
     pub fn plan_withdrawal_transaction(
         &self,
         chain_id: u64,
@@ -1312,6 +1465,9 @@ impl PrivacyPoolsSdk {
         )
     }
 
+    /// Low-level compatibility/offline formatting API. Do not use this for
+    /// execution unless the proof has been request-bound verified; prefer
+    /// [`PrivacyPoolsSdk::plan_verified_relay_transaction`].
     pub fn plan_relay_transaction(
         &self,
         chain_id: u64,
@@ -1351,6 +1507,9 @@ impl PrivacyPoolsSdk {
         )
     }
 
+    /// Low-level compatibility/offline formatting API. Do not use this for
+    /// execution unless the proof has been request-bound verified; prefer
+    /// [`PrivacyPoolsSdk::plan_verified_ragequit_transaction`].
     pub fn plan_ragequit_transaction(
         &self,
         chain_id: u64,
@@ -1374,6 +1533,68 @@ impl PrivacyPoolsSdk {
         proof: &VerifiedRagequitProof,
     ) -> Result<core::TransactionPlan, chain::ChainError> {
         chain::plan_ragequit_transaction(chain_id, pool_address, proof.proof())
+    }
+
+    pub async fn preflight_verified_withdrawal_transaction_with_client<
+        C: chain::ExecutionClient,
+    >(
+        &self,
+        config: &core::WithdrawalExecutionConfig,
+        proof: &VerifiedWithdrawalProof,
+        client: &C,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        let plan =
+            self.plan_verified_withdrawal_transaction(config.chain_id, config.pool_address, proof)?;
+        let preflight = chain::preflight_withdrawal(
+            client,
+            &plan,
+            config.pool_address,
+            proof.state_root(),
+            proof.asp_root(),
+            &config.policy,
+        )
+        .await?;
+
+        Ok(PreflightedTransaction::new(plan, preflight))
+    }
+
+    pub async fn preflight_verified_relay_transaction_with_client<C: chain::ExecutionClient>(
+        &self,
+        config: &core::RelayExecutionConfig,
+        proof: &VerifiedWithdrawalProof,
+        client: &C,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        let plan = self.plan_verified_relay_transaction(
+            config.chain_id,
+            config.entrypoint_address,
+            proof,
+        )?;
+        let preflight = chain::preflight_relay(
+            client,
+            &plan,
+            config.entrypoint_address,
+            config.pool_address,
+            proof.state_root(),
+            proof.asp_root(),
+            &config.policy,
+        )
+        .await?;
+
+        Ok(PreflightedTransaction::new(plan, preflight))
+    }
+
+    pub async fn preflight_verified_ragequit_transaction_with_client<C: chain::ExecutionClient>(
+        &self,
+        config: &core::RagequitExecutionConfig,
+        proof: &VerifiedRagequitProof,
+        client: &C,
+    ) -> Result<PreflightedTransaction, SdkError> {
+        let plan =
+            self.plan_verified_ragequit_transaction(config.chain_id, config.pool_address, proof)?;
+        let preflight =
+            chain::preflight_ragequit(client, &plan, config.pool_address, &config.policy).await?;
+
+        Ok(PreflightedTransaction::new(plan, preflight))
     }
 
     pub fn build_commitment_circuit_input(
@@ -1878,25 +2099,14 @@ impl PrivacyPoolsSdk {
             &proving.proof,
         )?;
 
-        let transaction = self.plan_verified_withdrawal_transaction(
-            config.chain_id,
-            config.pool_address,
-            &verified,
-        )?;
-        let preflight = chain::preflight_withdrawal(
-            client,
-            &transaction,
-            config.pool_address,
-            verified.state_root(),
-            verified.asp_root(),
-            &config.policy,
-        )
-        .await?;
+        let preflighted = self
+            .preflight_verified_withdrawal_transaction_with_client(config, &verified, client)
+            .await?;
 
         Ok(PreparedTransactionExecution {
             proving,
-            transaction,
-            preflight,
+            transaction: preflighted.plan,
+            preflight: preflighted.preflight,
         })
     }
 
@@ -1919,26 +2129,14 @@ impl PrivacyPoolsSdk {
             &proving.proof,
         )?;
 
-        let transaction = self.plan_verified_relay_transaction(
-            config.chain_id,
-            config.entrypoint_address,
-            &verified,
-        )?;
-        let preflight = chain::preflight_relay(
-            client,
-            &transaction,
-            config.entrypoint_address,
-            config.pool_address,
-            verified.state_root(),
-            verified.asp_root(),
-            &config.policy,
-        )
-        .await?;
+        let preflighted = self
+            .preflight_verified_relay_transaction_with_client(config, &verified, client)
+            .await?;
 
         Ok(PreparedTransactionExecution {
             proving,
-            transaction,
-            preflight,
+            transaction: preflighted.plan,
+            preflight: preflighted.preflight,
         })
     }
 
@@ -1947,25 +2145,49 @@ impl PrivacyPoolsSdk {
         prepared: PreparedTransactionExecution,
         client: &C,
     ) -> Result<SubmittedTransactionExecution, SdkError> {
-        if client.caller() != prepared.preflight.caller {
+        let PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        } = prepared;
+        let submitted = self
+            .submit_preflighted_transaction_with_client(
+                PreflightedTransaction::new(transaction, preflight),
+                client,
+            )
+            .await?;
+
+        Ok(SubmittedTransactionExecution {
+            prepared: PreparedTransactionExecution {
+                proving,
+                transaction: submitted.transaction.plan,
+                preflight: submitted.transaction.preflight,
+            },
+            receipt: submitted.receipt,
+        })
+    }
+
+    pub async fn submit_preflighted_transaction_with_client<C: chain::SubmissionClient>(
+        &self,
+        transaction: PreflightedTransaction,
+        client: &C,
+    ) -> Result<SubmittedPreflightedTransaction, SdkError> {
+        if client.caller() != transaction.preflight.caller {
             return Err(chain::ChainError::SignerAddressMismatch {
-                expected: prepared.preflight.caller,
+                expected: transaction.preflight.caller,
                 actual: client.caller(),
             }
             .into());
         }
 
         let refreshed_preflight =
-            chain::reconfirm_preflight(client, &prepared.transaction, &prepared.preflight).await?;
-        let receipt = client.submit_transaction(&prepared.transaction).await?;
+            chain::reconfirm_preflight(client, &transaction.plan, &transaction.preflight).await?;
+        let receipt = client.submit_transaction(&transaction.plan).await?;
 
-        Ok(SubmittedTransactionExecution {
-            prepared: PreparedTransactionExecution {
-                preflight: refreshed_preflight,
-                ..prepared
-            },
+        Ok(SubmittedPreflightedTransaction::new(
+            PreflightedTransaction::new(transaction.plan, refreshed_preflight),
             receipt,
-        })
+        ))
     }
 
     pub async fn finalize_prepared_transaction_with_client<C: chain::FinalizationClient>(
@@ -1973,16 +2195,40 @@ impl PrivacyPoolsSdk {
         prepared: PreparedTransactionExecution,
         client: &C,
     ) -> Result<FinalizedTransactionExecution, SdkError> {
-        let (preflight, request) =
-            chain::finalize_transaction(client, &prepared.transaction, &prepared.preflight).await?;
+        let PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        } = prepared;
+        let finalized = self
+            .finalize_preflighted_transaction_with_client(
+                PreflightedTransaction::new(transaction, preflight),
+                client,
+            )
+            .await?;
 
         Ok(FinalizedTransactionExecution {
             prepared: PreparedTransactionExecution {
-                preflight,
-                ..prepared
+                proving,
+                transaction: finalized.transaction.plan,
+                preflight: finalized.transaction.preflight,
             },
-            request,
+            request: finalized.request,
         })
+    }
+
+    pub async fn finalize_preflighted_transaction_with_client<C: chain::FinalizationClient>(
+        &self,
+        transaction: PreflightedTransaction,
+        client: &C,
+    ) -> Result<FinalizedPreflightedTransaction, SdkError> {
+        let (preflight, request) =
+            chain::finalize_transaction(client, &transaction.plan, &transaction.preflight).await?;
+
+        Ok(FinalizedPreflightedTransaction::new(
+            PreflightedTransaction::new(transaction.plan, preflight),
+            request,
+        ))
     }
 
     pub async fn finalize_prepared_transaction(
@@ -2001,23 +2247,55 @@ impl PrivacyPoolsSdk {
         signed_transaction: &[u8],
         client: &C,
     ) -> Result<SubmittedTransactionExecution, SdkError> {
+        let FinalizedTransactionExecution { prepared, request } = finalized;
+        let PreparedTransactionExecution {
+            proving,
+            transaction,
+            preflight,
+        } = prepared;
+        let submitted = self
+            .submit_finalized_preflighted_transaction_with_client(
+                FinalizedPreflightedTransaction::new(
+                    PreflightedTransaction::new(transaction, preflight),
+                    request,
+                ),
+                signed_transaction,
+                client,
+            )
+            .await?;
+
+        Ok(SubmittedTransactionExecution {
+            prepared: PreparedTransactionExecution {
+                proving,
+                transaction: submitted.transaction.plan,
+                preflight: submitted.transaction.preflight,
+            },
+            receipt: submitted.receipt,
+        })
+    }
+
+    pub async fn submit_finalized_preflighted_transaction_with_client<
+        C: chain::FinalizationClient,
+    >(
+        &self,
+        finalized: FinalizedPreflightedTransaction,
+        signed_transaction: &[u8],
+        client: &C,
+    ) -> Result<SubmittedPreflightedTransaction, SdkError> {
         let refreshed_preflight = chain::reconfirm_preflight(
             client,
-            &finalized.prepared.transaction,
-            &finalized.prepared.preflight,
+            &finalized.transaction.plan,
+            &finalized.transaction.preflight,
         )
         .await?;
         let receipt =
             chain::submit_signed_transaction(client, &finalized.request, signed_transaction)
                 .await?;
 
-        Ok(SubmittedTransactionExecution {
-            prepared: PreparedTransactionExecution {
-                preflight: refreshed_preflight,
-                ..finalized.prepared
-            },
+        Ok(SubmittedPreflightedTransaction::new(
+            PreflightedTransaction::new(finalized.transaction.plan, refreshed_preflight),
             receipt,
-        })
+        ))
     }
 
     pub async fn submit_finalized_transaction(
@@ -2031,6 +2309,7 @@ impl PrivacyPoolsSdk {
             .await
     }
 
+    #[cfg(feature = "local-mnemonic")]
     pub async fn submit_prepared_transaction_with_local_mnemonic(
         &self,
         rpc_url: &str,
@@ -2043,6 +2322,14 @@ impl PrivacyPoolsSdk {
         let finalized = self
             .finalize_prepared_transaction_with_client(prepared, &client)
             .await?;
+        let live_chain_id = privacy_pools_sdk_chain::ExecutionClient::chain_id(&client).await?;
+        if live_chain_id != finalized.request.chain_id {
+            return Err(signer::SignerError::ChainIdMismatch {
+                expected: finalized.request.chain_id,
+                actual: live_chain_id,
+            }
+            .into());
+        }
         let signed_transaction = signer.sign_transaction_request(&finalized.request)?;
 
         self.submit_finalized_transaction_with_client(finalized, &signed_transaction, &client)
@@ -2093,6 +2380,7 @@ mod tests {
         CompatibilityMode, DepositEvent, PoolRecoveryInput, RecoveryKeyset, RecoveryPolicy,
         WithdrawalEvent,
     };
+    #[cfg(feature = "local-mnemonic")]
     use privacy_pools_sdk_signer::SignerAdapter;
     use serde_json::Value;
     use std::collections::HashMap;
@@ -2216,6 +2504,7 @@ mod tests {
         async fn code_hash(
             &self,
             address: Address,
+            _consistency: core::ReadConsistency,
         ) -> Result<alloy_primitives::B256, chain::ChainError> {
             self.code_hashes.get(&address).copied().ok_or_else(|| {
                 chain::ChainError::Transport(format!("missing code hash for {address}"))
@@ -2291,7 +2580,7 @@ mod tests {
         let config = test_client_config();
 
         assert_eq!(config.profile, BackendProfile::Stable);
-        assert_eq!(config.backend_policy, BackendPolicy::default());
+        assert_eq!(config.backend_policy, BackendPolicy);
         assert_eq!(config.artifact_root, PathBuf::from("."));
     }
 
@@ -2384,6 +2673,8 @@ mod tests {
                         value,
                         precommitment_hash: legacy_deposit.preimage.precommitment.hash,
                         block_number: 10,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000001"
                         ),
@@ -2393,6 +2684,8 @@ mod tests {
                         spent_nullifier_hash: crypto::hash_nullifier(&legacy_nullifier).unwrap(),
                         new_commitment_hash: migrated_commitment.hash,
                         block_number: 20,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000002"
                         ),
@@ -2450,6 +2743,8 @@ mod tests {
                         value,
                         precommitment_hash: legacy_deposit.preimage.precommitment.hash,
                         block_number: 10,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000001"
                         ),
@@ -2459,6 +2754,8 @@ mod tests {
                         spent_nullifier_hash: crypto::hash_nullifier(&legacy_nullifier).unwrap(),
                         new_commitment_hash: migrated_commitment.hash,
                         block_number: 20,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000002"
                         ),
@@ -3600,6 +3897,9 @@ mod tests {
                 chain_id_matches: true,
                 simulated: true,
                 estimated_gas: 21_000,
+                read_consistency: core::ReadConsistency::Latest,
+                max_fee_quote_wei: None,
+                mode: core::ExecutionPolicyMode::Strict,
                 code_hash_checks: vec![core::CodeHashCheck {
                     address: target,
                     expected_code_hash: Some(code_hash),
@@ -3656,6 +3956,7 @@ mod tests {
         assert_eq!(submitted.receipt.from, caller);
     }
 
+    #[cfg(feature = "local-mnemonic")]
     #[tokio::test]
     async fn finalizes_and_submits_signed_transactions() {
         let signer = signer::LocalMnemonicSigner::from_phrase_nth(
@@ -3709,6 +4010,9 @@ mod tests {
                 chain_id_matches: true,
                 simulated: true,
                 estimated_gas: 21_000,
+                read_consistency: core::ReadConsistency::Latest,
+                max_fee_quote_wei: None,
+                mode: core::ExecutionPolicyMode::Strict,
                 code_hash_checks: vec![core::CodeHashCheck {
                     address: target,
                     expected_code_hash: Some(code_hash),

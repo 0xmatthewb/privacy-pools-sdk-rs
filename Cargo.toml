@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/privacy-pools-sdk",
+    "crates/privacy-pools-sdk-bindings-core",
     "crates/privacy-pools-sdk-ffi",
     "crates/privacy-pools-sdk-node",
     "crates/privacy-pools-sdk-web",
@@ -54,6 +55,7 @@ hex = "0.4.3"
 num-bigint = "0.4.6"
 pso-poseidon = "0.2.0"
 rand = "0.8.5"
+proptest = "1.9.0"
 rust-witness = "0.1.6"
 secrecy = "0.10.3"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -69,6 +71,7 @@ url = "2.5.7"
 uuid = "1.23.0"
 zeroize = { version = "1.8.2", features = ["derive"] }
 zk-kit-lean-imt = { version = "0.1.1", features = ["serde"] }
+base64 = "0.22.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -108,3 +111,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[profile.wasm-debug]
+inherits = "dev"
+opt-level = 1
+panic = "abort"
+debug = 1

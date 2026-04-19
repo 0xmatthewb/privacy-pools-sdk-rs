@@ -1,0 +1,1 @@
+{"withdrawnValue":"1","stateWitness":{"root":"2","leaf":"3","index":0,"siblings":["4"],"depth":1},"aspWitness":{"root":"5","leaf":"6","index":1,"siblings":["7"],"depth":1},"context":"8","label":"9","existingValue":"10","existingNullifier":"11","existingSecret":"12","newNullifier":"13","newSecret":"14"}

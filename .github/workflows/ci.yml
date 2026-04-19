@@ -5,73 +5,527 @@ on:
     branches: ["main"]
   pull_request:
 
-jobs:
-  rust:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: rustup target add wasm32-unknown-unknown
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo test --doc --workspace
-      - run: cargo install --locked cargo-hack
-      - run: cargo run -p xtask -- examples-check
-      - run: cargo run -p xtask -- feature-check
-      - run: cargo run -p xtask -- package-check
-      - run: cargo run -p xtask -- bindings
-      - run: git diff --exit-code -- bindings/ios/generated bindings/android/generated
-      - run: cargo install --locked cargo-deny cargo-audit
-      - run: cargo deny check bans licenses sources advisories
-      - run: cargo run -p xtask -- dependency-check
+permissions:
+  contents: read
 
-  react-native:
-    runs-on: ubuntu-latest
+jobs:
+  rust-core:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - run: cargo check --workspace --tests --all-features --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo fmt --all -- --check
+      - run: cargo test --workspace --locked
+      - run: cargo test --doc --workspace --locked
+
+  rust-generated:
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: cargo run -p xtask -- react-native-package
-      - run: test -z "$(git status --short --untracked-files=all -- packages/react-native/android/generated packages/react-native/android/src/main/kotlin packages/react-native/ios/generated)"
-      - run: npm pack --dry-run --json
-        working-directory: packages/react-native
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - name: rust v1 parity
+        run: npm run compare:v1-rust
+        working-directory: packages/sdk
+      - run: cargo run -p xtask -- bindings-release
+      - run: git diff --exit-code -- bindings/ios/generated bindings/android/generated
+
+  rust-policy:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - name: install rust policy tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: rust-policy
+      - name: select rust policy checks
+        id: rust-policy-checks
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          checks=(
+            package-check
+            dependency-check
+            artifact-fingerprints
+            signed-manifest-sample-check
+            cargo-deny-policy
+            madge-cycles
+            action-pins
+            check-binding-parity
+          )
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            changed_files="$(git diff --name-only "origin/$BASE_REF...HEAD")"
+            printf '%s\n' "$changed_files"
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^(docs/|README\.md$|RELEASE_CHECKLIST\.md$|SECURITY\.md$|deny\.toml$|security/)'; then
+              checks+=(docs-check)
+            fi
+
+            if printf '%s\n' "$changed_files" | grep -Eq '^\.github/'; then
+              checks+=(zizmor)
+            fi
+          else
+            checks+=(docs-check zizmor)
+          fi
+
+          {
+            printf 'checks='
+            IFS=,
+            printf '%s' "${checks[*]}"
+            printf '\n'
+          } >> "$GITHUB_OUTPUT"
+
+          printf 'selected rust policy checks: %s\n' "${checks[*]}"
+      - name: rust policy assurance
+        env:
+          RUST_POLICY_CHECKS: ${{ steps.rust-policy-checks.outputs.checks }}
+        run: >
+          cargo run -p xtask -- assurance --profile pr --runtime rust
+          --only-checks
+          "$RUST_POLICY_CHECKS"
+          --out-dir target/assurance-pr-rust-policy
+      - name: Check no new proptest regressions slipped in
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          git fetch --depth=1 origin "$BASE_SHA"
+          if git diff --name-only "$BASE_SHA"..HEAD | grep -q 'proptest-regressions/'; then
+            echo "::error::proptest-regressions/*.txt modified — triage the counterexample and fix the test, don't just commit the seed"
+            git diff "$BASE_SHA"..HEAD -- '**/proptest-regressions/*.txt'
+            exit 1
+          fi
+      - name: print rust policy findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust-policy/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust-policy/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-pr-rust-policy
+          path: target/assurance-pr-rust-policy
+          if-no-files-found: warn
+
+  dependency-cycles:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - name: TS cycle check
+        run: npx madge --circular --extensions ts,tsx,mjs,js,cjs packages/
+
+  generated-freshness:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
+      - run: rustup target add wasm32-unknown-unknown
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - name: Assert generated artifacts are fresh
+        run: cargo run -p xtask -- regenerate-generated --check
+
+  cargo-audit:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: rust-policy
+      - name: Generate cargo-audit config from advisories.toml
+        run: cargo run -p xtask -- write-cargo-audit-config
+      - run: cargo audit
+
+  release-link-smoke:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - run: cargo build --workspace --release --locked --target x86_64-unknown-linux-gnu
+
+  rust:
+    if: github.event_name != 'pull_request'
+    name: rust
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    needs:
+      - rust-core
+      - rust-generated
+      - rust-policy
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - name: download rust core assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-core
+          path: target/assurance-merge-inputs/assurance-pr-rust-core
+      - name: download rust generated assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-generated
+          path: target/assurance-merge-inputs/assurance-pr-rust-generated
+      - name: download rust policy assurance artifact
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: assurance-pr-rust-policy
+          path: target/assurance-merge-inputs/assurance-pr-rust-policy
+      - name: merge rust assurance
+        run: >
+          cargo run -p xtask -- assurance-merge --profile pr --runtime rust
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-core
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-generated
+          --inputs target/assurance-merge-inputs/assurance-pr-rust-policy
+          --out-dir target/assurance-pr-rust
+      - name: print merged rust findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-rust/findings.md ]; then
+            tail -n 200 target/assurance-pr-rust/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: failure()
+        with:
+          name: assurance-pr-rust
+          path: target/assurance-pr-rust
+
+  rust-fuzz-smoke:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # nightly-2026-04-15
+        with:
+          toolchain: nightly-2026-04-15
+          components: rust-src
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - name: install fuzz tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: fuzz
+      - name: fuzz smoke
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-04-15
+        run: >
+          cargo run -p xtask -- assurance --profile nightly --runtime rust
+          --only-checks
+          fuzz-field_parsing,fuzz-wire_conversion,fuzz-proof_bundle_parsing,fuzz-manifest_parsing,fuzz-json_boundaries,fuzz-artifact_bundle_resolution,fuzz-session_invalidation,fuzz-execution_policy_inputs,fuzz-groth16_verifier_fuzz,fuzz-relay_data_abi_fuzz,fuzz-merkle_proof_tamper_fuzz
+          --fuzz-runs 256
+          --out-dir target/assurance-pr-fuzz-smoke
+      - name: print fuzz findings on failure
+        if: failure()
+        run: |
+          if [ -f target/assurance-pr-fuzz-smoke/findings.md ]; then
+            tail -n 200 target/assurance-pr-fuzz-smoke/findings.md
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: assurance-pr-fuzz-smoke
+          path: target/assurance-pr-fuzz-smoke
+          if-no-files-found: warn
+
+  default-artifact-symbols:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
+      - name: install symbol scan apt tools
+        run: sudo apt-get update && sudo apt-get install -y wabt binutils
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: npm run build:native:release
+        working-directory: packages/sdk
+      - run: cargo build -p privacy-pools-sdk-ffi --lib --release --no-default-features --locked
+      - run: npm run build:web:release
+        working-directory: packages/sdk
+      - run: npm run check:default-artifact-symbols
+        working-directory: packages/sdk
+
+  solidity-verifier:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: foundry-rs/foundry-toolchain@8789b3e21e6c11b2697f5eb56eddae542f746c10 # v1
+        with:
+          version: stable
+      - name: rust proof verifies against vendored withdrawal verifier
+        run: >
+          cargo test -p privacy-pools-sdk --test solidity_verifier --locked
+          rust_generated_withdrawal_proof_is_accepted_by_solidity_verifier
+          -- --ignored --exact --nocapture
+
+  sdk-node:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: cargo run -p xtask -- assurance --profile pr --runtime node --out-dir target/assurance-pr-node
 
   sdk:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
       - run: rustup target add wasm32-unknown-unknown
-      - run: cargo install --locked wasm-bindgen-cli
-      - run: sudo apt-get update && sudo apt-get install -y binaryen
-      - run: npm ci
-        working-directory: packages/sdk
-      - run: npx playwright install --with-deps chromium
-        working-directory: packages/sdk
-      - run: cargo run -p xtask -- sdk-smoke
-      - run: npm pack --dry-run --json
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: npm run check:generated
         working-directory: packages/sdk
 
-  react-native-sample-app:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  browser-worker:
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: cargo run -p xtask -- react-native-smoke
+      - run: rustup target add wasm32-unknown-unknown
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: cargo run -p xtask -- sdk-web-package --debug
+      - name: Install Playwright browsers
+        working-directory: packages/sdk
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:browser:worker
+        working-directory: packages/sdk
+
+  react-native:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - run: cargo run -p xtask -- assurance --profile pr --runtime react-native --out-dir target/assurance-pr-react-native

@@ -429,7 +429,15 @@ fn parse_optional_bn254_value(
     missing_message: &str,
 ) -> Result<Bn254Fq, VerifierError> {
     match value {
-        Some(value) => parse_bn254_value(Some(value), missing_message),
+        Some(value) => {
+            let parsed = parse_bn254_value(Some(value), missing_message)?;
+            if parsed == Bn254Fq::from(0u64) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G1 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bn254Fq::from(1u64))
@@ -442,7 +450,15 @@ fn parse_optional_bls12_381_value(
     missing_message: &str,
 ) -> Result<Bls12_381Fq, VerifierError> {
     match value {
-        Some(value) => parse_bls12_381_value(Some(value), missing_message),
+        Some(value) => {
+            let parsed = parse_bls12_381_value(Some(value), missing_message)?;
+            if parsed == Bls12_381Fq::from(0u64) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G1 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bls12_381Fq::from(1u64))
@@ -455,7 +471,15 @@ fn parse_optional_bn254_fq2(
     missing_message: &str,
 ) -> Result<Bn254Fq2, VerifierError> {
     match value {
-        Some(value) => parse_bn254_fq2(value),
+        Some(value) => {
+            let parsed = parse_bn254_fq2(value)?;
+            if parsed == Bn254Fq2::new(Bn254Fq::from(0u64), Bn254Fq::from(0u64)) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G2 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bn254Fq2::new(Bn254Fq::from(1u64), Bn254Fq::from(0u64)))
@@ -468,7 +492,15 @@ fn parse_optional_bls12_381_fq2(
     missing_message: &str,
 ) -> Result<Bls12_381Fq2, VerifierError> {
     match value {
-        Some(value) => parse_bls12_381_fq2(value),
+        Some(value) => {
+            let parsed = parse_bls12_381_fq2(value)?;
+            if parsed == Bls12_381Fq2::new(Bls12_381Fq::from(0u64), Bls12_381Fq::from(0u64)) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G2 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bls12_381Fq2::new(
@@ -620,6 +652,7 @@ mod tests {
         rand::{SeedableRng, rngs::StdRng},
     };
     use privacy_pools_sdk_core::{ProofBundle, SnarkJsProof};
+    use proptest::prelude::*;
     use serde_json::json;
 
     #[derive(Clone)]
@@ -720,6 +753,23 @@ mod tests {
     }
 
     #[test]
+    fn rejects_verification_key_projective_zero_z_coordinate() {
+        let fixture = generate_bn254_fixture();
+        let mut vkey: Value =
+            serde_json::from_str(&fixture.vkey_json).expect("vkey fixture parses");
+        let alpha_x = vkey["vk_alpha_1"][0].clone();
+        let alpha_y = vkey["vk_alpha_1"][1].clone();
+        vkey["vk_alpha_1"] = json!([alpha_x, alpha_y, "0"]);
+        let vkey_json = serde_json::to_vec(&vkey).expect("vkey serializes");
+
+        let error = PreparedVerifier::from_vkey_bytes(&vkey_json)
+            .expect_err("verification key z = 0 should fail");
+        assert!(
+            matches!(error, VerifierError::InvalidVerificationKey(message) if message.contains("z must not be zero"))
+        );
+    }
+
+    #[test]
     fn rejects_wrong_curve_metadata() {
         let fixture = generate_bn254_fixture();
         let verifier =
@@ -746,6 +796,36 @@ mod tests {
 
         assert!(first_vkey.matches(&first_vkey_again));
         assert!(!first_vkey.matches(&second_vkey));
+    }
+
+    proptest! {
+        #[test]
+        fn malformed_public_signal_strings_fail_closed(value in "[a-zA-Z][a-zA-Z0-9]{0,16}") {
+            prop_assert!(parse_bn254_fr(&value, "public signal").is_err());
+        }
+
+        #[test]
+        fn noncanonical_proof_coordinates_fail_closed(value in 0_u64..u64::MAX) {
+            let noncanonical = add_field_modulus::<Bn254Fq>(&value.to_string());
+            let proof = ProofBundle {
+                proof: SnarkJsProof {
+                    pi_a: [noncanonical, "1".to_owned()],
+                    pi_b: [
+                        ["1".to_owned(), "2".to_owned()],
+                        ["3".to_owned(), "4".to_owned()],
+                    ],
+                    pi_c: ["5".to_owned(), "6".to_owned()],
+                    protocol: "groth16".to_owned(),
+                    curve: "bn128".to_owned(),
+                },
+                public_signals: vec!["1".to_owned()],
+            };
+
+            prop_assert!(matches!(
+                parse_bn254_proof(&proof),
+                Err(VerifierError::InvalidProof(_))
+            ));
+        }
     }
 
     #[test]

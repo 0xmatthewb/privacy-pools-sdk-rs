@@ -11,12 +11,16 @@ public enum PrivacyPoolsSdkClient {
         try getStableBackendName()
     }
 
-    public static func supportsFastBackendOnTarget() -> Bool {
-        fastBackendSupportedOnTarget()
+    public static func masterKeys(forMnemonic mnemonic: String) throws -> FfiMasterKeys {
+        throw dangerousKeyExportUnavailable()
     }
 
-    public static func masterKeys(forMnemonic mnemonic: String) throws -> FfiMasterKeys {
-        try deriveMasterKeys(mnemonic: mnemonic)
+    public static func masterKeysHandle(forMnemonicBytes mnemonicBytes: Data) throws -> String {
+        try deriveMasterKeysHandleBytes(mnemonic: mnemonicBytes)
+    }
+
+    public static func exportMasterKeys(handle: String) throws -> FfiMasterKeys {
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func depositSecrets(
@@ -25,9 +29,16 @@ public enum PrivacyPoolsSdkClient {
         scope: String,
         index: String,
     ) throws -> FfiSecrets {
-        try deriveDepositSecrets(
-            masterNullifier: masterNullifier,
-            masterSecret: masterSecret,
+        throw dangerousKeyExportUnavailable()
+    }
+
+    public static func depositSecretsHandle(
+        masterKeysHandle: String,
+        scope: String,
+        index: String,
+    ) throws -> String {
+        try generateDepositSecretsHandle(
+            masterKeysHandle: masterKeysHandle,
             scope: scope,
             index: index
         )
@@ -39,12 +50,23 @@ public enum PrivacyPoolsSdkClient {
         label: String,
         index: String,
     ) throws -> FfiSecrets {
-        try deriveWithdrawalSecrets(
-            masterNullifier: masterNullifier,
-            masterSecret: masterSecret,
+        throw dangerousKeyExportUnavailable()
+    }
+
+    public static func withdrawalSecretsHandle(
+        masterKeysHandle: String,
+        label: String,
+        index: String,
+    ) throws -> String {
+        try generateWithdrawalSecretsHandle(
+            masterKeysHandle: masterKeysHandle,
             label: label,
             index: index
         )
+    }
+
+    public static func exportSecret(handle: String) throws -> FfiSecrets {
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func commitment(
@@ -59,6 +81,44 @@ public enum PrivacyPoolsSdkClient {
             nullifier: nullifier,
             secret: secret
         )
+    }
+
+    public static func commitmentFromHandles(
+        value: String,
+        label: String,
+        secretsHandle: String,
+    ) throws -> String {
+        try getCommitmentFromHandles(
+            value: value,
+            label: label,
+            secretsHandle: secretsHandle
+        )
+    }
+
+    public static func exportCommitmentPreimage(handle: String) throws -> FfiCommitment {
+        throw dangerousKeyExportUnavailable()
+    }
+
+    public static func withdrawalWitnessRequestHandle(
+        request: FfiWithdrawalWitnessRequest,
+    ) throws -> String {
+        try buildWithdrawalWitnessRequestHandle(request: request)
+    }
+
+    public static func removeSecretHandle(handle: String) throws -> Bool {
+        try PrivacyPoolsSdk.removeSecretHandle(handle: handle)
+    }
+
+    public static func clearSecretHandles() throws -> Bool {
+        try PrivacyPoolsSdk.clearSecretHandles()
+    }
+
+    public static func removeVerifiedProofHandle(handle: String) throws -> Bool {
+        try PrivacyPoolsSdk.removeVerifiedProofHandle(handle: handle)
+    }
+
+    public static func clearVerifiedProofHandles() throws -> Bool {
+        try PrivacyPoolsSdk.clearVerifiedProofHandles()
     }
 
     public static func withdrawalContext(
@@ -156,6 +216,20 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func withdrawalProofWithHandles(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+    ) throws -> FfiProvingResult {
+        try proveWithdrawalWithHandles(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle
+        )
+    }
+
     public static func withdrawalProof(
         backendProfile: String,
         sessionHandle: String,
@@ -182,6 +256,20 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func commitmentProofWithHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+    ) throws -> FfiProvingResult {
+        try proveCommitmentWithHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle
+        )
+    }
+
     public static func commitmentProof(
         backendProfile: String,
         sessionHandle: String,
@@ -191,6 +279,34 @@ public enum PrivacyPoolsSdkClient {
             backendProfile: backendProfile,
             sessionHandle: sessionHandle,
             request: request
+        )
+    }
+
+    public static func proveAndVerifyCommitmentHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+    ) throws -> String {
+        try PrivacyPoolsSdk.proveAndVerifyCommitmentHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle
+        )
+    }
+
+    public static func proveAndVerifyWithdrawalHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+    ) throws -> String {
+        try PrivacyPoolsSdk.proveAndVerifyWithdrawalHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle
         )
     }
 
@@ -268,6 +384,54 @@ public enum PrivacyPoolsSdkClient {
         try verifyCommitmentProofWithSession(
             backendProfile: backendProfile,
             sessionHandle: sessionHandle,
+            proof: proof
+        )
+    }
+
+    public static func verifyCommitmentProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: FfiProofBundle,
+    ) throws -> String {
+        try PrivacyPoolsSdk.verifyCommitmentProofForRequestHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle,
+            proof: proof
+        )
+    }
+
+    public static func verifyRagequitProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: FfiProofBundle,
+    ) throws -> String {
+        try PrivacyPoolsSdk.verifyRagequitProofForRequestHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle,
+            proof: proof
+        )
+    }
+
+    public static func verifyWithdrawalProofForRequestHandle(
+        backendProfile: String,
+        manifestJson: String,
+        artifactsRoot: String,
+        requestHandle: String,
+        proof: FfiProofBundle,
+    ) throws -> String {
+        try PrivacyPoolsSdk.verifyWithdrawalProofForRequestHandle(
+            backendProfile: backendProfile,
+            manifestJson: manifestJson,
+            artifactsRoot: artifactsRoot,
+            requestHandle: requestHandle,
             proof: proof
         )
     }
@@ -452,18 +616,6 @@ public enum PrivacyPoolsSdkClient {
         return result
     }
 
-    public static func registerLocalMnemonicSigner(
-        handle: String,
-        mnemonic: String,
-        index: UInt32
-    ) throws -> FfiSignerHandle {
-        try PrivacyPoolsSdk.registerLocalMnemonicSigner(
-            handle: handle,
-            mnemonic: mnemonic,
-            index: index
-        )
-    }
-
     public static func unregisterSigner(
         handle: String
     ) throws -> Bool {
@@ -578,6 +730,42 @@ public enum PrivacyPoolsSdkClient {
         )
     }
 
+    public static func verifiedWithdrawalTransactionPlan(
+        chainId: UInt64,
+        poolAddress: String,
+        proofHandle: String,
+    ) throws -> FfiTransactionPlan {
+        try planVerifiedWithdrawalTransactionWithHandle(
+            chainId: chainId,
+            poolAddress: poolAddress,
+            proofHandle: proofHandle
+        )
+    }
+
+    public static func verifiedRelayTransactionPlan(
+        chainId: UInt64,
+        entrypointAddress: String,
+        proofHandle: String,
+    ) throws -> FfiTransactionPlan {
+        try planVerifiedRelayTransactionWithHandle(
+            chainId: chainId,
+            entrypointAddress: entrypointAddress,
+            proofHandle: proofHandle
+        )
+    }
+
+    public static func verifiedRagequitTransactionPlan(
+        chainId: UInt64,
+        poolAddress: String,
+        proofHandle: String,
+    ) throws -> FfiTransactionPlan {
+        try planVerifiedRagequitTransactionWithHandle(
+            chainId: chainId,
+            poolAddress: poolAddress,
+            proofHandle: proofHandle
+        )
+    }
+
     public static func poolStateRootRead(
         poolAddress: String,
     ) throws -> FfiRootRead {
@@ -621,6 +809,32 @@ public enum PrivacyPoolsSdkClient {
             circuit: circuit,
             kind: kind,
             bytes: bytes
+        )
+    }
+
+    public static func verifySignedManifestPayload(
+        payloadJson: String,
+        signatureHex: String,
+        publicKeyHex: String,
+    ) throws -> FfiVerifiedSignedManifest {
+        try verifySignedManifest(
+            payloadJson: payloadJson,
+            signatureHex: signatureHex,
+            publicKeyHex: publicKeyHex
+        )
+    }
+
+    public static func verifySignedManifestArtifactBytes(
+        payloadJson: String,
+        signatureHex: String,
+        publicKeyHex: String,
+        artifacts: [FfiSignedManifestArtifactBytes],
+    ) throws -> FfiVerifiedSignedManifest {
+        try verifySignedManifestArtifacts(
+            payloadJson: payloadJson,
+            signatureHex: signatureHex,
+            publicKeyHex: publicKeyHex,
+            artifacts: artifacts
         )
     }
 
@@ -686,4 +900,12 @@ public enum PrivacyPoolsSdkClient {
             }
         }
     }
+}
+
+private func dangerousKeyExportUnavailable() -> NSError {
+    NSError(
+        domain: "PrivacyPoolsSdk",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "plaintext secret export is unavailable in this build"]
+    )
 }

@@ -419,22 +419,6 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
-    typealias FfiType = UInt32
-    typealias SwiftType = UInt32
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
-        return try lift(readInt(&buf))
-    }
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -1223,15 +1207,19 @@ public struct FfiExecutionPolicy: Equatable, Hashable {
     public var caller: String
     public var expectedPoolCodeHash: String?
     public var expectedEntrypointCodeHash: String?
+    public var readConsistency: String?
+    public var maxFeeQuoteWei: String?
     public var mode: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?, mode: String?) {
+    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?, readConsistency: String?, maxFeeQuoteWei: String?, mode: String?) {
         self.expectedChainId = expectedChainId
         self.caller = caller
         self.expectedPoolCodeHash = expectedPoolCodeHash
         self.expectedEntrypointCodeHash = expectedEntrypointCodeHash
+        self.readConsistency = readConsistency
+        self.maxFeeQuoteWei = maxFeeQuoteWei
         self.mode = mode
     }
 
@@ -1255,6 +1243,8 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
                 caller: FfiConverterString.read(from: &buf),
                 expectedPoolCodeHash: FfiConverterOptionString.read(from: &buf),
                 expectedEntrypointCodeHash: FfiConverterOptionString.read(from: &buf),
+                readConsistency: FfiConverterOptionString.read(from: &buf),
+                maxFeeQuoteWei: FfiConverterOptionString.read(from: &buf),
                 mode: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -1264,6 +1254,8 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
         FfiConverterString.write(value.caller, into: &buf)
         FfiConverterOptionString.write(value.expectedPoolCodeHash, into: &buf)
         FfiConverterOptionString.write(value.expectedEntrypointCodeHash, into: &buf)
+        FfiConverterOptionString.write(value.readConsistency, into: &buf)
+        FfiConverterOptionString.write(value.maxFeeQuoteWei, into: &buf)
         FfiConverterOptionString.write(value.mode, into: &buf)
     }
 }
@@ -1293,12 +1285,15 @@ public struct FfiExecutionPreflightReport: Equatable, Hashable {
     public var chainIdMatches: Bool
     public var simulated: Bool
     public var estimatedGas: UInt64
+    public var readConsistency: String?
+    public var maxFeeQuoteWei: String?
+    public var mode: String?
     public var codeHashChecks: [FfiCodeHashCheck]
     public var rootChecks: [FfiRootCheck]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(kind: String, caller: String, target: String, expectedChainId: UInt64, actualChainId: UInt64, chainIdMatches: Bool, simulated: Bool, estimatedGas: UInt64, codeHashChecks: [FfiCodeHashCheck], rootChecks: [FfiRootCheck]) {
+    public init(kind: String, caller: String, target: String, expectedChainId: UInt64, actualChainId: UInt64, chainIdMatches: Bool, simulated: Bool, estimatedGas: UInt64, readConsistency: String?, maxFeeQuoteWei: String?, mode: String?, codeHashChecks: [FfiCodeHashCheck], rootChecks: [FfiRootCheck]) {
         self.kind = kind
         self.caller = caller
         self.target = target
@@ -1307,6 +1302,9 @@ public struct FfiExecutionPreflightReport: Equatable, Hashable {
         self.chainIdMatches = chainIdMatches
         self.simulated = simulated
         self.estimatedGas = estimatedGas
+        self.readConsistency = readConsistency
+        self.maxFeeQuoteWei = maxFeeQuoteWei
+        self.mode = mode
         self.codeHashChecks = codeHashChecks
         self.rootChecks = rootChecks
     }
@@ -1335,6 +1333,9 @@ public struct FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
                 chainIdMatches: FfiConverterBool.read(from: &buf),
                 simulated: FfiConverterBool.read(from: &buf),
                 estimatedGas: FfiConverterUInt64.read(from: &buf),
+                readConsistency: FfiConverterOptionString.read(from: &buf),
+                maxFeeQuoteWei: FfiConverterOptionString.read(from: &buf),
+                mode: FfiConverterOptionString.read(from: &buf),
                 codeHashChecks: FfiConverterSequenceTypeFfiCodeHashCheck.read(from: &buf),
                 rootChecks: FfiConverterSequenceTypeFfiRootCheck.read(from: &buf)
         )
@@ -1349,6 +1350,9 @@ public struct FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
         FfiConverterBool.write(value.chainIdMatches, into: &buf)
         FfiConverterBool.write(value.simulated, into: &buf)
         FfiConverterUInt64.write(value.estimatedGas, into: &buf)
+        FfiConverterOptionString.write(value.readConsistency, into: &buf)
+        FfiConverterOptionString.write(value.maxFeeQuoteWei, into: &buf)
+        FfiConverterOptionString.write(value.mode, into: &buf)
         FfiConverterSequenceTypeFfiCodeHashCheck.write(value.codeHashChecks, into: &buf)
         FfiConverterSequenceTypeFfiRootCheck.write(value.rootChecks, into: &buf)
     }
@@ -1367,6 +1371,60 @@ public func FfiConverterTypeFfiExecutionPreflightReport_lift(_ buf: RustBuffer) 
 #endif
 public func FfiConverterTypeFfiExecutionPreflightReport_lower(_ value: FfiExecutionPreflightReport) -> RustBuffer {
     return FfiConverterTypeFfiExecutionPreflightReport.lower(value)
+}
+
+
+public struct FfiFinalizedPreflightedTransaction: Equatable, Hashable {
+    public var preflighted: FfiPreflightedTransaction
+    public var request: FfiFinalizedTransactionRequest
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(preflighted: FfiPreflightedTransaction, request: FfiFinalizedTransactionRequest) {
+        self.preflighted = preflighted
+        self.request = request
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiFinalizedPreflightedTransaction: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiFinalizedPreflightedTransaction: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiFinalizedPreflightedTransaction {
+        return
+            try FfiFinalizedPreflightedTransaction(
+                preflighted: FfiConverterTypeFfiPreflightedTransaction.read(from: &buf),
+                request: FfiConverterTypeFfiFinalizedTransactionRequest.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiFinalizedPreflightedTransaction, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiPreflightedTransaction.write(value.preflighted, into: &buf)
+        FfiConverterTypeFfiFinalizedTransactionRequest.write(value.request, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedPreflightedTransaction_lift(_ buf: RustBuffer) throws -> FfiFinalizedPreflightedTransaction {
+    return try FfiConverterTypeFfiFinalizedPreflightedTransaction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiFinalizedPreflightedTransaction_lower(_ value: FfiFinalizedPreflightedTransaction) -> RustBuffer {
+    return FfiConverterTypeFfiFinalizedPreflightedTransaction.lower(value)
 }
 
 
@@ -1755,6 +1813,60 @@ public func FfiConverterTypeFfiPoolEvent_lift(_ buf: RustBuffer) throws -> FfiPo
 #endif
 public func FfiConverterTypeFfiPoolEvent_lower(_ value: FfiPoolEvent) -> RustBuffer {
     return FfiConverterTypeFfiPoolEvent.lower(value)
+}
+
+
+public struct FfiPreflightedTransaction: Equatable, Hashable {
+    public var transaction: FfiTransactionPlan
+    public var preflight: FfiExecutionPreflightReport
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(transaction: FfiTransactionPlan, preflight: FfiExecutionPreflightReport) {
+        self.transaction = transaction
+        self.preflight = preflight
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiPreflightedTransaction: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPreflightedTransaction: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPreflightedTransaction {
+        return
+            try FfiPreflightedTransaction(
+                transaction: FfiConverterTypeFfiTransactionPlan.read(from: &buf),
+                preflight: FfiConverterTypeFfiExecutionPreflightReport.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPreflightedTransaction, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiTransactionPlan.write(value.transaction, into: &buf)
+        FfiConverterTypeFfiExecutionPreflightReport.write(value.preflight, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPreflightedTransaction_lift(_ buf: RustBuffer) throws -> FfiPreflightedTransaction {
+    return try FfiConverterTypeFfiPreflightedTransaction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPreflightedTransaction_lower(_ value: FfiPreflightedTransaction) -> RustBuffer {
+    return FfiConverterTypeFfiPreflightedTransaction.lower(value)
 }
 
 
@@ -2338,6 +2450,60 @@ public func FfiConverterTypeFfiSecrets_lower(_ value: FfiSecrets) -> RustBuffer 
 }
 
 
+public struct FfiSignedManifestArtifactBytes: Equatable, Hashable {
+    public var filename: String
+    public var bytes: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(filename: String, bytes: Data) {
+        self.filename = filename
+        self.bytes = bytes
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiSignedManifestArtifactBytes: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSignedManifestArtifactBytes: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSignedManifestArtifactBytes {
+        return
+            try FfiSignedManifestArtifactBytes(
+                filename: FfiConverterString.read(from: &buf),
+                bytes: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSignedManifestArtifactBytes, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.filename, into: &buf)
+        FfiConverterData.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignedManifestArtifactBytes_lift(_ buf: RustBuffer) throws -> FfiSignedManifestArtifactBytes {
+    return try FfiConverterTypeFfiSignedManifestArtifactBytes.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSignedManifestArtifactBytes_lower(_ value: FfiSignedManifestArtifactBytes) -> RustBuffer {
+    return FfiConverterTypeFfiSignedManifestArtifactBytes.lower(value)
+}
+
+
 public struct FfiSignerHandle: Equatable, Hashable {
     public var handle: String
     public var address: String
@@ -2459,6 +2625,60 @@ public func FfiConverterTypeFfiSnarkJsProof_lift(_ buf: RustBuffer) throws -> Ff
 #endif
 public func FfiConverterTypeFfiSnarkJsProof_lower(_ value: FfiSnarkJsProof) -> RustBuffer {
     return FfiConverterTypeFfiSnarkJsProof.lower(value)
+}
+
+
+public struct FfiSubmittedPreflightedTransaction: Equatable, Hashable {
+    public var preflighted: FfiPreflightedTransaction
+    public var receipt: FfiTransactionReceiptSummary
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(preflighted: FfiPreflightedTransaction, receipt: FfiTransactionReceiptSummary) {
+        self.preflighted = preflighted
+        self.receipt = receipt
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiSubmittedPreflightedTransaction: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSubmittedPreflightedTransaction: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSubmittedPreflightedTransaction {
+        return
+            try FfiSubmittedPreflightedTransaction(
+                preflighted: FfiConverterTypeFfiPreflightedTransaction.read(from: &buf),
+                receipt: FfiConverterTypeFfiTransactionReceiptSummary.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSubmittedPreflightedTransaction, into buf: inout [UInt8]) {
+        FfiConverterTypeFfiPreflightedTransaction.write(value.preflighted, into: &buf)
+        FfiConverterTypeFfiTransactionReceiptSummary.write(value.receipt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSubmittedPreflightedTransaction_lift(_ buf: RustBuffer) throws -> FfiSubmittedPreflightedTransaction {
+    return try FfiConverterTypeFfiSubmittedPreflightedTransaction.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSubmittedPreflightedTransaction_lower(_ value: FfiSubmittedPreflightedTransaction) -> RustBuffer {
+    return FfiConverterTypeFfiSubmittedPreflightedTransaction.lower(value)
 }
 
 
@@ -2665,6 +2885,76 @@ public func FfiConverterTypeFfiTransactionReceiptSummary_lift(_ buf: RustBuffer)
 #endif
 public func FfiConverterTypeFfiTransactionReceiptSummary_lower(_ value: FfiTransactionReceiptSummary) -> RustBuffer {
     return FfiConverterTypeFfiTransactionReceiptSummary.lower(value)
+}
+
+
+public struct FfiVerifiedSignedManifest: Equatable, Hashable {
+    public var version: String
+    public var artifactCount: UInt64
+    public var ceremony: String?
+    public var build: String?
+    public var repository: String?
+    public var commit: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(version: String, artifactCount: UInt64, ceremony: String?, build: String?, repository: String?, commit: String?) {
+        self.version = version
+        self.artifactCount = artifactCount
+        self.ceremony = ceremony
+        self.build = build
+        self.repository = repository
+        self.commit = commit
+    }
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiVerifiedSignedManifest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiVerifiedSignedManifest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiVerifiedSignedManifest {
+        return
+            try FfiVerifiedSignedManifest(
+                version: FfiConverterString.read(from: &buf),
+                artifactCount: FfiConverterUInt64.read(from: &buf),
+                ceremony: FfiConverterOptionString.read(from: &buf),
+                build: FfiConverterOptionString.read(from: &buf),
+                repository: FfiConverterOptionString.read(from: &buf),
+                commit: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiVerifiedSignedManifest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.version, into: &buf)
+        FfiConverterUInt64.write(value.artifactCount, into: &buf)
+        FfiConverterOptionString.write(value.ceremony, into: &buf)
+        FfiConverterOptionString.write(value.build, into: &buf)
+        FfiConverterOptionString.write(value.repository, into: &buf)
+        FfiConverterOptionString.write(value.commit, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiVerifiedSignedManifest_lift(_ buf: RustBuffer) throws -> FfiVerifiedSignedManifest {
+    return try FfiConverterTypeFfiVerifiedSignedManifest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiVerifiedSignedManifest_lower(_ value: FfiVerifiedSignedManifest) -> RustBuffer {
+    return FfiConverterTypeFfiVerifiedSignedManifest.lower(value)
 }
 
 
@@ -2986,15 +3276,41 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case InvalidExecutionPolicyMode(String
     )
+    case InvalidMnemonic(String
+    )
+    case InvalidRelayData(String
+    )
+    case PayloadTooLarge(String
+    )
     case SessionNotFound(String
     )
     case SignerNotFound(String
+    )
+    case HandleAlreadyRegistered(String
+    )
+    case RegistryFull(registry: String, maxEntries: UInt64
+    )
+    case ChainIdMismatch(expected: UInt64, actual: UInt64
+    )
+    case SecretHandleNotFound(String
+    )
+    case VerifiedProofHandleNotFound(String
+    )
+    case ExecutionHandleNotFound(String
     )
     case JobNotFound(String
     )
     case SignerRequiresExternalSigning(String
     )
+    case UnmatchedRagequit(String
+    )
     case InvalidManifest(String
+    )
+    case InvalidSignedTransaction(String
+    )
+    case ProverFailure(String
+    )
+    case VerifierFailure(String
     )
     case OperationFailed(String
     )
@@ -3048,22 +3364,63 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 7: return .InvalidExecutionPolicyMode(
             try FfiConverterString.read(from: &buf)
             )
-        case 8: return .SessionNotFound(
+        case 8: return .InvalidMnemonic(
             try FfiConverterString.read(from: &buf)
             )
-        case 9: return .SignerNotFound(
+        case 9: return .InvalidRelayData(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .JobNotFound(
+        case 10: return .PayloadTooLarge(
             try FfiConverterString.read(from: &buf)
             )
-        case 11: return .SignerRequiresExternalSigning(
+        case 11: return .SessionNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 12: return .InvalidManifest(
+        case 12: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 13: return .OperationFailed(
+        case 13: return .HandleAlreadyRegistered(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 14: return .RegistryFull(
+            registry: try FfiConverterString.read(from: &buf),
+            maxEntries: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 15: return .ChainIdMismatch(
+            expected: try FfiConverterUInt64.read(from: &buf),
+            actual: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 16: return .SecretHandleNotFound(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 17: return .VerifiedProofHandleNotFound(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 18: return .ExecutionHandleNotFound(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 19: return .JobNotFound(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 20: return .SignerRequiresExternalSigning(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 21: return .UnmatchedRagequit(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 22: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 23: return .InvalidSignedTransaction(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 24: return .ProverFailure(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 25: return .VerifierFailure(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 26: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -3113,33 +3470,100 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SessionNotFound(v1):
+        case let .InvalidMnemonic(v1):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerNotFound(v1):
+        case let .InvalidRelayData(v1):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .JobNotFound(v1):
+        case let .PayloadTooLarge(v1):
             writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerRequiresExternalSigning(v1):
+        case let .SessionNotFound(v1):
             writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerNotFound(v1):
             writeInt(&buf, Int32(12))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .HandleAlreadyRegistered(v1):
             writeInt(&buf, Int32(13))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .RegistryFull(registry,maxEntries):
+            writeInt(&buf, Int32(14))
+            FfiConverterString.write(registry, into: &buf)
+            FfiConverterUInt64.write(maxEntries, into: &buf)
+
+
+        case let .ChainIdMismatch(expected,actual):
+            writeInt(&buf, Int32(15))
+            FfiConverterUInt64.write(expected, into: &buf)
+            FfiConverterUInt64.write(actual, into: &buf)
+
+
+        case let .SecretHandleNotFound(v1):
+            writeInt(&buf, Int32(16))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .VerifiedProofHandleNotFound(v1):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .ExecutionHandleNotFound(v1):
+            writeInt(&buf, Int32(18))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .JobNotFound(v1):
+            writeInt(&buf, Int32(19))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .SignerRequiresExternalSigning(v1):
+            writeInt(&buf, Int32(20))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .UnmatchedRagequit(v1):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .InvalidManifest(v1):
+            writeInt(&buf, Int32(22))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .InvalidSignedTransaction(v1):
+            writeInt(&buf, Int32(23))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .ProverFailure(v1):
+            writeInt(&buf, Int32(24))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .VerifierFailure(v1):
+            writeInt(&buf, Int32(25))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(26))
             FfiConverterString.write(v1, into: &buf)
 
         }
@@ -3459,6 +3883,31 @@ fileprivate struct FfiConverterSequenceTypeFfiRootCheck: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiSignedManifestArtifactBytes: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSignedManifestArtifactBytes]
+
+    public static func write(_ value: [FfiSignedManifestArtifactBytes], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSignedManifestArtifactBytes.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSignedManifestArtifactBytes] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSignedManifestArtifactBytes]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSignedManifestArtifactBytes.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [[String]]
 
@@ -3502,6 +3951,13 @@ public func buildWithdrawalCircuitInput(request: FfiWithdrawalWitnessRequest)thr
     )
 })
 }
+public func buildWithdrawalWitnessRequestHandle(request: FfiWithdrawalWitnessRequest)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_build_withdrawal_witness_request_handle(
+        FfiConverterTypeFfiWithdrawalWitnessRequest_lower(request),$0
+    )
+})
+}
 public func calculateWithdrawalContext(withdrawal: FfiWithdrawal, scope: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_calculate_withdrawal_context(
@@ -3525,36 +3981,43 @@ public func checkpointRecovery(events: [FfiPoolEvent], policy: FfiRecoveryPolicy
     )
 })
 }
-public func deriveDepositSecrets(masterNullifier: String, masterSecret: String, scope: String, index: String)throws  -> FfiSecrets  {
-    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
-        FfiConverterString.lower(masterNullifier),
-        FfiConverterString.lower(masterSecret),
-        FfiConverterString.lower(scope),
-        FfiConverterString.lower(index),$0
+public func clearExecutionHandles()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_clear_execution_handles($0
     )
 })
 }
-public func deriveMasterKeys(mnemonic: String)throws  -> FfiMasterKeys  {
-    return try  FfiConverterTypeFfiMasterKeys_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(
+public func clearSecretHandles()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_clear_secret_handles($0
+    )
+})
+}
+public func clearVerifiedProofHandles()throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles($0
+    )
+})
+}
+public func deriveMasterKeysHandle(mnemonic: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(
         FfiConverterString.lower(mnemonic),$0
     )
 })
 }
-public func deriveWithdrawalSecrets(masterNullifier: String, masterSecret: String, label: String, index: String)throws  -> FfiSecrets  {
-    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
-        FfiConverterString.lower(masterNullifier),
-        FfiConverterString.lower(masterSecret),
-        FfiConverterString.lower(label),
-        FfiConverterString.lower(index),$0
+public func deriveMasterKeysHandleBytes(mnemonic: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle_bytes(
+        FfiConverterData.lower(mnemonic),$0
     )
 })
 }
-public func fastBackendSupportedOnTarget() -> Bool  {
-    return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_privacy_pools_sdk_ffi_fn_func_fast_backend_supported_on_target($0
+public func finalizePreflightedTransactionHandle(rpcUrl: String, preflightedHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_finalize_preflighted_transaction_handle(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterString.lower(preflightedHandle),$0
     )
 })
 }
@@ -3582,11 +4045,29 @@ public func formatGroth16ProofBundle(proof: FfiProofBundle)throws  -> FfiFormatt
     )
 })
 }
+public func generateDepositSecretsHandle(masterKeysHandle: String, scope: String, index: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_generate_deposit_secrets_handle(
+        FfiConverterString.lower(masterKeysHandle),
+        FfiConverterString.lower(scope),
+        FfiConverterString.lower(index),$0
+    )
+})
+}
 public func generateMerkleProof(leaves: [String], leaf: String)throws  -> FfiMerkleProof  {
     return try  FfiConverterTypeFfiMerkleProof_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_generate_merkle_proof(
         FfiConverterSequenceString.lower(leaves),
         FfiConverterString.lower(leaf),$0
+    )
+})
+}
+public func generateWithdrawalSecretsHandle(masterKeysHandle: String, label: String, index: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_generate_withdrawal_secrets_handle(
+        FfiConverterString.lower(masterKeysHandle),
+        FfiConverterString.lower(label),
+        FfiConverterString.lower(index),$0
     )
 })
 }
@@ -3606,6 +4087,15 @@ public func getCommitment(value: String, label: String, nullifier: String, secre
         FfiConverterString.lower(label),
         FfiConverterString.lower(nullifier),
         FfiConverterString.lower(secret),$0
+    )
+})
+}
+public func getCommitmentFromHandles(value: String, label: String, secretsHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_get_commitment_from_handles(
+        FfiConverterString.lower(value),
+        FfiConverterString.lower(label),
+        FfiConverterString.lower(secretsHandle),$0
     )
 })
 }
@@ -3685,6 +4175,33 @@ public func planRelayTransaction(chainId: UInt64, entrypointAddress: String, wit
     )
 })
 }
+public func planVerifiedRagequitTransactionWithHandle(chainId: UInt64, poolAddress: String, proofHandle: String)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_ragequit_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(proofHandle),$0
+    )
+})
+}
+public func planVerifiedRelayTransactionWithHandle(chainId: UInt64, entrypointAddress: String, proofHandle: String)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_relay_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(entrypointAddress),
+        FfiConverterString.lower(proofHandle),$0
+    )
+})
+}
+public func planVerifiedWithdrawalTransactionWithHandle(chainId: UInt64, poolAddress: String, proofHandle: String)throws  -> FfiTransactionPlan  {
+    return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_plan_verified_withdrawal_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(proofHandle),$0
+    )
+})
+}
 public func planWithdrawalTransaction(chainId: UInt64, poolAddress: String, withdrawal: FfiWithdrawal, proof: FfiProofBundle)throws  -> FfiTransactionPlan  {
     return try  FfiConverterTypeFfiTransactionPlan_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_plan_withdrawal_transaction(
@@ -3699,6 +4216,40 @@ public func pollJobStatus(jobId: String)throws  -> FfiAsyncJobStatus  {
     return try  FfiConverterTypeFfiAsyncJobStatus_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_poll_job_status(
         FfiConverterString.lower(jobId),$0
+    )
+})
+}
+public func preflightVerifiedRagequitTransactionWithHandle(chainId: UInt64, poolAddress: String, rpcUrl: String, policy: FfiExecutionPolicy, proofHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_ragequit_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiExecutionPolicy_lower(policy),
+        FfiConverterString.lower(proofHandle),$0
+    )
+})
+}
+public func preflightVerifiedRelayTransactionWithHandle(chainId: UInt64, entrypointAddress: String, poolAddress: String, rpcUrl: String, policy: FfiExecutionPolicy, proofHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_relay_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(entrypointAddress),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiExecutionPolicy_lower(policy),
+        FfiConverterString.lower(proofHandle),$0
+    )
+})
+}
+public func preflightVerifiedWithdrawalTransactionWithHandle(chainId: UInt64, poolAddress: String, rpcUrl: String, policy: FfiExecutionPolicy, proofHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_preflight_verified_withdrawal_transaction_with_handle(
+        FfiConverterUInt64.lower(chainId),
+        FfiConverterString.lower(poolAddress),
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterTypeFfiExecutionPolicy_lower(policy),
+        FfiConverterString.lower(proofHandle),$0
     )
 })
 }
@@ -3763,6 +4314,26 @@ public func prepareWithdrawalExecution(backendProfile: String, manifestJson: Str
     )
 })
 }
+public func proveAndVerifyCommitmentHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_commitment_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),$0
+    )
+})
+}
+public func proveAndVerifyWithdrawalHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_and_verify_withdrawal_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),$0
+    )
+})
+}
 public func proveCommitment(backendProfile: String, manifestJson: String, artifactsRoot: String, request: FfiCommitmentWitnessRequest)throws  -> FfiProvingResult  {
     return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment(
@@ -3770,6 +4341,16 @@ public func proveCommitment(backendProfile: String, manifestJson: String, artifa
         FfiConverterString.lower(manifestJson),
         FfiConverterString.lower(artifactsRoot),
         FfiConverterTypeFfiCommitmentWitnessRequest_lower(request),$0
+    )
+})
+}
+public func proveCommitmentWithHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String)throws  -> FfiProvingResult  {
+    return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_commitment_with_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),$0
     )
 })
 }
@@ -3792,6 +4373,16 @@ public func proveWithdrawal(backendProfile: String, manifestJson: String, artifa
     )
 })
 }
+public func proveWithdrawalWithHandles(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String)throws  -> FfiProvingResult  {
+    return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal_with_handles(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),$0
+    )
+})
+}
 public func proveWithdrawalWithSession(backendProfile: String, sessionHandle: String, request: FfiWithdrawalWitnessRequest)throws  -> FfiProvingResult  {
     return try  FfiConverterTypeFfiProvingResult_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_prove_withdrawal_with_session(
@@ -3806,15 +4397,6 @@ public func registerHostProvidedSigner(handle: String, address: String)throws  -
     uniffi_privacy_pools_sdk_ffi_fn_func_register_host_provided_signer(
         FfiConverterString.lower(handle),
         FfiConverterString.lower(address),$0
-    )
-})
-}
-public func registerLocalMnemonicSigner(handle: String, mnemonic: String, index: UInt32)throws  -> FfiSignerHandle  {
-    return try  FfiConverterTypeFfiSignerHandle_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_register_local_mnemonic_signer(
-        FfiConverterString.lower(handle),
-        FfiConverterString.lower(mnemonic),
-        FfiConverterUInt32.lower(index),$0
     )
 })
 }
@@ -3833,10 +4415,31 @@ public func removeCommitmentCircuitSession(handle: String)throws  -> Bool  {
     )
 })
 }
+public func removeExecutionHandle(handle: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_remove_execution_handle(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
 public func removeJob(jobId: String)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_remove_job(
         FfiConverterString.lower(jobId),$0
+    )
+})
+}
+public func removeSecretHandle(handle: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_remove_secret_handle(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func removeVerifiedProofHandle(handle: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_remove_verified_proof_handle(
+        FfiConverterString.lower(handle),$0
     )
 })
 }
@@ -3904,6 +4507,24 @@ public func startProveWithdrawalJobWithSession(backendProfile: String, sessionHa
     )
 })
 }
+public func submitFinalizedPreflightedTransactionHandle(rpcUrl: String, finalizedHandle: String, signedTransaction: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_submit_finalized_preflighted_transaction_handle(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterString.lower(finalizedHandle),
+        FfiConverterString.lower(signedTransaction),$0
+    )
+})
+}
+public func submitPreflightedTransactionHandle(rpcUrl: String, signerHandle: String, preflightedHandle: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_submit_preflighted_transaction_handle(
+        FfiConverterString.lower(rpcUrl),
+        FfiConverterString.lower(signerHandle),
+        FfiConverterString.lower(preflightedHandle),$0
+    )
+})
+}
 public func submitPreparedTransaction(rpcUrl: String, signerHandle: String, prepared: FfiPreparedTransactionExecution)throws  -> FfiSubmittedTransactionExecution  {
     return try  FfiConverterTypeFfiSubmittedTransactionExecution_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_submit_prepared_transaction(
@@ -3949,6 +4570,17 @@ public func verifyCommitmentProof(backendProfile: String, manifestJson: String, 
     )
 })
 }
+public func verifyCommitmentProofForRequestHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String, proof: FfiProofBundle)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_for_request_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
 public func verifyCommitmentProofWithSession(backendProfile: String, sessionHandle: String, proof: FfiProofBundle)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_verify_commitment_proof_with_session(
@@ -3958,12 +4590,53 @@ public func verifyCommitmentProofWithSession(backendProfile: String, sessionHand
     )
 })
 }
+public func verifyRagequitProofForRequestHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String, proof: FfiProofBundle)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_ragequit_proof_for_request_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
+public func verifySignedManifest(payloadJson: String, signatureHex: String, publicKeyHex: String)throws  -> FfiVerifiedSignedManifest  {
+    return try  FfiConverterTypeFfiVerifiedSignedManifest_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest(
+        FfiConverterString.lower(payloadJson),
+        FfiConverterString.lower(signatureHex),
+        FfiConverterString.lower(publicKeyHex),$0
+    )
+})
+}
+public func verifySignedManifestArtifacts(payloadJson: String, signatureHex: String, publicKeyHex: String, artifacts: [FfiSignedManifestArtifactBytes])throws  -> FfiVerifiedSignedManifest  {
+    return try  FfiConverterTypeFfiVerifiedSignedManifest_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_signed_manifest_artifacts(
+        FfiConverterString.lower(payloadJson),
+        FfiConverterString.lower(signatureHex),
+        FfiConverterString.lower(publicKeyHex),
+        FfiConverterSequenceTypeFfiSignedManifestArtifactBytes.lower(artifacts),$0
+    )
+})
+}
 public func verifyWithdrawalProof(backendProfile: String, manifestJson: String, artifactsRoot: String, proof: FfiProofBundle)throws  -> Bool  {
     return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof(
         FfiConverterString.lower(backendProfile),
         FfiConverterString.lower(manifestJson),
         FfiConverterString.lower(artifactsRoot),
+        FfiConverterTypeFfiProofBundle_lower(proof),$0
+    )
+})
+}
+public func verifyWithdrawalProofForRequestHandle(backendProfile: String, manifestJson: String, artifactsRoot: String, requestHandle: String, proof: FfiProofBundle)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_verify_withdrawal_proof_for_request_handle(
+        FfiConverterString.lower(backendProfile),
+        FfiConverterString.lower(manifestJson),
+        FfiConverterString.lower(artifactsRoot),
+        FfiConverterString.lower(requestHandle),
         FfiConverterTypeFfiProofBundle_lower(proof),$0
     )
 })
@@ -4002,6 +4675,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_circuit_input() != 47570) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_build_withdrawal_witness_request_handle() != 38183) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_calculate_withdrawal_context() != 39995) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4011,16 +4687,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_checkpoint_recovery() != 26901) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615) {
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_clear_execution_handles() != 22666) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528) {
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_clear_secret_handles() != 35552) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433) {
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_fast_backend_supported_on_target() != 4086) {
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle_bytes() != 2592) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle() != 15730) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_prepared_transaction() != 121) {
@@ -4032,13 +4714,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_format_groth16_proof_bundle() != 54611) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_generate_deposit_secrets_handle() != 3349) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_generate_merkle_proof() != 59302) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_generate_withdrawal_secrets_handle() != 37792) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_artifact_statuses() != 39702) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment() != 15818) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_commitment_from_handles() != 17138) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_get_prepare_relay_execution_job_result() != 62627) {
@@ -4071,10 +4762,28 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_relay_transaction() != 11025) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_ragequit_transaction_with_handle() != 42395) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_relay_transaction_with_handle() != 9727) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_verified_withdrawal_transaction_with_handle() != 27303) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_plan_withdrawal_transaction() != 21103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_poll_job_status() != 4651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_ragequit_transaction_with_handle() != 57575) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_relay_transaction_with_handle() != 3125) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_preflight_verified_withdrawal_transaction_with_handle() != 56891) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_commitment_circuit_session() != 5850) {
@@ -4095,7 +4804,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prepare_withdrawal_execution() != 63214) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_commitment_handle() != 52032) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_and_verify_withdrawal_handle() != 18336) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment() != 47751) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_handle() != 32971) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_commitment_with_session() != 65330) {
@@ -4104,13 +4822,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal() != 4178) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_handles() != 22928) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_prove_withdrawal_with_session() != 21445) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_host_provided_signer() != 61118) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_local_mnemonic_signer() != 65091) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_register_mobile_secure_storage_signer() != 18498) {
@@ -4119,7 +4837,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_commitment_circuit_session() != 27781) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_execution_handle() != 50864) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_job() != 24803) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_secret_handle() != 42325) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_verified_proof_handle() != 13305) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_remove_withdrawal_circuit_session() != 15248) {
@@ -4140,6 +4867,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_start_prove_withdrawal_job_with_session() != 32133) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_finalized_preflighted_transaction_handle() != 9363) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_preflighted_transaction_handle() != 376) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_submit_prepared_transaction() != 26897) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4155,10 +4888,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof() != 54157) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_for_request_handle() != 57644) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_commitment_proof_with_session() != 29352) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_ragequit_proof_for_request_handle() != 39789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest() != 65127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_signed_manifest_artifacts() != 65315) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof() != 13425) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_for_request_handle() != 48794) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_verify_withdrawal_proof_with_session() != 12932) {

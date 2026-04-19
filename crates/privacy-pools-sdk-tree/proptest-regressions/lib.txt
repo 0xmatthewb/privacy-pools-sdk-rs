@@ -1,0 +1,5 @@
+# Seeds for high-risk Merkle witness regressions.
+cc 3f4d6e46be4f6d0f2a39c60df76029f151558784d8ff6e5ad267b0e18f5c7d10 # generated_proofs_match_reference_root seed A
+cc 0d6f6c0d2ec73a7d79bb2da0d95f448d2bbab4d7c6eb6d4602745f737ab45c4d # generated_proofs_match_reference_root seed B
+cc 820f1dcfd410919e8d1d0be918085511f3c7f04fe5f8108577fb57dd2ec6fcda # generated_proofs_match_reference_root seed C
+cc ad9de0e7c13878d3749997be2f47f5af5d0d451a96c4dd1e1c2b99eb16388d35 # shrinks to seeds = [1, 2, 3, 4, 5], requested_index = 4

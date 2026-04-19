@@ -9,9 +9,14 @@
     "url": "https://github.com/0xmatthewb/privacy-pools-sdk-rs.git",
     "directory": "packages/react-native"
   },
-  "main": "./src/index.ts",
-  "react-native": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./src/safe.ts",
+  "react-native": "./src/safe.ts",
+  "types": "./src/safe.ts",
+  "exports": {
+    ".": "./src/safe.ts",
+    "./testing": "./testing.ts",
+    "./debug": "./debug.ts"
+  },
   "scripts": {
     "prepare:package": "cargo run -p xtask -- react-native-package",
     "prepare:package-release": "cargo run -p xtask -- react-native-package --release --with-native",
@@ -20,6 +25,8 @@
   },
   "files": [
     "src",
+    "testing.ts",
+    "debug.ts",
     "android",
     "ios",
     "PrivacyPoolsSdk.podspec",

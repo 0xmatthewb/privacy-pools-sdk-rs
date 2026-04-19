@@ -1,0 +1,46 @@
+{
+  "chainId": 11155111,
+  "caller": "0x1111111111111111111111111111111111111111",
+  "poolAddress": "0x2222222222222222222222222222222222222222",
+  "entrypointAddress": "0x3333333333333333333333333333333333333333",
+  "poolCodeHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "entrypointCodeHash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "stateRoot": "42",
+  "aspRoot": "84",
+  "estimatedGas": 64000,
+  "nonce": 7,
+  "proof": {
+    "p_a": [
+      "0x01",
+      "0x02"
+    ],
+    "p_b": [
+      [
+        "0x03",
+        "0x04"
+      ],
+      [
+        "0x05",
+        "0x06"
+      ]
+    ],
+    "p_c": [
+      "0x07",
+      "0x08"
+    ],
+    "pub_signals": [
+      "0x09",
+      "0x09",
+      "0x09",
+      "0x09",
+      "0x09",
+      "0x09",
+      "0x09",
+      "0x09"
+    ]
+  },
+  "withdrawal": {
+    "processooor": "0x4444444444444444444444444444444444444444",
+    "data": "0x1234"
+  }
+}

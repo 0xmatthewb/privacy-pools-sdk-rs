@@ -14,8 +14,11 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = "15.0"
 
   s.source_files = [
-    "ios/**/*.{swift,m}",
-    "ios/generated/**/*.swift",
+    "ios/*.{swift,m,h}",
+    "ios/generated/**/*.{swift,h}",
+  ]
+  s.public_header_files = [
+    "ios/generated/PrivacyPoolsSdkFFI.h",
   ]
   s.preserve_paths = [
     "ios/generated/PrivacyPoolsSdkFFI.h",
