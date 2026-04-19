@@ -1275,6 +1275,7 @@ fn stage_sdk_web_artifact(
         }
         if !release {
             feature_flags.push("dangerous-exports");
+            feature_flags.push("dangerous-key-export");
         }
         let feature_args = if feature_flags.is_empty() {
             None
@@ -1314,6 +1315,7 @@ fn stage_sdk_web_artifact(
             wasm_path
         );
 
+        assert_wasm_bindgen_cli_version(workspace_root)?;
         run_command(
             "wasm-bindgen",
             &[
@@ -1342,6 +1344,7 @@ fn stage_sdk_web_artifact(
         if release {
             optimize_wasm(&output_wasm, experimental_threaded)?;
         }
+        write_wasm_sha256_file(&output_wasm)?;
         if experimental_threaded {
             write_threaded_artifact_availability(generated_root, true)?;
         }
@@ -1353,6 +1356,14 @@ fn stage_sdk_web_artifact(
         .with_context(|| format!("failed to restore {}", browser_flags_path))?;
 
     result
+}
+
+fn write_wasm_sha256_file(wasm_path: &Utf8PathBuf) -> Result<()> {
+    let bytes = fs::read(wasm_path).with_context(|| format!("failed to read {wasm_path}"))?;
+    let hash_path = Utf8PathBuf::from(format!("{wasm_path}.sha256"));
+    fs::write(&hash_path, format!("{}\n", sha256_hex(&bytes)))
+        .with_context(|| format!("failed to write {hash_path}"))?;
+    Ok(())
 }
 
 fn ensure_threaded_wasm_fallback_stub(generated_root: &Utf8PathBuf) -> Result<()> {
@@ -2088,6 +2099,34 @@ fn command_stdout(
     }
 
     String::from_utf8(output.stdout).context("command produced non-UTF-8 stdout")
+}
+
+fn assert_wasm_bindgen_cli_version(workspace_root: &Utf8PathBuf) -> Result<()> {
+    let manifest =
+        read_required_text_file(&workspace_root.join("crates/privacy-pools-sdk-web/Cargo.toml"))?;
+    let expected = manifest
+        .lines()
+        .map(str::trim)
+        .find_map(|line| {
+            line.strip_prefix("wasm-bindgen = { version = \"")
+                .and_then(|rest| rest.split('"').next())
+        })
+        .context("failed to locate wasm-bindgen crate version in crates/privacy-pools-sdk-web/Cargo.toml")?;
+    let actual = command_stdout(
+        "wasm-bindgen",
+        &["--version"],
+        workspace_root,
+        "failed to read wasm-bindgen-cli version; install wasm-bindgen-cli and ensure it is on PATH",
+    )?;
+    let actual = actual
+        .trim()
+        .strip_prefix("wasm-bindgen ")
+        .unwrap_or(actual.trim());
+    ensure!(
+        actual == expected,
+        "wasm-bindgen-cli version mismatch: expected {expected}, found {actual}"
+    );
+    Ok(())
 }
 
 fn command_output_bytes(
@@ -4809,6 +4848,9 @@ fn build_assurance_catalog(
         "artifact_bundle_resolution",
         "session_invalidation",
         "execution_policy_inputs",
+        "groth16_verifier_fuzz",
+        "relay_data_abi_fuzz",
+        "merkle_proof_tamper_fuzz",
     ];
     for target in fuzz_targets {
         let runs_arg = format!("-runs={}", options.fuzz_runs);
@@ -7343,14 +7385,23 @@ fn workspace_unsafe_matches(workspace_root: &Utf8PathBuf) -> Result<Vec<String>>
 
     let mut matches = Vec::new();
     for path in files {
-        if path.extension() != Some("rs") {
-            continue;
+        let display_path = path.strip_prefix(workspace_root).unwrap_or(path.as_path());
+        if path.extension() == Some("rs") {
+            let contents =
+                fs::read_to_string(&path).with_context(|| format!("failed to read {}", path))?;
+            for (index, line) in contents.lines().enumerate() {
+                if line.contains("unsafe") {
+                    matches.push(format!("{}:{}:{}", display_path, index + 1, line.trim()));
+                }
+            }
         }
-        let contents =
-            fs::read_to_string(&path).with_context(|| format!("failed to read {}", path))?;
-        for (index, line) in contents.lines().enumerate() {
-            if line.contains("unsafe") {
-                matches.push(format!("{}:{}:{}", path, index + 1, line.trim()));
+        if path.file_name() == Some("Cargo.toml") {
+            let contents =
+                fs::read_to_string(&path).with_context(|| format!("failed to read {}", path))?;
+            for (index, line) in contents.lines().enumerate() {
+                if line.contains("unsafe_code = \"allow\"") {
+                    matches.push(format!("{}:{}:{}", display_path, index + 1, line.trim()));
+                }
             }
         }
     }
@@ -8595,7 +8646,7 @@ fn validate_advisory_metadata_sections(contents: &str, advisory_ids: &[String]) 
 
         let section = advisory_metadata_section(contents, &section_marker)
             .with_context(|| format!("failed to read metadata section for {advisory_id}"))?;
-        for required_key in ["owner", "review_date", "exit_condition"] {
+        for required_key in ["owner", "review_date", "exit_condition", "reachability"] {
             ensure!(
                 section
                     .lines()

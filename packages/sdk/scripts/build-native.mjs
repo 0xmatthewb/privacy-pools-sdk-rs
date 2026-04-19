@@ -20,7 +20,7 @@ try {
       "build",
       "-p",
       "privacy-pools-sdk-node",
-      ...(!release ? ["--features", "dangerous-exports"] : []),
+      ...(!release ? ["--features", "dangerous-exports,dangerous-key-export"] : []),
       ...(release ? ["--release"] : []),
     ],
     {

@@ -16,13 +16,15 @@ const scriptDir = fileURLToPath(new URL(".", import.meta.url));
 const packageRoot = join(scriptDir, "..");
 const workspaceRoot = join(packageRoot, "..", "..");
 const fixturesRoot = join(workspaceRoot, "fixtures");
-const defaultV1PackageRoot =
-  "/Users/matthewb/Documents/0xbow/v1 SDK/npm/privacy-pools-core-sdk-1.2.0/package";
-const defaultV1SourceRoot =
-  "/Users/matthewb/Documents/0xbow/v1 SDK/privacy-pools-core";
+const defaultV1PackageRoot = join(
+  packageRoot,
+  "node_modules",
+  "@0xbow",
+  "privacy-pools-core-sdk",
+);
 
 const v1PackageRoot = process.env.PRIVACY_POOLS_V1_BASELINE_PATH ?? defaultV1PackageRoot;
-const v1SourceRoot = process.env.PRIVACY_POOLS_V1_SOURCE_PATH ?? defaultV1SourceRoot;
+const v1SourceRoot = process.env.PRIVACY_POOLS_V1_SOURCE_PATH ?? null;
 const reportPath =
   process.env.PRIVACY_POOLS_COMPARE_RUST_REPORT ??
   join(workspaceRoot, "dist", "v1-rust-comparison.json");
@@ -43,17 +45,14 @@ main().catch((error) => {
 });
 
 async function main() {
-  const installRoot = !existsSync(v1PackageRoot)
-    ? mkdtempSync(join(tmpdir(), "privacy-pools-v1-rust-compare-"))
-    : null;
-  if (installRoot) {
-    installV1(installRoot);
-  }
-  const resolvedV1PackageRoot = installRoot
-    ? join(installRoot, "node_modules", "@0xbow", "privacy-pools-core-sdk")
-    : v1PackageRoot;
+  assert.ok(
+    existsSync(v1PackageRoot),
+    `missing pinned ${V1_PACKAGE}@${V1_VERSION} baseline at ${v1PackageRoot}; run npm ci in packages/sdk`,
+  );
+  const resolvedV1PackageRoot = v1PackageRoot;
   const resolvedV1SourceRoot =
-    process.env.PRIVACY_POOLS_V1_SOURCE_PATH ?? (existsSync(v1SourceRoot) ? v1SourceRoot : null);
+    process.env.PRIVACY_POOLS_V1_SOURCE_PATH ??
+    (v1SourceRoot && existsSync(v1SourceRoot) ? v1SourceRoot : null);
   const v1 = await import(pathToFileURL(join(resolvedV1PackageRoot, "dist", "esm", "index.mjs")));
   const rustReport = runRustParityReport();
   const server = createArtifactServer();
@@ -88,26 +87,7 @@ async function main() {
     }
   } finally {
     await server.stop();
-    if (installRoot) {
-      rmSync(installRoot, { recursive: true, force: true });
-    }
   }
-}
-
-function installV1(tempRoot) {
-  execFileSync("npm", ["init", "-y"], {
-    cwd: tempRoot,
-    stdio: "ignore",
-  });
-  execFileSync("npm", ["install", `${V1_PACKAGE}@${V1_VERSION}`], {
-    cwd: tempRoot,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      NO_UPDATE_NOTIFIER: "1",
-      npm_config_update_notifier: "false",
-    },
-  });
 }
 
 function runRustParityReport() {
@@ -151,14 +131,26 @@ async function runSafetyComparisons(v1, rustReport, server) {
   for (const caseFixture of parityCases.comparisonCases) {
     const rustCase = rustCaseMap.get(caseFixture.name);
     assert.ok(rustCase, `missing Rust parity case ${caseFixture.name}`);
+    assert.ok(
+      caseFixture.expected,
+      `missing checked-in expected outputs for ${caseFixture.name}`,
+    );
+    const expected = caseFixture.expected;
 
     const keys = normalizeBigints(v1.generateMasterKeys(caseFixture.mnemonic));
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: generateMasterKeys`,
-      deepEqual(keys, rustCase.masterKeys),
-      { expected: keys, actual: rustCase.masterKeys },
+      `${caseFixture.name}: generateMasterKeys snapshot`,
+      deepEqual(keys, expected.masterKeys),
+      { expected: expected.masterKeys, actual: keys },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust generateMasterKeys snapshot`,
+      deepEqual(rustCase.masterKeys, expected.masterKeys),
+      { expected: expected.masterKeys, actual: rustCase.masterKeys },
     );
 
     const depositSecrets = normalizeBigints(
@@ -171,9 +163,16 @@ async function runSafetyComparisons(v1, rustReport, server) {
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: generateDepositSecrets`,
-      deepEqual(depositSecrets, rustCase.depositSecrets),
-      { expected: depositSecrets, actual: rustCase.depositSecrets },
+      `${caseFixture.name}: generateDepositSecrets snapshot`,
+      deepEqual(depositSecrets, expected.depositSecrets),
+      { expected: expected.depositSecrets, actual: depositSecrets },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust generateDepositSecrets snapshot`,
+      deepEqual(rustCase.depositSecrets, expected.depositSecrets),
+      { expected: expected.depositSecrets, actual: rustCase.depositSecrets },
     );
 
     const withdrawalSecrets = normalizeBigints(
@@ -186,9 +185,16 @@ async function runSafetyComparisons(v1, rustReport, server) {
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: generateWithdrawalSecrets`,
-      deepEqual(withdrawalSecrets, rustCase.withdrawalSecrets),
-      { expected: withdrawalSecrets, actual: rustCase.withdrawalSecrets },
+      `${caseFixture.name}: generateWithdrawalSecrets snapshot`,
+      deepEqual(withdrawalSecrets, expected.withdrawalSecrets),
+      { expected: expected.withdrawalSecrets, actual: withdrawalSecrets },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust generateWithdrawalSecrets snapshot`,
+      deepEqual(rustCase.withdrawalSecrets, expected.withdrawalSecrets),
+      { expected: expected.withdrawalSecrets, actual: rustCase.withdrawalSecrets },
     );
 
     const precommitmentHash = String(
@@ -197,9 +203,16 @@ async function runSafetyComparisons(v1, rustReport, server) {
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: hashPrecommitment`,
-      precommitmentHash === rustCase.precommitmentHash,
-      { expected: precommitmentHash, actual: rustCase.precommitmentHash },
+      `${caseFixture.name}: hashPrecommitment snapshot`,
+      precommitmentHash === expected.precommitmentHash,
+      { expected: expected.precommitmentHash, actual: precommitmentHash },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust hashPrecommitment snapshot`,
+      rustCase.precommitmentHash === expected.precommitmentHash,
+      { expected: expected.precommitmentHash, actual: rustCase.precommitmentHash },
     );
 
     const commitment = normalizeCommitment(
@@ -213,9 +226,16 @@ async function runSafetyComparisons(v1, rustReport, server) {
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: getCommitment`,
-      deepEqual(commitment, rustCase.commitment),
-      { expected: commitment, actual: rustCase.commitment },
+      `${caseFixture.name}: getCommitment snapshot`,
+      deepEqual(commitment, expected.commitment),
+      { expected: expected.commitment, actual: commitment },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust getCommitment snapshot`,
+      deepEqual(rustCase.commitment, expected.commitment),
+      { expected: expected.commitment, actual: rustCase.commitment },
     );
 
     const context = String(
@@ -224,9 +244,16 @@ async function runSafetyComparisons(v1, rustReport, server) {
     recordCheck(
       checks,
       failures,
-      `${caseFixture.name}: calculateContext`,
-      context === rustCase.withdrawalContextHex,
-      { expected: context, actual: rustCase.withdrawalContextHex },
+      `${caseFixture.name}: calculateContext snapshot`,
+      context === expected.withdrawalContextHex,
+      { expected: expected.withdrawalContextHex, actual: context },
+    );
+    recordCheck(
+      checks,
+      failures,
+      `${caseFixture.name}: rust calculateContext snapshot`,
+      rustCase.withdrawalContextHex === expected.withdrawalContextHex,
+      { expected: expected.withdrawalContextHex, actual: rustCase.withdrawalContextHex },
     );
   }
 

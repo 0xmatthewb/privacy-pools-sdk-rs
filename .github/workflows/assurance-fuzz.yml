@@ -1,6 +1,7 @@
 name: assurance-fuzz
 
 on:
+  pull_request:
   schedule:
     - cron: "30 7 * * *"
   workflow_dispatch:
@@ -34,7 +35,7 @@ jobs:
           profile: fuzz
       - name: fuzz assurance
         env:
-          FUZZ_RUNS_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_runs != '' && inputs.fuzz_runs || '1024' }}
+          FUZZ_RUNS_INPUT: ${{ github.event_name == 'pull_request' && '256' || (github.event_name == 'workflow_dispatch' && inputs.fuzz_runs != '' && inputs.fuzz_runs || '1024') }}
         run: |
           case "$FUZZ_RUNS_INPUT" in
             (*[!0-9]*|'')
@@ -44,7 +45,7 @@ jobs:
           esac
 
           cargo run -p xtask -- assurance --profile nightly --runtime rust \
-            --only-checks fuzz-field_parsing,fuzz-wire_conversion,fuzz-proof_bundle_parsing,fuzz-manifest_parsing,fuzz-json_boundaries,fuzz-artifact_bundle_resolution,fuzz-session_invalidation,fuzz-execution_policy_inputs \
+            --only-checks fuzz-field_parsing,fuzz-wire_conversion,fuzz-proof_bundle_parsing,fuzz-manifest_parsing,fuzz-json_boundaries,fuzz-artifact_bundle_resolution,fuzz-session_invalidation,fuzz-execution_policy_inputs,fuzz-groth16_verifier_fuzz,fuzz-relay_data_abi_fuzz,fuzz-merkle_proof_tamper_fuzz \
             --fuzz-runs "$FUZZ_RUNS_INPUT" \
             --out-dir target/assurance-fuzz
       - name: print fuzz findings on failure

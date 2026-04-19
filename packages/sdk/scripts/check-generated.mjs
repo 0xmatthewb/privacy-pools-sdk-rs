@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,11 +11,19 @@ const generatedInterfaceTrackedFiles = [
   "src/browser/generated/privacy_pools_sdk_web.d.ts",
   "src/browser/generated/privacy_pools_sdk_web.js",
   "src/browser/generated/privacy_pools_sdk_web_bg.wasm.d.ts",
+  "src/browser/generated/privacy_pools_sdk_web_bg.wasm.sha256",
+  "src/browser/generated-threaded/privacy_pools_sdk_web_threaded_bg.wasm.sha256",
 ];
 const generatedWasm = resolve(
   generatedRoot,
   "privacy_pools_sdk_web_bg.wasm",
 );
+const generatedWasmHash = `${generatedWasm}.sha256`;
+const threadedGeneratedWasm = resolve(
+  packageRoot,
+  "src/browser/generated-threaded/privacy_pools_sdk_web_threaded_bg.wasm",
+);
+const threadedGeneratedWasmHash = `${threadedGeneratedWasm}.sha256`;
 const packagedGeneratedWasmPath =
   "package/src/browser/generated/privacy_pools_sdk_web_bg.wasm";
 
@@ -91,11 +100,28 @@ function main() {
   }
 
   const wasm = readFileSync(generatedWasm);
+  assertSiblingSha256(generatedWasm, generatedWasmHash, wasm);
   assertWasmHasNoCustomSections(wasm);
   assertWasmHasNoHostPaths(wasm);
 
+  if (existsSync(threadedGeneratedWasm)) {
+    assertSiblingSha256(threadedGeneratedWasm, threadedGeneratedWasmHash);
+  }
+
   if (options.mode === "canonical") {
     validateCanonicalPackageWasm(generatedWasm, options.packageTarball);
+  }
+}
+
+function assertSiblingSha256(wasmPath, hashPath, wasmBytes = readFileSync(wasmPath)) {
+  if (!existsSync(hashPath)) {
+    throw new Error(`missing WASM integrity file: ${hashPath}`);
+  }
+
+  const expected = readFileSync(hashPath, "utf8").trim();
+  const actual = createHash("sha256").update(wasmBytes).digest("hex");
+  if (expected !== actual) {
+    throw new Error(`WASM integrity mismatch for ${wasmPath}: expected ${expected}, got ${actual}`);
   }
 }
 

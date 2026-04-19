@@ -29,18 +29,22 @@ warnings = [
 owner = "sdk-core"
 review_date = "2026-07-01"
 exit_condition = "remove the derivative dependency path from circom-prover and the proving stack"
+reachability = "Transitive through circom-prover and the proving stack; affects prover-adjacent code paths but does not execute inside the verifier."
 
 [metadata.RUSTSEC-2024-0436]
 owner = "sdk-core"
 review_date = "2026-07-01"
 exit_condition = "remove the paste dependency path from alloy and related transitive crates"
+reachability = "Transitive through alloy and macro-heavy support crates; not on the prover or verifier runtime call graph."
 
 [metadata.RUSTSEC-2025-0055]
 owner = "sdk-core"
 review_date = "2026-07-01"
 exit_condition = "upgrade or replace the affected circom-prover or ark-relations path with a semver-safe fix"
+reachability = "Transitive through circom-prover and ark-relations; reachable from proof generation and constraint synthesis, not from verifier-only execution."
 
 [metadata.RUSTSEC-2026-0097]
 owner = "sdk-core"
 review_date = "2026-07-01"
 exit_condition = "upgrade the rand 0.8.5 path or permanently eliminate the affected feature combination"
+reachability = "Transitive through arkworks/alloy only when the affected feature combination is enabled; current verifier path keeps that combination off and prover usage remains reviewed."

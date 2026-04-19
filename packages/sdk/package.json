@@ -49,6 +49,7 @@
     "build:web:experimental-threaded": "node ./scripts/build-web.mjs --experimental-threaded",
     "build:web:release": "node ./scripts/build-web.mjs --release",
     "check:generated": "npm run build:web && node ./scripts/check-generated.mjs --mode pr-safe",
+    "check:default-artifact-symbols": "node ./scripts/check-default-artifact-symbols.mjs",
     "compare:rust:stateful:node": "node ./scripts/compare-rust-stateful.mjs",
     "compare:rust:stateful:react-native": "PRIVACY_POOLS_STATEFUL_RUNTIME=react-native node ./scripts/compare-rust-stateful.mjs",
     "compare:v1-npm": "node ./scripts/compare-v1-npm.mjs",
@@ -71,6 +72,7 @@
     "privacy_pools_sdk_node.node"
   ],
   "devDependencies": {
+    "@0xbow/privacy-pools-core-sdk": "1.2.0",
     "@playwright/test": "^1.59.1"
   },
   "dependencies": {
