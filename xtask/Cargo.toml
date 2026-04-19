@@ -11,11 +11,14 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 camino.workspace = true
+cargo_metadata = "0.23.1"
 hex.workspace = true
 privacy-pools-sdk-artifacts = { version = "0.1.0", path = "../crates/privacy-pools-sdk-artifacts" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+syn = { version = "2.0.110", features = ["full", "parsing", "visit"] }
+toml = "0.9.8"
 uniffi.workspace = true
 
 [dev-dependencies]
