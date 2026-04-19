@@ -11,12 +11,11 @@
 //! [`generate_merkle_proof`] and [`to_circuit_witness`] again".
 
 use alloy_primitives::U256;
-use lean_imt::lean_imt::{LeanIMT, LeanIMTError, MerkleProof as LeanMerkleProof};
 use privacy_pools_sdk_core::{
     CircuitMerkleWitness, FieldElement, MerkleProof, parse_decimal_field,
 };
 use privacy_pools_sdk_crypto::poseidon_hash;
-use std::{cell::RefCell, sync::LazyLock};
+use std::sync::LazyLock;
 use thiserror::Error;
 
 pub const DEFAULT_CIRCUIT_DEPTH: usize = 32;
@@ -28,16 +27,10 @@ static SNARK_SCALAR_FIELD_MODULUS: LazyLock<FieldElement> = LazyLock::new(|| {
     )
     .unwrap_or(U256::ZERO)
 });
-thread_local! {
-    static LEAN_HASH_ERROR: RefCell<Option<TreeError>> = const { RefCell::new(None) };
-}
-
 #[derive(Debug, Error)]
 pub enum TreeError {
     #[error("leaf not found in the leaves array")]
     LeafNotFound,
-    #[error("invalid lean hash input length: expected 64 bytes, got {actual}")]
-    InvalidLeanHashInput { actual: usize },
     #[error("invalid circuit witness shape: expected {expected} siblings, got {actual}")]
     InvalidCircuitWitnessShape { expected: usize, actual: usize },
     #[error("circuit witness index {index} exceeds circuit index bit width {depth}")]
@@ -52,8 +45,6 @@ pub enum TreeError {
         value: FieldElement,
         modulus: FieldElement,
     },
-    #[error(transparent)]
-    LeanImt(#[from] LeanIMTError),
     #[error(transparent)]
     Crypto(#[from] privacy_pools_sdk_crypto::CryptoError),
 }
@@ -71,11 +62,12 @@ pub fn generate_merkle_proof(
         .copied()
         .map(field_to_bytes)
         .collect::<Vec<_>>();
-    let tree = with_lean_hash_error(|| LeanIMT::<32>::new(&leaf_bytes, lean_poseidon_hash))??;
-    let leaf_index = tree
-        .index_of(&field_to_bytes(leaf))
+    let leaf_index = leaf_bytes
+        .iter()
+        .position(|value| *value == field_to_bytes(leaf))
         .ok_or(TreeError::LeafNotFound)?;
-    let proof = from_lean_proof(tree.generate_proof(leaf_index)?);
+    let levels = build_merkle_levels(&leaf_bytes)?;
+    let proof = build_merkle_proof(&levels, leaf_index)?;
     validate_merkle_proof_fields(&proof)?;
     Ok(proof)
 }
@@ -84,13 +76,8 @@ pub fn verify_merkle_proof(proof: &MerkleProof) -> bool {
     if validate_merkle_proof_fields(proof).is_err() {
         return false;
     }
-    let lean = LeanMerkleProof {
-        root: field_to_bytes(proof.root),
-        leaf: field_to_bytes(proof.leaf),
-        index: proof.index,
-        siblings: proof.siblings.iter().copied().map(field_to_bytes).collect(),
-    };
-    with_lean_hash_error(|| LeanIMT::<32>::verify_proof(&lean, lean_poseidon_hash))
+    compute_proof_root(proof)
+        .map(|root| root == proof.root)
         .unwrap_or(false)
 }
 
@@ -168,54 +155,86 @@ pub fn verify_circuit_witness(witness: &CircuitMerkleWitness) -> Result<bool, Tr
     Ok(compute_circuit_root(witness)? == witness.root)
 }
 
-fn from_lean_proof(proof: LeanMerkleProof<32>) -> MerkleProof {
-    MerkleProof {
-        root: bytes_to_field(proof.root),
-        leaf: bytes_to_field(proof.leaf),
-        index: proof.index,
-        siblings: proof.siblings.into_iter().map(bytes_to_field).collect(),
+fn build_merkle_levels(leaves: &[[u8; 32]]) -> Result<Vec<Vec<[u8; 32]>>, TreeError> {
+    let mut levels = vec![leaves.to_vec()];
+    while levels.last().is_some_and(|level| level.len() > 1) {
+        let current = levels.last().expect("checked above");
+        let mut parents = Vec::with_capacity(current.len().div_ceil(2));
+        let mut index = 0;
+        while index < current.len() {
+            let left = current[index];
+            let parent = if let Some(right) = current.get(index + 1).copied() {
+                hash_children(left, right)?
+            } else {
+                left
+            };
+            parents.push(parent);
+            index += 2;
+        }
+        levels.push(parents);
     }
+    Ok(levels)
 }
 
-fn with_lean_hash_error<T>(operation: impl FnOnce() -> T) -> Result<T, TreeError> {
-    LEAN_HASH_ERROR.with(|slot| {
-        *slot.borrow_mut() = None;
-    });
-    let value = operation();
-    let error = LEAN_HASH_ERROR.with(|slot| slot.borrow_mut().take());
-    match error {
-        Some(error) => Err(error),
-        None => Ok(value),
+fn build_merkle_proof(
+    levels: &[Vec<[u8; 32]>],
+    mut index: usize,
+) -> Result<MerkleProof, TreeError> {
+    let leaf = levels
+        .first()
+        .and_then(|level| level.get(index))
+        .copied()
+        .ok_or(TreeError::LeafNotFound)?;
+    let root = levels
+        .last()
+        .and_then(|level| level.first())
+        .copied()
+        .ok_or(TreeError::LeafNotFound)?;
+    let mut siblings = Vec::new();
+    let mut path = Vec::new();
+
+    for level in levels.iter().take(levels.len().saturating_sub(1)) {
+        let is_right = index & 1 != 0;
+        let sibling_index = if is_right { index - 1 } else { index + 1 };
+        if let Some(sibling) = level.get(sibling_index).copied() {
+            path.push(is_right);
+            siblings.push(bytes_to_field(sibling));
+        }
+        index >>= 1;
     }
+
+    let final_index = path
+        .iter()
+        .rev()
+        .fold(0, |acc, &is_right| (acc << 1) | usize::from(is_right));
+
+    Ok(MerkleProof {
+        root: bytes_to_field(root),
+        leaf: bytes_to_field(leaf),
+        index: final_index,
+        siblings,
+    })
 }
 
-fn try_lean_poseidon_hash(input: &[u8]) -> Result<[u8; 32], TreeError> {
-    if input.len() != 64 {
-        return Err(TreeError::InvalidLeanHashInput {
-            actual: input.len(),
-        });
+fn compute_proof_root(proof: &MerkleProof) -> Result<FieldElement, TreeError> {
+    let mut node = proof.leaf;
+    for (level, sibling) in proof.siblings.iter().copied().enumerate() {
+        let is_right = ((proof.index >> level) & 1) == 1;
+        node = if is_right {
+            poseidon_hash(&[sibling, node])?
+        } else {
+            poseidon_hash(&[node, sibling])?
+        };
     }
+    Ok(node)
+}
 
-    let left = U256::from_be_slice(&input[..32]);
-    let right = U256::from_be_slice(&input[32..64]);
+fn hash_children(left: [u8; 32], right: [u8; 32]) -> Result<[u8; 32], TreeError> {
+    let left = bytes_to_field(left);
+    let right = bytes_to_field(right);
     ensure_canonical_field(left, "left")?;
     ensure_canonical_field(right, "right")?;
     Ok(field_to_bytes(poseidon_hash(&[left, right])?))
-}
-
-fn lean_poseidon_hash(input: &[u8]) -> [u8; 32] {
-    match try_lean_poseidon_hash(input) {
-        Ok(value) => value,
-        Err(error) => {
-            LEAN_HASH_ERROR.with(|slot| {
-                let mut slot = slot.borrow_mut();
-                if slot.is_none() {
-                    *slot = Some(error);
-                }
-            });
-            [0_u8; 32]
-        }
-    }
 }
 
 fn bytes_to_field(bytes: [u8; 32]) -> U256 {
