@@ -3,17 +3,14 @@ import { ScrollView, Text, View } from "react-native";
 import {
   buildCircuitMerkleWitness,
   buildCommitmentCircuitInput,
-  clearExecutionHandles,
-  clearSecretHandles,
-  clearVerifiedProofHandles,
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
   cancelJob,
+  clearExecutionHandles,
+  clearSecretHandles,
+  clearVerifiedProofHandles,
   checkpointRecovery,
-  deriveDepositSecrets,
-  deriveMasterKeysHandle,
-  deriveMasterKeys,
-  deriveWithdrawalSecrets,
+  deriveMasterKeysHandleBytes,
   finalizePreparedTransaction,
   finalizePreparedTransactionForSigner,
   finalizePreflightedTransactionHandle,
@@ -108,6 +105,7 @@ const manifestJson = JSON.stringify({
 const artifactsRoot = "/tmp/privacy-pools-sdk";
 const mnemonic =
   "test test test test test test test test test test test junk";
+const mnemonicBytes = Array.from(new TextEncoder().encode(mnemonic));
 
 const proofBundle = {
   proof: {
@@ -247,9 +245,17 @@ const recoveryEvents = [
 const smokePromises = [
   getVersion(),
   getStableBackendName(),
-  deriveMasterKeys(mnemonic),
-  deriveDepositSecrets("1", "2", scope, "0"),
-  deriveWithdrawalSecrets("1", "2", commitment.label, "0"),
+  deriveMasterKeysHandleBytes(mnemonicBytes),
+  generateDepositSecretsHandle(
+    "00000000-0000-4000-8000-000000000001" as SecretHandle,
+    scope,
+    "0",
+  ),
+  generateWithdrawalSecretsHandle(
+    "00000000-0000-4000-8000-000000000001" as SecretHandle,
+    commitment.label,
+    "0",
+  ),
   getCommitment(
     commitment.value,
     commitment.label,
@@ -366,7 +372,7 @@ const submittedPreflightedHandle =
   "00000000-0000-4000-8000-000000000005" as SubmittedPreflightedTransactionHandle;
 
 const secretHandleSurface = {
-  deriveMasterKeysHandle,
+  deriveMasterKeysHandleBytes,
   generateDepositSecretsHandle,
   generateWithdrawalSecretsHandle,
   getCommitmentFromHandles,
@@ -376,7 +382,7 @@ const secretHandleSurface = {
   removeSecretHandle,
   clearSecretHandles,
 } satisfies Record<
-  | "deriveMasterKeysHandle"
+  | "deriveMasterKeysHandleBytes"
   | "generateDepositSecretsHandle"
   | "generateWithdrawalSecretsHandle"
   | "getCommitmentFromHandles"

@@ -52,7 +52,6 @@ export {
   clearExecutionHandles,
   clearSecretHandles,
   clearVerifiedProofHandles,
-  deriveMasterKeysHandle,
   deriveMasterKeysHandleBytes,
   finalizePreparedTransaction,
   finalizePreparedTransactionForSigner,

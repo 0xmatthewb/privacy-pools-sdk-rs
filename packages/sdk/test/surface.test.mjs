@@ -217,6 +217,29 @@ test("dangerous export helpers live only on debug surfaces", () => {
   }
 });
 
+test("string mnemonic helpers stay off safe/default surfaces", () => {
+  assert.doesNotMatch(
+    sdkTypeDeclarations,
+    /\bderiveMasterKeysHandle\s*\(/,
+    "packages/sdk/src/safe.d.ts should not expose deriveMasterKeysHandle by default",
+  );
+  assert.match(
+    sdkTestingDeclarations,
+    /\bderiveMasterKeysHandle\s*\(/,
+    "packages/sdk/src/index.d.ts should keep deriveMasterKeysHandle for testing flows",
+  );
+  assert.doesNotMatch(
+    reactNativeSource,
+    /\bderiveMasterKeysHandle\b/,
+    "packages/react-native/src/safe.ts should not expose deriveMasterKeysHandle by default",
+  );
+  assert.match(
+    reactNativeIndexSource,
+    /\bderiveMasterKeysHandle\s*\(/,
+    "packages/react-native/src/index.ts should keep deriveMasterKeysHandle for testing flows",
+  );
+});
+
 test("safe worker surface does not register dangerous export rpc methods", () => {
   for (const symbol of [
     "dangerouslyExportMasterKeys",

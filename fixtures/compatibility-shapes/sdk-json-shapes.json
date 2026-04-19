@@ -847,7 +847,7 @@
         "SubmittedPreflightedTransactionHandle"
       ],
       "secretHandleExports": [
-        "deriveMasterKeysHandle",
+        "deriveMasterKeysHandleBytes",
         "generateDepositSecretsHandle",
         "generateWithdrawalSecretsHandle",
         "getCommitmentFromHandles",

@@ -40,7 +40,6 @@ const SAFE_CLIENT_METHODS = [
   "getVersion",
   "getStableBackendName",
   "supportsExperimentalThreadedBrowserProving",
-  "deriveMasterKeysHandle",
   "deriveMasterKeysHandleBytes",
   "generateDepositSecretsHandle",
   "generateWithdrawalSecretsHandle",
@@ -118,8 +117,6 @@ export function createWorkerClient(worker) {
 
 const defaultClient = createPrivacyPoolsSdkClient();
 
-export const deriveMasterKeysHandle = (mnemonic) =>
-  defaultClient.deriveMasterKeysHandle(mnemonic);
 export const deriveMasterKeysHandleBytes = (mnemonicBytes) =>
   defaultClient.deriveMasterKeysHandleBytes(mnemonicBytes);
 export const generateDepositSecretsHandle = (masterKeys, scope, index) =>

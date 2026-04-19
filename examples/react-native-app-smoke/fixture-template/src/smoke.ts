@@ -2,19 +2,18 @@ import { NativeModules, Platform } from "react-native";
 import {
   buildWithdrawalCircuitInput,
   calculateWithdrawalContext,
-  deriveDepositSecrets,
-  deriveMasterKeysHandle,
-  deriveMasterKeys,
-  deriveWithdrawalSecrets,
+  deriveMasterKeysHandleBytes,
   type ExecutionPolicy,
   finalizePreparedTransaction,
   generateDepositSecretsHandle,
+  generateWithdrawalSecretsHandle,
   generateMerkleProof,
   getCommitment,
   getCommitmentFromHandles,
   getStableBackendName,
   planVerifiedRagequitTransactionWithHandle,
   planVerifiedWithdrawalTransactionWithHandle,
+  removeSecretHandle,
   removeVerifiedProofHandle,
   submitSignedTransaction,
   verifySignedManifest,
@@ -122,6 +121,10 @@ type MerkleCase = {
   leaves: string[];
   leaf: string;
 };
+
+function utf8Bytes(value: string): number[] {
+  return Array.from(new TextEncoder().encode(value));
+}
 
 type GoldenFixture = {
   cases: Array<{
@@ -598,7 +601,9 @@ async function runSmokeFlow(
   );
 
   await markSmokeProgress("checking verified proof handle lifecycle");
-  const masterKeysHandle = await deriveMasterKeysHandle(crypto.mnemonic);
+  const masterKeysHandle = await deriveMasterKeysHandleBytes(
+    utf8Bytes(crypto.mnemonic),
+  );
   const depositSecretsHandle = await generateDepositSecretsHandle(
     masterKeysHandle,
     crypto.scope,
@@ -798,64 +803,88 @@ async function runParityChecks(
       continue;
     }
 
-    const masterKeys = normalizeObject(await deriveMasterKeys(fixture.mnemonic));
-    recordCheck(`${fixture.name}: masterKeys`, masterKeys, expected.masterKeys);
-
-    const depositSecrets = normalizeObject(
-      await deriveDepositSecrets(
-        masterKeys.masterNullifier,
-        masterKeys.masterSecret,
-        fixture.scope,
-        fixture.depositIndex,
-      ),
+    const masterKeysHandle = await deriveMasterKeysHandleBytes(
+      utf8Bytes(fixture.mnemonic),
     );
-    recordCheck(
-      `${fixture.name}: depositSecrets`,
-      depositSecrets,
-      expected.depositSecrets,
-    );
-
-    const withdrawalSecrets = normalizeObject(
-      await deriveWithdrawalSecrets(
-        masterKeys.masterNullifier,
-        masterKeys.masterSecret,
-        fixture.label,
-        fixture.withdrawalIndex,
-      ),
-    );
-    recordCheck(
-      `${fixture.name}: withdrawalSecrets`,
-      withdrawalSecrets,
-      expected.withdrawalSecrets,
-    );
-
-    const commitment = normalizeCommitment(
-      await getCommitment(
-        fixture.value,
-        fixture.label,
-        depositSecrets.nullifier,
-        depositSecrets.secret,
-      ),
-    );
-    recordCheck(
-      `${fixture.name}: precommitmentHash`,
-      commitment.precommitmentHash,
-      expected.precommitmentHash,
-    );
-    recordCheck(`${fixture.name}: commitment`, commitment, expected.commitment);
-
-    const withdrawalContextHex = await calculateWithdrawalContext(
-      {
-        processooor: fixture.withdrawal.processooor,
-        data: hexToBytes(fixture.withdrawal.data),
-      },
+    const depositSecretsHandle = await generateDepositSecretsHandle(
+      masterKeysHandle,
       fixture.scope,
+      fixture.depositIndex,
     );
-    recordCheck(
-      `${fixture.name}: withdrawalContextHex`,
-      withdrawalContextHex,
-      expected.withdrawalContextHex,
+    const withdrawalSecretsHandle = await generateWithdrawalSecretsHandle(
+      masterKeysHandle,
+      fixture.label,
+      fixture.withdrawalIndex,
     );
+
+    try {
+      checks.push({
+        name: `${fixture.name}: masterKeysHandle`,
+        passed: masterKeysHandle.length > 0,
+      });
+      checks.push({
+        name: `${fixture.name}: depositSecretsHandle`,
+        passed: depositSecretsHandle.length > 0,
+      });
+      checks.push({
+        name: `${fixture.name}: withdrawalSecretsHandle`,
+        passed: withdrawalSecretsHandle.length > 0,
+      });
+
+      const commitment = normalizeCommitment(
+        await getCommitmentFromHandles(
+          fixture.value,
+          fixture.label,
+          depositSecretsHandle,
+        ),
+      );
+      recordCheck(
+        `${fixture.name}: precommitmentHash`,
+        commitment.precommitmentHash,
+        expected.precommitmentHash,
+      );
+      recordCheck(`${fixture.name}: commitment`, commitment, expected.commitment);
+
+      const withdrawalSecretsCommitment = normalizeCommitment(
+        await getCommitmentFromHandles(
+          fixture.value,
+          fixture.label,
+          withdrawalSecretsHandle,
+        ),
+      );
+      const expectedWithdrawalSecretsCommitment = normalizeCommitment(
+        await getCommitment(
+          fixture.value,
+          fixture.label,
+          expected.withdrawalSecrets.nullifier,
+          expected.withdrawalSecrets.secret,
+        ),
+      );
+      recordCheck(
+        `${fixture.name}: withdrawalSecretsCommitment`,
+        withdrawalSecretsCommitment,
+        expectedWithdrawalSecretsCommitment,
+      );
+
+      const withdrawalContextHex = await calculateWithdrawalContext(
+        {
+          processooor: fixture.withdrawal.processooor,
+          data: hexToBytes(fixture.withdrawal.data),
+        },
+        fixture.scope,
+      );
+      recordCheck(
+        `${fixture.name}: withdrawalContextHex`,
+        withdrawalContextHex,
+        expected.withdrawalContextHex,
+      );
+    } finally {
+      await Promise.all([
+        removeSecretHandle(withdrawalSecretsHandle),
+        removeSecretHandle(depositSecretsHandle),
+        removeSecretHandle(masterKeysHandle),
+      ]);
+    }
   }
 
   for (const fixture of auditCases.merkleCases) {
@@ -993,18 +1022,17 @@ function assertSafeSurfaceLinked(): void {
   const safeExports = {
     buildWithdrawalCircuitInput,
     calculateWithdrawalContext,
-    deriveDepositSecrets,
-    deriveMasterKeys,
     deriveMasterKeysHandle,
-    deriveWithdrawalSecrets,
     finalizePreparedTransaction,
     generateDepositSecretsHandle,
+    generateWithdrawalSecretsHandle,
     generateMerkleProof,
     getCommitment,
     getCommitmentFromHandles,
     getStableBackendName,
     planVerifiedRagequitTransactionWithHandle,
     planVerifiedWithdrawalTransactionWithHandle,
+    removeSecretHandle,
     removeVerifiedProofHandle,
     submitSignedTransaction,
     verifySignedManifest,
@@ -1067,18 +1095,17 @@ function assertSafeNativeMethodsLinked(): void {
   const requiredMethods = [
     "buildWithdrawalCircuitInput",
     "calculateWithdrawalContext",
-    "deriveDepositSecrets",
-    "deriveMasterKeys",
     "deriveMasterKeysHandle",
-    "deriveWithdrawalSecrets",
     "finalizePreparedTransaction",
     "generateDepositSecretsHandle",
+    "generateWithdrawalSecretsHandle",
     "generateMerkleProof",
     "getCommitment",
     "getCommitmentFromHandles",
     "getStableBackendName",
     "planVerifiedRagequitTransactionWithHandle",
     "planVerifiedWithdrawalTransactionWithHandle",
+    "removeSecretHandle",
     "removeVerifiedProofHandle",
     "submitSignedTransaction",
     "verifySignedManifest",
@@ -1088,7 +1115,21 @@ function assertSafeNativeMethodsLinked(): void {
     (name) => typeof nativeModule?.[name] !== "function",
   );
   if (missingMethods.length === 0) {
-    return;
+    const unexpectedPlaintextMethods = [
+      "deriveMasterKeys",
+      "deriveDepositSecrets",
+      "deriveWithdrawalSecrets",
+    ].filter((name) => typeof nativeModule?.[name] === "function");
+    if (unexpectedPlaintextMethods.length === 0) {
+      return;
+    }
+
+    throw new Error(
+      [
+        `react native safe surface unexpectedly exposes plaintext helpers: ${unexpectedPlaintextMethods.join(", ")}`,
+        `linked native methods: ${Object.keys(nativeModule ?? {}).sort().join(", ") || "(none)"}`,
+      ].join("; "),
+    );
   }
 
   throw new Error(

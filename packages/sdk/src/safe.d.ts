@@ -85,7 +85,11 @@ export type ExecutionPolicy = {
   expected_pool_code_hash?: string | null;
   expectedEntrypointCodeHash?: string | null;
   expected_entrypoint_code_hash?: string | null;
-  mode?: "strict" | "insecure_dev";
+  readConsistency?: "latest" | "finalized" | null;
+  read_consistency?: "latest" | "finalized" | null;
+  maxFeeQuoteWei?: string | null;
+  max_fee_quote_wei?: string | null;
+  mode?: "strict" | "insecure_dev" | null;
 };
 
 export type CodeHashCheck = {
@@ -113,7 +117,9 @@ export type ExecutionPreflightReport = {
   chainIdMatches: boolean;
   simulated: boolean;
   estimatedGas: number;
-  mode?: "strict" | "insecure_dev";
+  readConsistency?: "latest" | "finalized" | null;
+  maxFeeQuoteWei?: string | null;
+  mode?: "strict" | "insecure_dev" | null;
   codeHashChecks: CodeHashCheck[];
   rootChecks: RootCheck[];
 };
@@ -740,7 +746,6 @@ export class PrivacyPoolsSdkClient {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
   supportsExperimentalThreadedBrowserProving(): Promise<boolean>;
-  deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
   deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
   generateDepositSecretsHandle(
     masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
@@ -922,7 +927,6 @@ export function supportsExperimentalThreadedBrowserProving(): boolean;
 export function initializeExperimentalThreadedBrowserProving(options?: {
   threadCount?: number;
 }): Promise<ExperimentalThreadedInitialization>;
-export function deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
 export function deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
 export function generateDepositSecretsHandle(
   masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
