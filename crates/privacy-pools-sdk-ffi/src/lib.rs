@@ -643,6 +643,10 @@ fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
     })
 }
 
+fn validate_json_boundary(value: &str, max_bytes: usize) -> Result<(), FfiError> {
+    parse_json_with_limit::<serde_json::Value>(value, max_bytes).map(|_| ())
+}
+
 fn parse_address(value: &str) -> Result<Address, FfiError> {
     Address::from_str(value).map_err(|_| FfiError::InvalidAddress(value.to_owned()))
 }
@@ -2346,7 +2350,7 @@ pub fn get_stable_backend_name() -> Result<String, FfiError> {
 pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     let keys = sdk()
         .generate_master_keys(&mnemonic)
-        .map_err(map_sdk_error)?;
+        .map_err(map_crypto_error)?;
 
     Ok(FfiMasterKeys {
         master_nullifier: keys.master_nullifier.to_decimal_string(),
@@ -3802,6 +3806,7 @@ pub fn verify_signed_manifest(
     signature_hex: String,
     public_key_hex: String,
 ) -> Result<FfiVerifiedSignedManifest, FfiError> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES)?;
     let payload = privacy_pools_sdk::artifacts::verify_signed_manifest_bytes(
         payload_json.as_bytes(),
         &signature_hex,
@@ -3818,6 +3823,7 @@ pub fn verify_signed_manifest_artifacts(
     public_key_hex: String,
     artifacts: Vec<FfiSignedManifestArtifactBytes>,
 ) -> Result<FfiVerifiedSignedManifest, FfiError> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES)?;
     let verified = privacy_pools_sdk::artifacts::verify_signed_manifest_artifact_bytes(
         payload_json.as_bytes(),
         &signature_hex,
@@ -6327,6 +6333,35 @@ mod tests {
                 ],
             ),
             Err(FfiError::OperationFailed(message)) if message.contains("unexpected")
+        ));
+    }
+
+    #[test]
+    fn ffi_signed_manifest_checks_payload_size_before_signature_validation() {
+        let oversized_payload = format!(
+            "{{\"padding\":\"{}\"}}",
+            "a".repeat(MAX_CONTROL_JSON_INPUT_BYTES)
+        );
+
+        assert!(matches!(
+            verify_signed_manifest(
+                oversized_payload.clone(),
+                "00".repeat(64),
+                "00".repeat(32),
+            ),
+            Err(FfiError::PayloadTooLarge(message))
+                if message.contains("exceeds maximum size")
+        ));
+
+        assert!(matches!(
+            verify_signed_manifest_artifacts(
+                oversized_payload,
+                "00".repeat(64),
+                "00".repeat(32),
+                vec![],
+            ),
+            Err(FfiError::PayloadTooLarge(message))
+                if message.contains("exceeds maximum size")
         ));
     }
 }
