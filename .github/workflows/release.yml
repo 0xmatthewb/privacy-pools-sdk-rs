@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -37,7 +37,7 @@ jobs:
 
   crate-packages:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write
@@ -51,7 +51,7 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - run: cargo package --workspace --allow-dirty --no-verify
+      - run: cargo package --workspace --allow-dirty --no-verify --locked
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: crate-packages-${{ inputs.channel }}
@@ -102,7 +102,7 @@ jobs:
 
   sdk-web-package:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write
@@ -124,9 +124,17 @@ jobs:
         uses: ./.github/actions/install-rust-ci-tools
         with:
           profile: release-browser
-      - run: sudo apt-get update && sudo apt-get install -y binaryen
-      - run: npm ci
-        working-directory: packages/sdk
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - run: cargo run -p xtask -- sdk-web-package --release
       - run: npm pack
         working-directory: packages/sdk
@@ -201,7 +209,7 @@ jobs:
 
   circuit-artifacts:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write
@@ -323,7 +331,7 @@ jobs:
 
   react-native-android-native:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       id-token: write
@@ -406,7 +414,7 @@ jobs:
       - validate
       - react-native-ios-native
       - react-native-android-native
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       actions: read
@@ -489,7 +497,7 @@ jobs:
 
   sbom:
     needs: validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -506,8 +514,9 @@ jobs:
         uses: ./.github/actions/install-rust-ci-tools
         with:
           profile: release-sbom
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - run: mkdir -p target/release-sbom/sbom
       - run: mkdir -p target/release-sbom/auditable
       - run: |
@@ -519,7 +528,7 @@ jobs:
             cp "$path" "target/release-sbom/sbom/rust/$name"
             rm -f "$path"
           done < <(find crates xtask -name rust.cdx.json | sort)
-      - run: cargo auditable build --release -p privacy-pools-sdk-cli
+      - run: cargo auditable build --release -p privacy-pools-sdk-cli --locked
       - run: cp target/release/privacy-pools-sdk-cli target/release-sbom/auditable/privacy-pools-sdk-cli
       - run: npm sbom --json --sbom-format spdx > ../../target/release-sbom/sbom/sdk.spdx.json
         working-directory: packages/sdk
@@ -537,7 +546,7 @@ jobs:
       - circuit-artifacts
       - react-native-package
       - sbom
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
       actions: read

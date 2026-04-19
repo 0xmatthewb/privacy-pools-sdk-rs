@@ -1,0 +1,22 @@
+name: npm-ci-retry
+description: Run npm ci with retry on transient registry errors.
+inputs:
+  working-directory:
+    description: Directory to run npm ci from
+    required: false
+    default: .
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        cd "${{ inputs.working-directory }}"
+        for attempt in 1 2 3; do
+          if npm ci --no-audit --no-fund --prefer-offline; then
+            exit 0
+          fi
+          echo "npm ci attempt $attempt failed; sleeping $((attempt * 5))s"
+          sleep $((attempt * 5))
+        done
+        exit 1

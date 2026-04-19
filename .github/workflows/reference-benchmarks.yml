@@ -45,8 +45,9 @@ jobs:
         uses: ./.github/actions/install-rust-ci-tools
         with:
           profile: release-browser
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - run: npx playwright install chromium
         working-directory: packages/sdk
       - run: npm run build:native:release
@@ -57,7 +58,7 @@ jobs:
         working-directory: packages/sdk
       - run: mkdir -p target/reference-benchmarks/benchmarks
       - run: |
-          cargo run --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
+          cargo run --locked --release -p privacy-pools-sdk-cli -- benchmark-withdraw \
             --manifest fixtures/artifacts/withdrawal-proving-manifest.json \
             --artifacts-root fixtures/artifacts \
             --backend stable \
@@ -111,8 +112,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
       - run: cargo run -p xtask -- react-native-package --release --with-ios-native
       - run: bindings/ios/scripts/run-smoke-xctest.sh
@@ -147,8 +149,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: temurin
@@ -198,7 +201,7 @@ jobs:
       - desktop
       - react-native-ios
       - react-native-android
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:

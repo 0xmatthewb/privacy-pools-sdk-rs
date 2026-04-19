@@ -36,8 +36,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - name: select xcode 16.4
         run: |
           sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer
@@ -89,8 +90,11 @@ jobs:
 
   android_mobile_smoke:
     name: android-mobile-smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 75
+    env:
+      API_LEVEL: "35"
+      TARGET: google_apis
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -103,8 +107,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - run: npm ci
-        working-directory: packages/sdk
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
       - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5
         with:
           distribution: temurin
@@ -139,15 +144,23 @@ jobs:
           test -f packages/react-native/android/src/main/jniLibs/arm64-v8a/libprivacy_pools_sdk_ffi.so
           test -f packages/react-native/android/src/main/jniLibs/x86_64/libprivacy_pools_sdk_ffi.so
           cd packages/react-native && npm pack --dry-run --json
+      - name: AVD cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.API_LEVEL }}-${{ env.TARGET }}-v1
       - id: android_native_smoke
         name: native smoke
         if: ${{ steps.package_prep.outcome == 'success' }}
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
         with:
-          api-level: 35
+          api-level: ${{ env.API_LEVEL }}
           arch: x86_64
-          target: google_apis
+          target: ${{ env.TARGET }}
           script: cd "$GITHUB_WORKSPACE" && cargo run -p xtask -- mobile-smoke-local --platform android --surface native --out-dir "$GITHUB_WORKSPACE/target/mobile-smoke-local"
       - id: android_react_native_smoke
         name: react native smoke
@@ -155,9 +168,9 @@ jobs:
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@e89f39f1abbbd05b1113a29cf4db69e7540cae5a # v2
         with:
-          api-level: 35
+          api-level: ${{ env.API_LEVEL }}
           arch: x86_64
-          target: google_apis
+          target: ${{ env.TARGET }}
           script: cd "$GITHUB_WORKSPACE" && cargo run -p xtask -- mobile-smoke-local --platform android --surface react-native --out-dir "$GITHUB_WORKSPACE/target/mobile-smoke-local"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
@@ -180,7 +193,7 @@ jobs:
     needs:
       - ios_mobile_smoke
       - android_mobile_smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

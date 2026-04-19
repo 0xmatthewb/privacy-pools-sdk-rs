@@ -20,6 +20,10 @@ runs:
         verify=""
 
         case "$PROFILE" in
+          rust-core)
+            tools="cargo-nextest@0.9.114"
+            verify=$'cargo-nextest 0.9.114'
+            ;;
           fuzz)
             tools="cargo-fuzz@0.13.1"
             verify=$'cargo-fuzz 0.13.1'
@@ -41,8 +45,8 @@ runs:
             verify=$'cargo-ndk 4.1.2'
             ;;
           nightly|release-assurance)
-            tools="cargo-hack@0.6.44,cargo-deny@0.19.4,cargo-audit@0.22.1,cargo-vet@0.10.2,cargo-geiger@0.13.0,cargo-mutants@27.0.0,cargo-cyclonedx@0.5.9,zizmor@1.24.1,wasm-bindgen-cli@0.2.118,cargo-ndk@4.1.2"
-            verify=$'cargo-hack 0.6.44\ncargo-deny 0.19.4\ncargo-audit 0.22.1\ncargo-vet 0.10.2\ncargo-geiger 0.13.0\ncargo-mutants 27.0.0\ncargo-cyclonedx 0.5.9\nzizmor 1.24.1\nwasm-bindgen 0.2.118\ncargo-ndk 4.1.2'
+            tools="cargo-hack@0.6.44,cargo-deny@0.19.4,cargo-audit@0.22.1,cargo-vet@0.10.2,cargo-geiger@0.13.0,cargo-mutants@27.0.0,cargo-cyclonedx@0.5.9,zizmor@1.24.1,wasm-bindgen-cli@0.2.118,cargo-ndk@4.1.2,cargo-nextest@0.9.114"
+            verify=$'cargo-hack 0.6.44\ncargo-deny 0.19.4\ncargo-audit 0.22.1\ncargo-vet 0.10.2\ncargo-geiger 0.13.0\ncargo-mutants 27.0.0\ncargo-cyclonedx 0.5.9\nzizmor 1.24.1\nwasm-bindgen 0.2.118\ncargo-ndk 4.1.2\ncargo-nextest 0.9.114'
             ;;
           release-sbom)
             tools="cargo-cyclonedx@0.5.9,cargo-auditable@0.7.4"
