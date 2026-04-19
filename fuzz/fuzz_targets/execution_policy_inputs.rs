@@ -88,7 +88,9 @@ impl ExecutionClient for MockClient {
         self.roots
             .get(&(read.contract_address, read.call_data.clone()))
             .copied()
-            .ok_or_else(|| ChainError::Transport(format!("missing root for {}", read.contract_address)))
+            .ok_or_else(|| {
+                ChainError::Transport(format!("missing root for {}", read.contract_address))
+            })
     }
 
     async fn simulate_transaction(
@@ -150,7 +152,10 @@ fuzz_target!(|data: &[u8]| {
             U256::from_be_slice(entrypoint.as_slice()),
         ),
         (
-            (pool, state_root_read(pool, ReadConsistency::Latest).call_data),
+            (
+                pool,
+                state_root_read(pool, ReadConsistency::Latest).call_data,
+            ),
             actual_state_root,
         ),
         ((pool, current_root_index_read(pool).call_data), U256::ZERO),

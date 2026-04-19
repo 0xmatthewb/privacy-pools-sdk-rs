@@ -17,6 +17,11 @@ use privacy_pools_sdk::{
         RagequitExecutionConfig, ReadConsistency, RelayExecutionConfig, RootCheck, RootReadKind,
         SnarkJsProof, TransactionPlan, TransactionReceiptSummary, Withdrawal,
         WithdrawalCircuitInput, WithdrawalExecutionConfig, WithdrawalWitnessRequest,
+        limits::{
+            LimitError, MAX_ARTIFACT_JSON_INPUT_BYTES, MAX_CIRCUIT_SESSIONS_PER_TYPE,
+            MAX_CONTROL_JSON_INPUT_BYTES, MAX_EXECUTION_HANDLES, MAX_SECRET_HANDLES,
+            MAX_VERIFIED_PROOF_HANDLES, parse_json_with_limit as parse_json_with_limit_capped,
+        },
         wire::{
             WireCircuitMerkleWitness, WireCommitment, WireCommitmentCircuitInput,
             WireCommitmentWitnessRequest, WireWithdrawal, WireWithdrawalCircuitInput,
@@ -27,6 +32,12 @@ use privacy_pools_sdk::{
     recovery::{CompatibilityMode, PoolEvent, RecoveryError, RecoveryPolicy},
     signer::{ExternalSigner, SignerAdapter, SignerError, SignerKind},
 };
+use privacy_pools_sdk_bindings_core::parsers::{
+    parse_artifact_kind as parse_binding_artifact_kind,
+    parse_backend_profile as parse_binding_backend_profile,
+    parse_compatibility_mode as parse_binding_compatibility_mode,
+};
+use privacy_pools_sdk_bindings_core::{BindingCoreError, EvictionPolicy, HandleRegistry};
 use serde::de::DeserializeOwned;
 use std::{
     collections::{HashMap, VecDeque},
@@ -34,18 +45,12 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::{
-        Arc, LazyLock, Mutex, RwLock,
+        Arc, Condvar, LazyLock, Mutex, RwLock,
         atomic::{AtomicU64, Ordering},
     },
 };
 use zeroize::Zeroizing;
 
-const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
-const MAX_SECRET_HANDLES: usize = 512;
-const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
-const MAX_EXECUTION_HANDLES: usize = 256;
-const MAX_CIRCUIT_SESSIONS_PER_TYPE: usize = 64;
 const MAX_RETAINED_COMPLETED_JOBS: usize = 128;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -102,6 +107,39 @@ pub enum FfiError {
     VerifierFailure(String),
     #[error("sdk operation failed: {0}")]
     OperationFailed(String),
+}
+
+impl From<BindingCoreError> for FfiError {
+    fn from(error: BindingCoreError) -> Self {
+        match error {
+            BindingCoreError::ChainIdMismatch { expected, actual } => {
+                Self::ChainIdMismatch { expected, actual }
+            }
+            BindingCoreError::InvalidSignedTransaction(message) => {
+                Self::InvalidSignedTransaction(message)
+            }
+            BindingCoreError::SignerRequiresExternalSigning => {
+                Self::SignerRequiresExternalSigning(String::new())
+            }
+            BindingCoreError::UnmatchedRagequit { scope, label } => {
+                Self::UnmatchedRagequit(format!("scope={scope} label={label}"))
+            }
+            BindingCoreError::RegistryFull { registry, capacity } => Self::RegistryFull {
+                registry: registry.to_owned(),
+                max_entries: capacity as u64,
+            },
+            BindingCoreError::HandleAlreadyRegistered(handle) => {
+                Self::HandleAlreadyRegistered(handle)
+            }
+            BindingCoreError::PayloadTooLarge {
+                field,
+                limit,
+                actual,
+            } => Self::PayloadTooLarge(format!("{field} exceeded {limit} bytes (actual {actual})")),
+            BindingCoreError::InvalidMnemonic(message) => Self::InvalidMnemonic(message),
+            BindingCoreError::InvalidRelayData(message) => Self::InvalidRelayData(message),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -498,6 +536,7 @@ enum VerifiedProofHandleEntry {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(not(feature = "dangerous-exports"), allow(dead_code))]
 enum ExecutionHandleEntry {
     Preflighted(PreflightedTransaction),
     Finalized(FinalizedPreflightedTransaction),
@@ -520,6 +559,12 @@ enum BackgroundJobState {
     Cancelled,
 }
 
+impl BackgroundJobState {
+    const fn is_terminal(self) -> bool {
+        matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
+    }
+}
+
 #[derive(Debug, Clone)]
 enum BackgroundJobResult {
     Proving(Box<FfiProvingResult>),
@@ -536,6 +581,9 @@ struct BackgroundJobEntry {
     cancel_requested: bool,
     result: Option<BackgroundJobResult>,
 }
+
+#[derive(Debug)]
+struct JobEntrySignal(Mutex<BackgroundJobEntry>, Condvar);
 
 #[derive(Debug, Clone)]
 struct PrepareWithdrawalJobConfig {
@@ -592,24 +640,58 @@ impl RegisteredSigner {
 
 static SIGNER_REGISTRY: LazyLock<RwLock<HashMap<String, RegisteredSigner>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
-static SECRET_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, SecretHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedProofHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static SECRET_HANDLE_REGISTRY: LazyLock<HandleRegistry<SecretHandleEntry>> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_SECRET_HANDLES,
+        EvictionPolicy::RejectFull {
+            registry_name: "secret_handles",
+        },
+    )
+});
+static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<HandleRegistry<VerifiedProofHandleEntry>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(
+            MAX_VERIFIED_PROOF_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "verified_proof_handles",
+            },
+        )
+    });
+static EXECUTION_HANDLE_REGISTRY: LazyLock<HandleRegistry<ExecutionHandleEntry>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(
+            MAX_EXECUTION_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "execution_handles",
+            },
+        )
+    });
 static JOB_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<Mutex<BackgroundJobEntry>>>>> =
+static JOB_REGISTRY: LazyLock<RwLock<HashMap<String, Arc<JobEntrySignal>>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 static COMPLETED_JOB_IDS: LazyLock<Mutex<VecDeque<String>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
 static WITHDRAWAL_SESSION_REGISTRY: LazyLock<
-    RwLock<HashMap<String, privacy_pools_sdk::WithdrawalCircuitSession>>,
-> = LazyLock::new(|| RwLock::new(HashMap::new()));
+    HandleRegistry<privacy_pools_sdk::WithdrawalCircuitSession>,
+> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+        EvictionPolicy::RejectFull {
+            registry_name: "withdrawal_sessions",
+        },
+    )
+});
 static COMMITMENT_SESSION_REGISTRY: LazyLock<
-    RwLock<HashMap<String, privacy_pools_sdk::CommitmentCircuitSession>>,
-> = LazyLock::new(|| RwLock::new(HashMap::new()));
+    HandleRegistry<privacy_pools_sdk::CommitmentCircuitSession>,
+> = LazyLock::new(|| {
+    HandleRegistry::new(
+        MAX_CIRCUIT_SESSIONS_PER_TYPE,
+        EvictionPolicy::RejectFull {
+            registry_name: "commitment_sessions",
+        },
+    )
+});
 // UniFFI/mobile calls share one long-lived Tokio runtime so synchronous bridge
 // entrypoints do not rebuild an executor per call or rely on thread affinity.
 static SDK_RUNTIME: LazyLock<Result<tokio::runtime::Runtime, String>> = LazyLock::new(|| {
@@ -624,15 +706,13 @@ fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T, FfiError
 where
     T: DeserializeOwned,
 {
-    if value.len() > max_bytes {
-        return Err(FfiError::PayloadTooLarge(format!(
+    parse_json_with_limit_capped(value, max_bytes, "json_payload", |error| match error {
+        LimitError::PayloadTooLarge { limit, actual, .. } => FfiError::PayloadTooLarge(format!(
             "JSON payload exceeds maximum size: {} > {} bytes",
-            value.len(),
-            max_bytes
-        )));
-    }
-
-    serde_json::from_str(value).map_err(|error| FfiError::OperationFailed(error.to_string()))
+            actual, limit
+        )),
+        LimitError::Parse(message) => FfiError::OperationFailed(message),
+    })
 }
 
 fn parse_manifest(manifest_json: &str) -> Result<ArtifactManifest, FfiError> {
@@ -660,42 +740,19 @@ fn parse_hash(value: &str) -> Result<B256, FfiError> {
 }
 
 fn parse_execution_policy_mode(value: &str) -> Result<ExecutionPolicyMode, FfiError> {
-    match value {
-        "strict" => Ok(ExecutionPolicyMode::Strict),
-        "insecure_dev" => Ok(ExecutionPolicyMode::InsecureDev),
-        _ => Err(FfiError::InvalidExecutionPolicyMode(value.to_owned())),
-    }
+    privacy_pools_sdk::core::parsers::parse_execution_policy_mode(value)
+        .map_err(|_| FfiError::InvalidExecutionPolicyMode(value.to_owned()))
 }
 
 fn parse_read_consistency(value: &str) -> Result<ReadConsistency, FfiError> {
-    match value {
-        "latest" => Ok(ReadConsistency::Latest),
-        "finalized" => Ok(ReadConsistency::Finalized),
-        _ => Err(FfiError::OperationFailed(format!(
-            "invalid read consistency: {value}"
-        ))),
-    }
+    privacy_pools_sdk::core::parsers::parse_read_consistency(value)
+        .map_err(|error| FfiError::OperationFailed(error.to_string()))
 }
 
 fn sdk_runtime() -> Result<&'static tokio::runtime::Runtime, FfiError> {
     SDK_RUNTIME
         .as_ref()
         .map_err(|error| FfiError::OperationFailed(error.clone()))
-}
-
-fn ensure_registry_capacity<T>(
-    registry: &HashMap<String, T>,
-    registry_name: &str,
-    capacity: usize,
-) -> Result<(), FfiError> {
-    if registry.len() >= capacity {
-        return Err(FfiError::RegistryFull {
-            registry: registry_name.to_owned(),
-            max_entries: capacity as u64,
-        });
-    }
-
-    Ok(())
 }
 
 fn map_signer_error(error: SignerError) -> FfiError {
@@ -719,13 +776,13 @@ fn map_chain_error(error: privacy_pools_sdk::chain::ChainError) -> FfiError {
     match error {
         privacy_pools_sdk::chain::ChainError::ChainIdMismatch { expected, actual }
         | privacy_pools_sdk::chain::ChainError::PlannedChainIdMismatch { expected, actual } => {
-            FfiError::ChainIdMismatch { expected, actual }
+            BindingCoreError::ChainIdMismatch { expected, actual }.into()
         }
         privacy_pools_sdk::chain::ChainError::InvalidRelayData(message) => {
-            FfiError::InvalidRelayData(message)
+            BindingCoreError::InvalidRelayData(message).into()
         }
         privacy_pools_sdk::chain::ChainError::InvalidSignedTransaction(message) => {
-            FfiError::InvalidSignedTransaction(message)
+            BindingCoreError::InvalidSignedTransaction(message).into()
         }
         other => FfiError::OperationFailed(other.to_string()),
     }
@@ -742,8 +799,12 @@ fn map_artifact_error(error: privacy_pools_sdk::artifacts::ArtifactError) -> Ffi
 
 fn map_recovery_error(error: RecoveryError) -> FfiError {
     match error {
-        RecoveryError::UnmatchedRagequitEvent { .. } => {
-            FfiError::UnmatchedRagequit(error.to_string())
+        RecoveryError::UnmatchedRagequitEvent { scope, label } => {
+            BindingCoreError::UnmatchedRagequit {
+                scope: scope.to_string(),
+                label: label.to_string(),
+            }
+            .into()
         }
         other => FfiError::OperationFailed(other.to_string()),
     }
@@ -768,31 +829,20 @@ fn read_consistency_label(consistency: ReadConsistency) -> String {
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind, FfiError> {
-    match value {
-        "wasm" => Ok(ArtifactKind::Wasm),
-        "zkey" => Ok(ArtifactKind::Zkey),
-        "vkey" => Ok(ArtifactKind::Vkey),
-        _ => Err(FfiError::InvalidArtifactKind(value.to_owned())),
-    }
+    parse_binding_artifact_kind(value).map_err(|_| FfiError::InvalidArtifactKind(value.to_owned()))
 }
 
 fn parse_compatibility_mode(value: &str) -> Result<CompatibilityMode, FfiError> {
-    match value {
-        "strict" => Ok(CompatibilityMode::Strict),
-        "legacy" => Ok(CompatibilityMode::Legacy),
-        _ => Err(FfiError::InvalidCompatibilityMode(value.to_owned())),
-    }
+    parse_binding_compatibility_mode(value)
+        .map_err(|_| FfiError::InvalidCompatibilityMode(value.to_owned()))
 }
 
 fn parse_backend_profile(value: &str) -> Result<BackendProfile, FfiError> {
-    match value {
-        "stable" => Ok(BackendProfile::Stable),
-        _ => Err(FfiError::OperationFailed(format!(
-            "invalid backend profile: {value}"
-        ))),
-    }
+    parse_binding_backend_profile(value)
+        .map_err(|_| FfiError::OperationFailed(format!("invalid backend profile: {value}")))
 }
 
+#[cfg_attr(not(feature = "local-mnemonic"), allow(dead_code))]
 fn to_master_keys(master_nullifier: &str, master_secret: &str) -> Result<MasterKeys, FfiError> {
     Ok(MasterKeys {
         master_nullifier: parse_field(master_nullifier)?.into(),
@@ -924,114 +974,65 @@ fn registered_signer(handle: &str) -> Result<RegisteredSigner, FfiError> {
 
 fn register_secret_handle(entry: SecretHandleEntry) -> Result<String, FfiError> {
     let handle = uuid::Uuid::new_v4().to_string();
-    let mut registry = SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    ensure_registry_capacity(&registry, "secret_handles", MAX_SECRET_HANDLES)?;
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    SECRET_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn registered_secret_handle(handle: &str) -> Result<SecretHandleEntry, FfiError> {
-    let registry = SECRET_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    SECRET_HANDLE_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::SecretHandleNotFound(handle.to_owned()))
 }
 
 fn remove_secret_handle_entry(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(SECRET_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_secret_handle_registry() -> Result<bool, FfiError> {
-    let mut registry = SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(SECRET_HANDLE_REGISTRY.clear() > 0)
 }
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String, FfiError> {
     let handle = uuid::Uuid::new_v4().to_string();
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    ensure_registry_capacity(
-        &registry,
-        "verified_proof_handles",
-        MAX_VERIFIED_PROOF_HANDLES,
-    )?;
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn registered_verified_proof_handle(handle: &str) -> Result<VerifiedProofHandleEntry, FfiError> {
-    let registry = VERIFIED_PROOF_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    VERIFIED_PROOF_HANDLE_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::VerifiedProofHandleNotFound(handle.to_owned()))
 }
 
 fn remove_verified_proof_handle_entry(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_verified_proof_handle_registry() -> Result<bool, FfiError> {
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.clear() > 0)
 }
 
 fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String, FfiError> {
     let handle = uuid::Uuid::new_v4().to_string();
-    let mut registry = EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    ensure_registry_capacity(&registry, "execution_handles", MAX_EXECUTION_HANDLES)?;
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    EXECUTION_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn registered_execution_handle(handle: &str) -> Result<ExecutionHandleEntry, FfiError> {
-    let registry = EXECUTION_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    EXECUTION_HANDLE_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::ExecutionHandleNotFound(handle.to_owned()))
 }
 
 fn remove_execution_handle_entry(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(EXECUTION_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_execution_handle_registry() -> Result<bool, FfiError> {
-    let mut registry = EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(EXECUTION_HANDLE_REGISTRY.clear() > 0)
 }
 
 fn register_withdrawal_session(
@@ -1046,35 +1047,20 @@ fn register_withdrawal_session(
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    let mut registry = WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    ensure_registry_capacity(
-        &registry,
-        "withdrawal_sessions",
-        MAX_CIRCUIT_SESSIONS_PER_TYPE,
-    )?;
-    registry.insert(handle, session);
+    WITHDRAWAL_SESSION_REGISTRY.insert(handle, session)?;
     Ok(ffi)
 }
 
 fn registered_withdrawal_session(
     handle: &str,
 ) -> Result<privacy_pools_sdk::WithdrawalCircuitSession, FfiError> {
-    let registry = WITHDRAWAL_SESSION_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    WITHDRAWAL_SESSION_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
 }
 
 fn remove_withdrawal_session(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(WITHDRAWAL_SESSION_REGISTRY.remove(handle).is_some())
 }
 
 fn register_commitment_session(
@@ -1089,50 +1075,38 @@ fn register_commitment_session(
         circuit: session.circuit().to_owned(),
         artifact_version: session.artifact_version().to_owned(),
     };
-    let mut registry = COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    ensure_registry_capacity(
-        &registry,
-        "commitment_sessions",
-        MAX_CIRCUIT_SESSIONS_PER_TYPE,
-    )?;
-    registry.insert(handle, session);
+    COMMITMENT_SESSION_REGISTRY.insert(handle, session)?;
     Ok(ffi)
 }
 
 fn registered_commitment_session(
     handle: &str,
 ) -> Result<privacy_pools_sdk::CommitmentCircuitSession, FfiError> {
-    let registry = COMMITMENT_SESSION_REGISTRY
-        .read()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    registry
+    COMMITMENT_SESSION_REGISTRY
         .get(handle)
-        .cloned()
         .ok_or_else(|| FfiError::SessionNotFound(handle.to_owned()))
 }
 
 fn remove_commitment_session(handle: &str) -> Result<bool, FfiError> {
-    let mut registry = COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
-    Ok(registry.remove(handle).is_some())
+    Ok(COMMITMENT_SESSION_REGISTRY.remove(handle).is_some())
 }
 
 fn register_job(
     kind: BackgroundJobKind,
-) -> Result<(FfiAsyncJobHandle, Arc<Mutex<BackgroundJobEntry>>), FfiError> {
+) -> Result<(FfiAsyncJobHandle, Arc<JobEntrySignal>), FfiError> {
     let job_id = format!("job-{}", JOB_COUNTER.fetch_add(1, Ordering::Relaxed));
-    let entry = Arc::new(Mutex::new(BackgroundJobEntry {
-        job_id: job_id.clone(),
-        kind,
-        state: BackgroundJobState::Queued,
-        stage: None,
-        error: None,
-        cancel_requested: false,
-        result: None,
-    }));
+    let entry = Arc::new(JobEntrySignal(
+        Mutex::new(BackgroundJobEntry {
+            job_id: job_id.clone(),
+            kind,
+            state: BackgroundJobState::Queued,
+            stage: None,
+            error: None,
+            cancel_requested: false,
+            result: None,
+        }),
+        Condvar::new(),
+    ));
     let handle = FfiAsyncJobHandle {
         job_id: job_id.clone(),
         kind: background_job_kind_label(kind),
@@ -1156,24 +1130,21 @@ fn trim_completed_jobs(job_id: &str) {
         let Ok(mut registry) = JOB_REGISTRY.write() else {
             break;
         };
-        let should_remove = registry
-            .get(&evicted_job_id)
-            .and_then(|entry| entry.lock().ok())
-            .is_some_and(|entry| {
-                matches!(
-                    entry.state,
-                    BackgroundJobState::Completed
-                        | BackgroundJobState::Failed
-                        | BackgroundJobState::Cancelled
-                )
-            });
+        let should_remove = registry.get(&evicted_job_id).is_some_and(|entry| {
+            entry
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .state
+                .is_terminal()
+        });
         if should_remove {
             registry.remove(&evicted_job_id);
         }
     }
 }
 
-fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> {
+fn lookup_job(job_id: &str) -> Result<Arc<JobEntrySignal>, FfiError> {
     let registry = JOB_REGISTRY
         .read()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
@@ -1183,22 +1154,22 @@ fn lookup_job(job_id: &str) -> Result<Arc<Mutex<BackgroundJobEntry>>, FfiError> 
         .ok_or_else(|| FfiError::JobNotFound(job_id.to_owned()))
 }
 
-fn set_job_stage(entry: &Arc<Mutex<BackgroundJobEntry>>, stage: impl Into<String>) {
-    if let Ok(mut entry) = entry.lock() {
-        entry.state = BackgroundJobState::Running;
-        entry.stage = Some(stage.into());
-        entry.error = None;
-    }
+fn set_job_stage(entry: &Arc<JobEntrySignal>, stage: impl Into<String>) {
+    let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
+    entry.state = BackgroundJobState::Running;
+    entry.stage = Some(stage.into());
+    entry.error = None;
 }
 
-fn job_cancel_requested(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+fn job_cancel_requested(entry: &Arc<JobEntrySignal>) -> bool {
     entry
+        .0
         .lock()
-        .map(|entry| entry.cancel_requested)
-        .unwrap_or(false)
+        .unwrap_or_else(|poison| poison.into_inner())
+        .cancel_requested
 }
 
-fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<(), FfiError> {
+fn ensure_job_not_cancelled(entry: &Arc<JobEntrySignal>) -> Result<(), FfiError> {
     if job_cancel_requested(entry) {
         Err(FfiError::OperationFailed("job cancelled".to_owned()))
     } else {
@@ -1206,59 +1177,55 @@ fn ensure_job_not_cancelled(entry: &Arc<Mutex<BackgroundJobEntry>>) -> Result<()
     }
 }
 
-fn complete_job(entry: &Arc<Mutex<BackgroundJobEntry>>, result: BackgroundJobResult) {
-    let mut completed_job_id = None;
-    if let Ok(mut entry) = entry.lock() {
+fn complete_job(entry: &Arc<JobEntrySignal>, result: BackgroundJobResult) {
+    let completed_job_id = {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.result = None;
             entry.error = None;
-            completed_job_id = Some(entry.job_id.clone());
         } else {
             entry.state = BackgroundJobState::Completed;
             entry.stage = None;
             entry.error = None;
             entry.result = Some(result);
-            completed_job_id = Some(entry.job_id.clone());
         }
-    }
+        Some(entry.job_id.clone())
+    };
+    entry.1.notify_all();
     if let Some(job_id) = completed_job_id {
         trim_completed_jobs(&job_id);
     }
 }
 
-fn fail_job(entry: &Arc<Mutex<BackgroundJobEntry>>, error: impl Into<String>) {
-    let mut completed_job_id = None;
-    if let Ok(mut entry) = entry.lock() {
+fn fail_job(entry: &Arc<JobEntrySignal>, error: impl Into<String>) {
+    let completed_job_id = {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
         if entry.cancel_requested {
             entry.state = BackgroundJobState::Cancelled;
             entry.stage = None;
             entry.error = None;
             entry.result = None;
-            completed_job_id = Some(entry.job_id.clone());
         } else {
             entry.state = BackgroundJobState::Failed;
             entry.stage = None;
             entry.error = Some(error.into());
             entry.result = None;
-            completed_job_id = Some(entry.job_id.clone());
         }
-    }
+        Some(entry.job_id.clone())
+    };
+    entry.1.notify_all();
     if let Some(job_id) = completed_job_id {
         trim_completed_jobs(&job_id);
     }
 }
 
-fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
+fn cancel_job_entry(entry: &Arc<JobEntrySignal>) -> bool {
     let mut completed_job_id = None;
-    if let Ok(mut entry) = entry.lock() {
-        if matches!(
-            entry.state,
-            BackgroundJobState::Completed
-                | BackgroundJobState::Failed
-                | BackgroundJobState::Cancelled
-        ) {
+    {
+        let mut entry = entry.0.lock().unwrap_or_else(|poison| poison.into_inner());
+        if entry.state.is_terminal() {
             return false;
         }
 
@@ -1270,14 +1237,12 @@ fn cancel_job_entry(entry: &Arc<Mutex<BackgroundJobEntry>>) -> bool {
             entry.result = None;
             completed_job_id = Some(entry.job_id.clone());
         }
-        drop(entry);
-        if let Some(job_id) = completed_job_id {
-            trim_completed_jobs(&job_id);
-        }
-        return true;
     }
-
-    false
+    entry.1.notify_all();
+    if let Some(job_id) = completed_job_id {
+        trim_completed_jobs(&job_id);
+    }
+    true
 }
 
 fn remove_job_entry(job_id: &str) -> Result<bool, FfiError> {
@@ -1290,6 +1255,7 @@ fn remove_job_entry(job_id: &str) -> Result<bool, FfiError> {
 fn poll_job(job_id: &str) -> Result<FfiAsyncJobStatus, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
     Ok(FfiAsyncJobStatus {
@@ -1307,9 +1273,7 @@ fn spawn_background_job<F>(
     worker: F,
 ) -> Result<FfiAsyncJobHandle, FfiError>
 where
-    F: FnOnce(Arc<Mutex<BackgroundJobEntry>>) -> Result<BackgroundJobResult, FfiError>
-        + Send
-        + 'static,
+    F: FnOnce(Arc<JobEntrySignal>) -> Result<BackgroundJobResult, FfiError> + Send + 'static,
 {
     let (handle, entry) = register_job(kind)?;
     std::thread::spawn({
@@ -1337,6 +1301,7 @@ where
 fn proving_job_result(job_id: &str) -> Result<Option<FfiProvingResult>, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -1348,7 +1313,7 @@ fn proving_job_result(job_id: &str) -> Result<Option<FfiProvingResult>, FfiError
     }
 
     Ok(match &entry.result {
-        Some(BackgroundJobResult::Proving(result)) => Some((**result).clone()),
+        Some(BackgroundJobResult::Proving(result)) => Some(result.as_ref().clone()),
         _ => None,
     })
 }
@@ -1359,6 +1324,7 @@ fn prepared_execution_job_result(
 ) -> Result<Option<FfiPreparedTransactionExecution>, FfiError> {
     let entry = lookup_job(job_id)?;
     let entry = entry
+        .0
         .lock()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
 
@@ -1371,7 +1337,7 @@ fn prepared_execution_job_result(
     }
 
     Ok(match &entry.result {
-        Some(BackgroundJobResult::PreparedExecution(result)) => Some((**result).clone()),
+        Some(BackgroundJobResult::PreparedExecution(result)) => Some(result.as_ref().clone()),
         _ => None,
     })
 }
@@ -1397,6 +1363,7 @@ fn finalize_for_signer_handle(
     Ok(to_ffi_finalized_execution(finalized))
 }
 
+#[cfg_attr(not(feature = "local-mnemonic"), allow(dead_code))]
 fn to_ffi_secrets(
     (nullifier, secret): (
         privacy_pools_sdk::core::Nullifier,
@@ -1521,9 +1488,13 @@ fn apply_execution_policy_round_trip(
     preflight: &mut FfiExecutionPreflightReport,
     policy: &FfiExecutionPolicy,
 ) {
-    preflight.read_consistency = policy.read_consistency.clone();
-    preflight.max_fee_quote_wei = policy.max_fee_quote_wei.clone();
-    preflight.mode = policy.mode.clone();
+    preflight
+        .read_consistency
+        .clone_from(&policy.read_consistency);
+    preflight
+        .max_fee_quote_wei
+        .clone_from(&policy.max_fee_quote_wei);
+    preflight.mode.clone_from(&policy.mode);
 }
 
 fn to_ffi_code_hash_check(check: CodeHashCheck) -> FfiCodeHashCheck {
@@ -2153,7 +2124,7 @@ fn from_ffi_signed_manifest_artifact_bytes(
 }
 
 fn prove_withdrawal_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -2178,7 +2149,7 @@ fn prove_withdrawal_background(
 }
 
 fn prepare_withdrawal_execution_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -2254,7 +2225,7 @@ fn prepare_withdrawal_execution_background(
 }
 
 fn prepare_relay_execution_background(
-    entry: Arc<Mutex<BackgroundJobEntry>>,
+    entry: Arc<JobEntrySignal>,
     profile: BackendProfile,
     manifest: ArtifactManifest,
     artifacts_root: PathBuf,
@@ -2360,15 +2331,14 @@ pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
 
 fn derive_master_keys_handle_from_utf8_bytes(mnemonic: Vec<u8>) -> Result<String, FfiError> {
     let mnemonic = Zeroizing::new(mnemonic);
-    let result = (|| {
+    (|| {
         let phrase = std::str::from_utf8(&mnemonic)
             .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
         let keys = sdk()
             .generate_master_keys(phrase)
             .map_err(map_crypto_error)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys))
-    })();
-    result
+    })()
 }
 
 #[uniffi::export]
@@ -3898,7 +3868,7 @@ mod tests {
         io::{Read, Write},
         net::{TcpListener, TcpStream},
         sync::{
-            Arc, Mutex, OnceLock,
+            Arc, Condvar, Mutex, OnceLock,
             atomic::{AtomicBool, Ordering},
         },
         thread::{self, JoinHandle},
@@ -3940,17 +3910,24 @@ mod tests {
 
     #[test]
     fn registry_capacity_rejects_when_full() {
-        let registry = (0..MAX_SECRET_HANDLES)
-            .map(|index| (index.to_string(), ()))
-            .collect::<HashMap<_, _>>();
-        let error = ensure_registry_capacity(&registry, "secret_handles", MAX_SECRET_HANDLES)
+        let registry = HandleRegistry::new(
+            MAX_SECRET_HANDLES,
+            EvictionPolicy::RejectFull {
+                registry_name: "secret_handles",
+            },
+        );
+        for index in 0..MAX_SECRET_HANDLES {
+            registry
+                .insert(index.to_string(), ())
+                .expect("registry accepts entries before reaching capacity");
+        }
+        let error = registry
+            .insert("overflow".to_owned(), ())
             .expect_err("full registries should fail closed");
         assert!(matches!(
             error,
-            FfiError::RegistryFull {
-                ref registry,
-                max_entries
-            } if registry == "secret_handles" && max_entries == MAX_SECRET_HANDLES as u64
+            BindingCoreError::RegistryFull { registry, capacity }
+                if registry == "secret_handles" && capacity == MAX_SECRET_HANDLES
         ));
     }
 
@@ -4027,6 +4004,7 @@ mod tests {
         assert_eq!(preflight.mode, policy.mode);
     }
 
+    #[cfg_attr(feature = "dangerous-exports", allow(dead_code))]
     fn dangerous_exports_disabled<T>() -> Result<T, FfiError> {
         Err(FfiError::OperationFailed(
             "dangerous export helpers are disabled".to_owned(),
@@ -6160,14 +6138,24 @@ mod tests {
             })
             .unwrap();
 
-        let mut proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
-        for _ in 0..20 {
-            if proving_status.state == "completed" {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-            proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
-        }
+        let proving_entry = lookup_job(&proving_handle.job_id).unwrap();
+        let proving_guard = proving_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (proving_guard, proving_wait) = proving_entry
+            .1
+            .wait_timeout_while(proving_guard, Duration::from_secs(2), |entry| {
+                !entry.state.is_terminal()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !proving_wait.timed_out(),
+            "proving job did not reach terminal state"
+        );
+        drop(proving_guard);
+
+        let proving_status = poll_job_status(proving_handle.job_id.clone()).unwrap();
         assert_eq!(proving_status.kind, "prove_withdrawal");
         assert_eq!(proving_status.state, "completed");
         assert!(
@@ -6224,14 +6212,23 @@ mod tests {
         .unwrap();
 
         assert!(cancel_job(cancelled_handle.job_id.clone()).unwrap());
-        let mut cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
-        for _ in 0..20 {
-            if cancelled_status.state == "cancelled" {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-            cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
-        }
+        let cancelled_entry = lookup_job(&cancelled_handle.job_id).unwrap();
+        let cancelled_guard = cancelled_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (cancelled_guard, cancelled_wait) = cancelled_entry
+            .1
+            .wait_timeout_while(cancelled_guard, Duration::from_secs(2), |entry| {
+                !entry.state.is_terminal()
+            })
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(
+            !cancelled_wait.timed_out(),
+            "cancelled job did not reach terminal state"
+        );
+        drop(cancelled_guard);
+        let cancelled_status = poll_job_status(cancelled_handle.job_id.clone()).unwrap();
         assert_eq!(cancelled_status.kind, "prepare_withdrawal_execution");
         assert_eq!(cancelled_status.state, "cancelled");
         assert!(cancelled_status.cancel_requested);
@@ -6241,6 +6238,102 @@ mod tests {
                 .is_none()
         );
         assert!(remove_job(cancelled_handle.job_id).unwrap());
+    }
+
+    fn sample_background_job_entry(state: BackgroundJobState) -> BackgroundJobEntry {
+        BackgroundJobEntry {
+            job_id: "poisoned-job".to_owned(),
+            kind: BackgroundJobKind::ProveWithdrawal,
+            state,
+            stage: Some("queued".to_owned()),
+            error: Some("boom".to_owned()),
+            cancel_requested: false,
+            result: None,
+        }
+    }
+
+    fn poison_background_job_entry(state: BackgroundJobState) -> Arc<JobEntrySignal> {
+        let entry = Arc::new(JobEntrySignal(
+            Mutex::new(sample_background_job_entry(state)),
+            Condvar::new(),
+        ));
+        let poisoned = Arc::clone(&entry);
+        let join_result = std::thread::spawn(move || {
+            let _guard = poisoned
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            panic!("poison background job mutex");
+        })
+        .join();
+        assert!(
+            join_result.is_err(),
+            "expected poison helper thread to panic"
+        );
+        entry
+    }
+
+    #[test]
+    fn ffi_background_job_state_transitions_recover_from_poisoned_mutex() {
+        let _guard = handle_registry_test_guard();
+
+        let stage_entry = poison_background_job_entry(BackgroundJobState::Queued);
+        set_job_stage(&stage_entry, "proving");
+        let stage_entry = stage_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(stage_entry.state, BackgroundJobState::Running);
+        assert_eq!(stage_entry.stage.as_deref(), Some("proving"));
+        assert_eq!(stage_entry.error, None);
+        drop(stage_entry);
+
+        let completed_entry = poison_background_job_entry(BackgroundJobState::Running);
+        complete_job(
+            &completed_entry,
+            BackgroundJobResult::Proving(Box::new(dummy_proving_result())),
+        );
+        let completed_entry = completed_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(completed_entry.state, BackgroundJobState::Completed);
+        assert!(completed_entry.result.is_some());
+        assert_eq!(completed_entry.error, None);
+        drop(completed_entry);
+
+        let failed_entry = poison_background_job_entry(BackgroundJobState::Running);
+        fail_job(&failed_entry, "failed");
+        let failed_entry = failed_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(failed_entry.state, BackgroundJobState::Failed);
+        assert_eq!(failed_entry.error.as_deref(), Some("failed"));
+        assert!(failed_entry.result.is_none());
+        drop(failed_entry);
+
+        let cancelled_running_entry = poison_background_job_entry(BackgroundJobState::Running);
+        assert!(cancel_job_entry(&cancelled_running_entry));
+        assert!(job_cancel_requested(&cancelled_running_entry));
+        let cancelled_running_entry = cancelled_running_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cancelled_running_entry.state, BackgroundJobState::Running);
+        assert!(cancelled_running_entry.cancel_requested);
+        drop(cancelled_running_entry);
+
+        let cancelled_queued_entry = poison_background_job_entry(BackgroundJobState::Queued);
+        assert!(cancel_job_entry(&cancelled_queued_entry));
+        let cancelled_queued_entry = cancelled_queued_entry
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(cancelled_queued_entry.state, BackgroundJobState::Cancelled);
+        assert!(cancelled_queued_entry.cancel_requested);
+        assert_eq!(cancelled_queued_entry.stage, None);
+        assert_eq!(cancelled_queued_entry.error, None);
     }
 
     #[test]

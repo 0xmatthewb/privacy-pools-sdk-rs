@@ -13,6 +13,8 @@ use subtle::ConstantTimeEq;
 use thiserror::Error;
 use zeroize::{Zeroize, Zeroizing};
 
+pub mod limits;
+pub mod parsers;
 pub mod wire;
 
 sol! {
@@ -598,6 +600,10 @@ pub enum CoreError {
     InvalidAddress(String),
     #[error("failed to parse hex bytes: {0}")]
     InvalidHexBytes(String),
+    #[error("invalid execution policy mode: {0}")]
+    InvalidExecutionPolicyMode(String),
+    #[error("invalid read consistency: {0}")]
+    InvalidReadConsistency(String),
     #[error("commitment nullifier hash compatibility field must match precommitment hash")]
     MismatchedCommitmentCompatibilityHash,
     #[error("field element cannot be zero: {0}")]

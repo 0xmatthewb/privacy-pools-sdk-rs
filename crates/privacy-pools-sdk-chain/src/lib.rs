@@ -175,6 +175,8 @@ pub enum ChainError {
         quoted: u128,
         cap: u128,
     },
+    #[error("dynamic-fee field {field} missing from FinalizedTransactionRequest")]
+    MissingDynamicFeeField { field: &'static str },
     #[error("rpc request failed: {0}")]
     Transport(String),
 }
@@ -1548,15 +1550,34 @@ fn validate_signed_transaction(
                     actual: "legacy".to_owned(),
                 });
             }
+            let max_fee_per_gas =
+                request
+                    .max_fee_per_gas
+                    .ok_or(ChainError::MissingDynamicFeeField {
+                        field: "max_fee_per_gas",
+                    })?;
+            let max_priority_fee_per_gas =
+                request
+                    .max_priority_fee_per_gas
+                    .ok_or(ChainError::MissingDynamicFeeField {
+                        field: "max_priority_fee_per_gas",
+                    })?;
+            let actual_max_priority_fee_per_gas = transaction.max_priority_fee_per_gas().ok_or(
+                ChainError::SignedTransactionFieldMismatch {
+                    field: "max_priority_fee_per_gas",
+                    expected: max_priority_fee_per_gas.to_string(),
+                    actual: "none".to_owned(),
+                },
+            )?;
             compare_signed_field(
                 "max_fee_per_gas",
-                request.max_fee_per_gas.unwrap_or_default(),
+                max_fee_per_gas,
                 transaction.max_fee_per_gas(),
             )?;
             compare_signed_field(
                 "max_priority_fee_per_gas",
-                request.max_priority_fee_per_gas.unwrap_or_default(),
-                transaction.max_priority_fee_per_gas().unwrap_or_default(),
+                max_priority_fee_per_gas,
+                actual_max_priority_fee_per_gas,
             )?;
         }
     }
@@ -3504,6 +3525,56 @@ mod tests {
             validate_signed_transaction(&signed, &legacy_request),
             Err(ChainError::SignedTransactionFieldMismatch { field, expected, actual })
                 if field == "fee_model" && expected == "legacy" && actual == "dynamic"
+        ));
+    }
+
+    #[cfg(feature = "local-signer-client")]
+    #[test]
+    fn signing_eip1559_without_max_fee_returns_typed_error() {
+        let signer = LocalMnemonicSigner::from_phrase_nth(
+            "test test test test test test test test test test test junk",
+            0,
+        )
+        .unwrap();
+        let request = FinalizedTransactionRequest {
+            kind: TransactionKind::Withdraw,
+            chain_id: 1,
+            from: signer.address(),
+            to: address!("2222222222222222222222222222222222222222"),
+            nonce: 7,
+            gas_limit: 21_000,
+            value: U256::ZERO,
+            data: bytes!("1234"),
+            gas_price: None,
+            max_fee_per_gas: Some(10),
+            max_priority_fee_per_gas: Some(2),
+        };
+
+        let signed = signer.sign_transaction_request(&request).unwrap();
+        assert_eq!(
+            signed,
+            signer.sign_transaction_request(&request).unwrap(),
+            "valid dynamic-fee signing bytes must stay stable for previously-valid inputs"
+        );
+        validate_signed_transaction(&signed, &request).unwrap();
+
+        let missing_max_fee = FinalizedTransactionRequest {
+            max_fee_per_gas: None,
+            ..request.clone()
+        };
+        assert!(matches!(
+            validate_signed_transaction(&signed, &missing_max_fee),
+            Err(ChainError::MissingDynamicFeeField { field }) if field == "max_fee_per_gas"
+        ));
+
+        let missing_priority_fee = FinalizedTransactionRequest {
+            max_priority_fee_per_gas: None,
+            ..request
+        };
+        assert!(matches!(
+            validate_signed_transaction(&signed, &missing_priority_fee),
+            Err(ChainError::MissingDynamicFeeField { field })
+                if field == "max_priority_fee_per_gas"
         ));
     }
 

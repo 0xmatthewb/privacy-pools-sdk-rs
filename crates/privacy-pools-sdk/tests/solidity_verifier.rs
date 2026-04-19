@@ -151,9 +151,13 @@ fn rust_generated_withdrawal_proof_is_accepted_by_solidity_verifier() {
     let encoded = (p_a, p_b, p_c, public_signals).abi_encode();
 
     let forge_root = workspace_path("solidity-verifier");
-    let generated_dir = forge_root.join("fixtures/generated");
-    fs::create_dir_all(&generated_dir).expect("forge fixture directory exists");
-    let proof_path = generated_dir.join("withdrawal-proof.abi");
+    let temp_root = forge_root.join("tmp");
+    fs::create_dir_all(&temp_root).expect("forge temp directory exists");
+    let tmp = tempfile::Builder::new()
+        .prefix("withdrawal-proof-")
+        .tempdir_in(&temp_root)
+        .expect("forge tempdir allocates");
+    let proof_path = tmp.path().join("withdrawal-proof.abi");
     fs::write(&proof_path, encoded).expect("writes ABI proof fixture");
 
     let output = Command::new("forge")
@@ -163,11 +167,10 @@ fn rust_generated_withdrawal_proof_is_accepted_by_solidity_verifier() {
             "testRustGeneratedWithdrawalProofAccepted",
             "-vv",
         ])
+        .env("PRIVACY_POOLS_PROOF_PATH", &proof_path)
         .current_dir(&forge_root)
         .output()
         .expect("forge command launches");
-
-    let _ = fs::remove_file(&proof_path);
 
     assert!(
         output.status.success(),

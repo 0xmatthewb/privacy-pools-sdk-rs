@@ -2006,6 +2006,7 @@ fn command_stdout(program: &str, args: &[&str], error_context: &str) -> Result<S
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 

@@ -10,13 +10,27 @@ use privacy_pools_sdk_artifacts::{
     ArtifactBytes, ArtifactKind, ArtifactManifest, ArtifactStatus, ResolvedArtifactBundle,
     SignedManifestArtifactBytes,
 };
+use privacy_pools_sdk_bindings_core::parsers::{
+    parse_artifact_kind as parse_binding_artifact_kind,
+    parse_compatibility_mode as parse_binding_compatibility_mode,
+};
+use privacy_pools_sdk_bindings_core::{EvictionPolicy, HandleRegistry};
 use privacy_pools_sdk_circuits as circuits;
+#[cfg(target_arch = "wasm32")]
+use privacy_pools_sdk_core::limits::{MAX_ARTIFACT_BYTES, MAX_TOTAL_ARTIFACT_BYTES};
 use privacy_pools_sdk_core::{
     CircuitMerkleWitness, CodeHashCheck, Commitment, CommitmentWitnessRequest, ExecutionPolicyMode,
     ExecutionPreflightReport, FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys,
     MerkleProof, Nullifier, ProofBundle, RootCheck, RootRead, RootReadKind, Secret,
     TransactionKind, TransactionPlan, TransactionReceiptSummary, Withdrawal,
-    WithdrawalWitnessRequest, field_to_hex_32, parse_decimal_field,
+    WithdrawalWitnessRequest, field_to_hex_32,
+    limits::{
+        LimitError, MAX_ARTIFACT_JSON_INPUT_BYTES, MAX_CIRCUIT_SESSIONS_PER_TYPE,
+        MAX_CONTROL_JSON_INPUT_BYTES, MAX_EXECUTION_HANDLES, MAX_RECOVERY_JSON_INPUT_BYTES,
+        MAX_SECRET_HANDLES, MAX_VERIFIED_PROOF_HANDLES, MAX_WITNESS_JSON_INPUT_BYTES,
+        parse_json_with_limit as parse_json_with_limit_capped,
+    },
+    parse_decimal_field,
     wire::{
         WireCommitment, WireCommitmentCircuitInput, WireCommitmentWitnessRequest, WireMasterKeys,
         WireWithdrawalCircuitInput, WireWithdrawalWitnessRequest,
@@ -24,17 +38,16 @@ use privacy_pools_sdk_core::{
 };
 use privacy_pools_sdk_prover::{self as prover, ProverBackend, ProvingResult};
 use privacy_pools_sdk_recovery::{
-    CompatibilityMode, DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent,
-    RecoveredAccountState, RecoveredCommitment, RecoveredPoolAccount, RecoveredScope,
-    RecoveryCheckpoint, RecoveryKeyset, RecoveryPolicy, SpendableScope, WithdrawalEvent,
+    DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent, RecoveredAccountState,
+    RecoveredCommitment, RecoveredPoolAccount, RecoveredScope, RecoveryCheckpoint, RecoveryKeyset,
+    RecoveryPolicy, SpendableScope, WithdrawalEvent,
 };
 use privacy_pools_sdk_verifier::PreparedVerifier;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    collections::HashMap,
     str::FromStr,
     sync::{
-        LazyLock, RwLock,
+        LazyLock,
         atomic::{AtomicU64, Ordering},
     },
 };
@@ -45,16 +58,10 @@ use wasm_bindgen::prelude::*;
 pub use wasm_bindgen_rayon::init_thread_pool;
 use zeroize::Zeroizing;
 
-const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_WITNESS_JSON_INPUT_BYTES: usize = 8 * 1024 * 1024;
-const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
-const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
-const MAX_TOTAL_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
-const MAX_SECRET_HANDLES: usize = 512;
-const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
-const MAX_EXECUTION_HANDLES: usize = 256;
-const MAX_CIRCUIT_SESSIONS: usize = 64;
+mod error;
+
+#[cfg(target_arch = "wasm32")]
+use error::WebError;
 
 static BN254_BASE_FIELD_MODULUS: LazyLock<U256> = LazyLock::new(|| {
     parse_decimal_field(
@@ -366,6 +373,8 @@ struct JsExecutionPreflightReport {
     chain_id_matches: bool,
     simulated: bool,
     estimated_gas: u64,
+    read_consistency: String,
+    max_fee_quote_wei: Option<String>,
     mode: Option<String>,
     code_hash_checks: Vec<JsCodeHashCheck>,
     root_checks: Vec<JsRootCheck>,
@@ -550,23 +559,15 @@ enum ExecutionHandleEntry {
 }
 
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, BrowserCircuitSession>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static SECRET_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, SecretHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedProofHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
-fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
-    while registry.len() >= capacity {
-        let Some(handle) = registry.keys().min().cloned() else {
-            break;
-        };
-        registry.remove(&handle);
-    }
-}
+static SESSION_REGISTRY: LazyLock<HandleRegistry<BrowserCircuitSession>> = LazyLock::new(|| {
+    HandleRegistry::new(MAX_CIRCUIT_SESSIONS_PER_TYPE, EvictionPolicy::LruLowestKey)
+});
+static SECRET_HANDLE_REGISTRY: LazyLock<HandleRegistry<SecretHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_SECRET_HANDLES, EvictionPolicy::LruLowestKey));
+static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<HandleRegistry<VerifiedProofHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_VERIFIED_PROOF_HANDLES, EvictionPolicy::LruLowestKey));
+static EXECUTION_HANDLE_REGISTRY: LazyLock<HandleRegistry<ExecutionHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_EXECUTION_HANDLES, EvictionPolicy::LruLowestKey));
 
 fn next_secret_handle() -> String {
     Uuid::new_v4().to_string()
@@ -574,93 +575,57 @@ fn next_secret_handle() -> String {
 
 fn register_secret_handle(entry: SecretHandleEntry) -> Result<String> {
     let handle = next_secret_handle();
-    let mut registry = SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    SECRET_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn secret_handle(handle: &str) -> Result<SecretHandleEntry> {
     SECRET_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?
         .get(handle)
-        .cloned()
         .with_context(|| format!("unknown browser secret handle `{handle}`"))
 }
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY.write().map_err(|error| {
-        anyhow::anyhow!("verified proof handle registry lock poisoned: {error}")
-    })?;
-    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn verified_proof_handle(handle: &str) -> Result<VerifiedProofHandleEntry> {
     VERIFIED_PROOF_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("verified proof handle registry lock poisoned: {error}"))?
         .get(handle)
-        .cloned()
         .with_context(|| format!("unknown browser verified proof handle `{handle}`"))
 }
 
 pub fn remove_verified_proof_handle(handle: &str) -> Result<bool> {
-    Ok(VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("verified proof handle registry lock poisoned: {error}"))?
-        .remove(handle)
-        .is_some())
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 pub fn clear_verified_proof_handles() -> Result<bool> {
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY.write().map_err(|error| {
-        anyhow::anyhow!("verified proof handle registry lock poisoned: {error}")
-    })?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.clear() > 0)
 }
 
 fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    let mut registry = EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?;
-    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    EXECUTION_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(Into::into)
 }
 
 fn execution_handle(handle: &str) -> Result<ExecutionHandleEntry> {
     EXECUTION_HANDLE_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?
         .get(handle)
-        .cloned()
         .with_context(|| format!("unknown browser execution handle `{handle}`"))
 }
 
 pub fn remove_execution_handle(handle: &str) -> Result<bool> {
-    Ok(EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?
-        .remove(handle)
-        .is_some())
+    Ok(EXECUTION_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 pub fn clear_execution_handles() -> Result<bool> {
-    let mut registry = EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("execution handle registry lock poisoned: {error}"))?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(EXECUTION_HANDLE_REGISTRY.clear() > 0)
 }
 
 #[must_use]
@@ -746,14 +711,14 @@ pub fn import_master_keys_handle_json(master_keys_json: &str) -> Result<String> 
     register_secret_handle(SecretHandleEntry::MasterKeys(keys))
 }
 
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 fn derive_master_keys_handle_from_utf8_bytes(mnemonic: Vec<u8>) -> Result<String> {
     let mnemonic = Zeroizing::new(mnemonic);
-    let result = (|| {
+    (|| {
         let phrase = std::str::from_utf8(&mnemonic)?;
         let keys = privacy_pools_sdk_crypto::generate_master_keys(phrase)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys))
-    })();
-    result
+    })()
 }
 
 pub fn derive_master_keys_handle(mnemonic: &str) -> Result<String> {
@@ -843,20 +808,11 @@ pub fn dangerously_export_secret(handle: &str) -> Result<String> {
 }
 
 pub fn remove_secret_handle(handle: &str) -> Result<bool> {
-    Ok(SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?
-        .remove(handle)
-        .is_some())
+    Ok(SECRET_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 pub fn clear_secret_handles() -> Result<bool> {
-    let mut registry = SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("secret handle registry lock poisoned: {error}"))?;
-    let removed = !registry.is_empty();
-    registry.clear();
-    Ok(removed)
+    Ok(SECRET_HANDLE_REGISTRY.clear() > 0)
 }
 
 pub fn calculate_withdrawal_context_json(withdrawal_json: &str, scope: &str) -> Result<String> {
@@ -1572,10 +1528,7 @@ pub fn prove_withdrawal_with_session_witness_json(
     session_handle: &str,
     witness_json: &str,
 ) -> Result<String> {
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser withdrawal circuit session `{session_handle}`")
     })?;
     if session.circuit != "withdraw" {
@@ -1592,10 +1545,7 @@ pub fn prove_withdrawal_with_session_witness_binary(
     session_handle: &str,
     witness_binary: Uint32Array,
 ) -> Result<String> {
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser withdrawal circuit session `{session_handle}`")
     })?;
     if session.circuit != "withdraw" {
@@ -1612,10 +1562,7 @@ pub fn prove_commitment_with_session_witness_json(
     session_handle: &str,
     witness_json: &str,
 ) -> Result<String> {
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser commitment circuit session `{session_handle}`")
     })?;
     if session.circuit != "commitment" {
@@ -1632,10 +1579,7 @@ pub fn prove_commitment_with_session_witness_binary(
     session_handle: &str,
     witness_binary: Uint32Array,
 ) -> Result<String> {
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser commitment circuit session `{session_handle}`")
     })?;
     if session.circuit != "commitment" {
@@ -1654,10 +1598,7 @@ pub fn verify_withdrawal_proof_with_session_json(
 ) -> Result<bool> {
     let proof =
         parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser withdrawal circuit session `{session_handle}`")
     })?;
     if session.circuit != "withdraw" {
@@ -1675,10 +1616,7 @@ pub fn verify_commitment_proof_with_session_json(
 ) -> Result<bool> {
     let proof =
         parse_json::<ProofBundle>(proof_json).context("failed to parse proof JSON payload")?;
-    let registry = SESSION_REGISTRY
-        .read()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    let session = registry.get(session_handle).cloned().with_context(|| {
+    let session = SESSION_REGISTRY.get(session_handle).with_context(|| {
         format!("unknown browser commitment circuit session `{session_handle}`")
     })?;
     if session.circuit != "commitment" {
@@ -1691,23 +1629,15 @@ pub fn verify_commitment_proof_with_session_json(
 }
 
 pub fn remove_withdrawal_circuit_session(session_handle: &str) -> Result<bool> {
-    let mut registry = SESSION_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    Ok(registry
-        .get(session_handle)
-        .is_some_and(|session| session.circuit == "withdraw")
-        && registry.remove(session_handle).is_some())
+    let session = SESSION_REGISTRY.get(session_handle);
+    Ok(session.is_some_and(|entry| entry.circuit == "withdraw")
+        && SESSION_REGISTRY.remove(session_handle).is_some())
 }
 
 pub fn remove_commitment_circuit_session(session_handle: &str) -> Result<bool> {
-    let mut registry = SESSION_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))?;
-    Ok(registry
-        .get(session_handle)
-        .is_some_and(|session| session.circuit == "commitment")
-        && registry.remove(session_handle).is_some())
+    let session = SESSION_REGISTRY.get(session_handle);
+    Ok(session.is_some_and(|entry| entry.circuit == "commitment")
+        && SESSION_REGISTRY.remove(session_handle).is_some())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1718,7 +1648,7 @@ pub fn wasm_get_version() -> String {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = getBrowserSupportStatusJson)]
-pub fn wasm_get_browser_support_status_json() -> std::result::Result<String, JsValue> {
+pub fn wasm_get_browser_support_status_json() -> std::result::Result<String, WebError> {
     to_json_string(&get_browser_support_status()).map_err(js_error)
 }
 
@@ -1731,7 +1661,7 @@ pub fn wasm_get_stable_backend_name() -> String {
 #[cfg(target_arch = "wasm32")]
 #[cfg(feature = "dangerous-key-export")]
 #[wasm_bindgen(js_name = deriveMasterKeysJson)]
-pub fn wasm_derive_master_keys_json(mnemonic: &str) -> std::result::Result<String, JsValue> {
+pub fn wasm_derive_master_keys_json(mnemonic: &str) -> std::result::Result<String, WebError> {
     derive_master_keys_json(mnemonic).map_err(js_error)
 }
 
@@ -1742,7 +1672,7 @@ pub fn wasm_derive_deposit_secrets_json(
     master_keys_json: &str,
     scope: &str,
     index: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     derive_deposit_secrets_json(master_keys_json, scope, index).map_err(js_error)
 }
 
@@ -1753,7 +1683,7 @@ pub fn wasm_derive_withdrawal_secrets_json(
     master_keys_json: &str,
     label: &str,
     index: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     derive_withdrawal_secrets_json(master_keys_json, label, index).map_err(js_error)
 }
 
@@ -1764,7 +1694,7 @@ pub fn wasm_get_commitment_json(
     label: &str,
     nullifier: &str,
     secret: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     get_commitment_json(value, label, nullifier, secret).map_err(js_error)
 }
 
@@ -1772,13 +1702,13 @@ pub fn wasm_get_commitment_json(
 #[wasm_bindgen(js_name = importMasterKeysHandleJson)]
 pub fn wasm_import_master_keys_handle_json(
     master_keys_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     import_master_keys_handle_json(master_keys_json).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = deriveMasterKeysHandle)]
-pub fn wasm_derive_master_keys_handle(mnemonic: &str) -> std::result::Result<String, JsValue> {
+pub fn wasm_derive_master_keys_handle(mnemonic: &str) -> std::result::Result<String, WebError> {
     derive_master_keys_handle(mnemonic).map_err(js_error)
 }
 
@@ -1786,7 +1716,7 @@ pub fn wasm_derive_master_keys_handle(mnemonic: &str) -> std::result::Result<Str
 #[wasm_bindgen(js_name = deriveMasterKeysHandleBytes)]
 pub fn wasm_derive_master_keys_handle_bytes(
     mnemonic: Uint8Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     derive_master_keys_handle_from_utf8_bytes(mnemonic.to_vec()).map_err(js_error)
 }
 
@@ -1796,7 +1726,7 @@ pub fn wasm_generate_deposit_secrets_handle(
     master_keys_handle: &str,
     scope: &str,
     index: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     generate_deposit_secrets_handle(master_keys_handle, scope, index).map_err(js_error)
 }
 
@@ -1806,7 +1736,7 @@ pub fn wasm_generate_withdrawal_secrets_handle(
     master_keys_handle: &str,
     label: &str,
     index: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     generate_withdrawal_secrets_handle(master_keys_handle, label, index).map_err(js_error)
 }
 
@@ -1816,14 +1746,14 @@ pub fn wasm_get_commitment_from_handles(
     value: &str,
     label: &str,
     secrets_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     get_commitment_from_handles(value, label, secrets_handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportMasterKeys)]
 #[cfg(feature = "dangerous-exports")]
-pub fn wasm_dangerously_export_master_keys(handle: &str) -> std::result::Result<String, JsValue> {
+pub fn wasm_dangerously_export_master_keys(handle: &str) -> std::result::Result<String, WebError> {
     dangerously_export_master_keys(handle).map_err(js_error)
 }
 
@@ -1832,50 +1762,50 @@ pub fn wasm_dangerously_export_master_keys(handle: &str) -> std::result::Result<
 #[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_commitment_preimage(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     dangerously_export_commitment_preimage(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportSecret)]
 #[cfg(feature = "dangerous-exports")]
-pub fn wasm_dangerously_export_secret(handle: &str) -> std::result::Result<String, JsValue> {
+pub fn wasm_dangerously_export_secret(handle: &str) -> std::result::Result<String, WebError> {
     dangerously_export_secret(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = removeSecretHandle)]
-pub fn wasm_remove_secret_handle(handle: &str) -> std::result::Result<bool, JsValue> {
+pub fn wasm_remove_secret_handle(handle: &str) -> std::result::Result<bool, WebError> {
     remove_secret_handle(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = clearSecretHandles)]
-pub fn wasm_clear_secret_handles() -> std::result::Result<bool, JsValue> {
+pub fn wasm_clear_secret_handles() -> std::result::Result<bool, WebError> {
     clear_secret_handles().map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = removeVerifiedProofHandle)]
-pub fn wasm_remove_verified_proof_handle(handle: &str) -> std::result::Result<bool, JsValue> {
+pub fn wasm_remove_verified_proof_handle(handle: &str) -> std::result::Result<bool, WebError> {
     remove_verified_proof_handle(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = clearVerifiedProofHandles)]
-pub fn wasm_clear_verified_proof_handles() -> std::result::Result<bool, JsValue> {
+pub fn wasm_clear_verified_proof_handles() -> std::result::Result<bool, WebError> {
     clear_verified_proof_handles().map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = removeExecutionHandle)]
-pub fn wasm_remove_execution_handle(handle: &str) -> std::result::Result<bool, JsValue> {
+pub fn wasm_remove_execution_handle(handle: &str) -> std::result::Result<bool, WebError> {
     remove_execution_handle(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = clearExecutionHandles)]
-pub fn wasm_clear_execution_handles() -> std::result::Result<bool, JsValue> {
+pub fn wasm_clear_execution_handles() -> std::result::Result<bool, WebError> {
     clear_execution_handles().map_err(js_error)
 }
 
@@ -1884,7 +1814,7 @@ pub fn wasm_clear_execution_handles() -> std::result::Result<bool, JsValue> {
 pub fn wasm_calculate_withdrawal_context_json(
     withdrawal_json: &str,
     scope: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     calculate_withdrawal_context_json(withdrawal_json, scope).map_err(js_error)
 }
 
@@ -1893,7 +1823,7 @@ pub fn wasm_calculate_withdrawal_context_json(
 pub fn wasm_generate_merkle_proof_json(
     leaves_json: &str,
     leaf: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     generate_merkle_proof_json(leaves_json, leaf).map_err(js_error)
 }
 
@@ -1902,7 +1832,7 @@ pub fn wasm_generate_merkle_proof_json(
 pub fn wasm_build_circuit_merkle_witness_json(
     proof_json: &str,
     depth: u32,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_circuit_merkle_witness_json(proof_json, depth).map_err(js_error)
 }
 
@@ -1910,7 +1840,7 @@ pub fn wasm_build_circuit_merkle_witness_json(
 #[wasm_bindgen(js_name = buildWithdrawalCircuitInputJson)]
 pub fn wasm_build_withdrawal_circuit_input_json(
     request_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_withdrawal_circuit_input_json(request_json).map_err(js_error)
 }
 
@@ -1918,7 +1848,7 @@ pub fn wasm_build_withdrawal_circuit_input_json(
 #[wasm_bindgen(js_name = buildWithdrawalWitnessInputJson)]
 pub fn wasm_build_withdrawal_witness_input_json(
     request_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_withdrawal_witness_input_json(request_json).map_err(js_error)
 }
 
@@ -1933,7 +1863,7 @@ pub fn wasm_build_withdrawal_witness_input_from_handles_json(
     state_witness_json: &str,
     asp_witness_json: &str,
     new_secrets_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_withdrawal_witness_input_from_handles_json(
         commitment_handle,
         withdrawal_json,
@@ -1950,7 +1880,7 @@ pub fn wasm_build_withdrawal_witness_input_from_handles_json(
 #[wasm_bindgen(js_name = buildCommitmentCircuitInputJson)]
 pub fn wasm_build_commitment_circuit_input_json(
     request_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_commitment_circuit_input_json(request_json).map_err(js_error)
 }
 
@@ -1958,7 +1888,7 @@ pub fn wasm_build_commitment_circuit_input_json(
 #[wasm_bindgen(js_name = buildCommitmentWitnessInputJson)]
 pub fn wasm_build_commitment_witness_input_json(
     request_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_commitment_witness_input_json(request_json).map_err(js_error)
 }
 
@@ -1966,7 +1896,7 @@ pub fn wasm_build_commitment_witness_input_json(
 #[wasm_bindgen(js_name = buildCommitmentWitnessInputFromHandleJson)]
 pub fn wasm_build_commitment_witness_input_from_handle_json(
     commitment_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     build_commitment_witness_input_from_handle_json(commitment_handle).map_err(js_error)
 }
 
@@ -1975,7 +1905,7 @@ pub fn wasm_build_commitment_witness_input_from_handle_json(
 pub fn wasm_verify_commitment_proof_for_handle_json(
     proof_json: &str,
     commitment_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_commitment_proof_for_handle_json(proof_json, commitment_handle).map_err(js_error)
 }
 
@@ -1984,7 +1914,7 @@ pub fn wasm_verify_commitment_proof_for_handle_json(
 pub fn wasm_verify_ragequit_proof_for_handle_json(
     proof_json: &str,
     commitment_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_ragequit_proof_for_handle_json(proof_json, commitment_handle).map_err(js_error)
 }
 
@@ -2000,7 +1930,7 @@ pub fn wasm_verify_withdrawal_proof_for_handles_json(
     state_witness_json: &str,
     asp_witness_json: &str,
     new_secrets_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_withdrawal_proof_for_handles_json(
         proof_json,
         commitment_handle,
@@ -2019,7 +1949,7 @@ pub fn wasm_verify_withdrawal_proof_for_handles_json(
 pub fn wasm_checkpoint_recovery_json(
     events_json: &str,
     policy_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     checkpoint_recovery_json(events_json, policy_json).map_err(js_error)
 }
 
@@ -2028,7 +1958,7 @@ pub fn wasm_checkpoint_recovery_json(
 pub fn wasm_derive_recovery_keyset_json(
     mnemonic: &str,
     policy_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     derive_recovery_keyset_json(mnemonic, policy_json).map_err(js_error)
 }
 
@@ -2038,7 +1968,7 @@ pub fn wasm_recover_account_state_json(
     mnemonic: &str,
     pools_json: &str,
     policy_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     recover_account_state_json(mnemonic, pools_json, policy_json).map_err(js_error)
 }
 
@@ -2048,7 +1978,7 @@ pub fn wasm_recover_account_state_with_keyset_json(
     keyset_json: &str,
     pools_json: &str,
     policy_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     recover_account_state_with_keyset_json(keyset_json, pools_json, policy_json).map_err(js_error)
 }
 
@@ -2057,7 +1987,7 @@ pub fn wasm_recover_account_state_with_keyset_json(
 pub fn wasm_is_current_state_root(
     expected_root: &str,
     current_root: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     is_current_state_root(expected_root, current_root).map_err(js_error)
 }
 
@@ -2065,7 +1995,7 @@ pub fn wasm_is_current_state_root(
 #[wasm_bindgen(js_name = formatGroth16ProofBundleJson)]
 pub fn wasm_format_groth16_proof_bundle_json(
     proof_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     format_groth16_proof_bundle_json(proof_json).map_err(js_error)
 }
 
@@ -2073,7 +2003,7 @@ pub fn wasm_format_groth16_proof_bundle_json(
 #[wasm_bindgen(js_name = planPoolStateRootReadJson)]
 pub fn wasm_plan_pool_state_root_read_json(
     pool_address: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_pool_state_root_read_json(pool_address).map_err(js_error)
 }
 
@@ -2082,7 +2012,7 @@ pub fn wasm_plan_pool_state_root_read_json(
 pub fn wasm_plan_asp_root_read_json(
     entrypoint_address: &str,
     pool_address: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_asp_root_read_json(entrypoint_address, pool_address).map_err(js_error)
 }
 
@@ -2093,7 +2023,7 @@ pub fn wasm_plan_withdrawal_transaction_json(
     pool_address: &str,
     withdrawal_json: &str,
     proof_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_withdrawal_transaction_json(chain_id, pool_address, withdrawal_json, proof_json)
         .map_err(js_error)
 }
@@ -2106,7 +2036,7 @@ pub fn wasm_plan_relay_transaction_json(
     withdrawal_json: &str,
     proof_json: &str,
     scope: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_relay_transaction_json(
         chain_id,
         entrypoint_address,
@@ -2123,7 +2053,7 @@ pub fn wasm_plan_ragequit_transaction_json(
     chain_id: u64,
     pool_address: &str,
     proof_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_ragequit_transaction_json(chain_id, pool_address, proof_json).map_err(js_error)
 }
 
@@ -2133,7 +2063,7 @@ pub fn wasm_plan_verified_withdrawal_transaction_with_handle_json(
     chain_id: u64,
     pool_address: &str,
     proof_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_verified_withdrawal_transaction_with_handle_json(chain_id, pool_address, proof_handle)
         .map_err(js_error)
 }
@@ -2144,7 +2074,7 @@ pub fn wasm_plan_verified_relay_transaction_with_handle_json(
     chain_id: u64,
     entrypoint_address: &str,
     proof_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_verified_relay_transaction_with_handle_json(chain_id, entrypoint_address, proof_handle)
         .map_err(js_error)
 }
@@ -2155,7 +2085,7 @@ pub fn wasm_plan_verified_ragequit_transaction_with_handle_json(
     chain_id: u64,
     pool_address: &str,
     proof_handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     plan_verified_ragequit_transaction_with_handle_json(chain_id, pool_address, proof_handle)
         .map_err(js_error)
 }
@@ -2167,7 +2097,7 @@ pub fn wasm_register_verified_withdrawal_preflighted_transaction_json(
     pool_address: &str,
     transaction_json: &str,
     preflight_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_verified_withdrawal_preflighted_transaction_json(
         proof_handle,
         pool_address,
@@ -2185,7 +2115,7 @@ pub fn wasm_register_verified_relay_preflighted_transaction_json(
     pool_address: &str,
     transaction_json: &str,
     preflight_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_verified_relay_preflighted_transaction_json(
         proof_handle,
         entrypoint_address,
@@ -2203,7 +2133,7 @@ pub fn wasm_register_verified_ragequit_preflighted_transaction_json(
     pool_address: &str,
     transaction_json: &str,
     preflight_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_verified_ragequit_preflighted_transaction_json(
         proof_handle,
         pool_address,
@@ -2218,7 +2148,7 @@ pub fn wasm_register_verified_ragequit_preflighted_transaction_json(
 pub fn wasm_register_reconfirmed_preflighted_transaction_json(
     preflighted_handle: &str,
     preflight_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_reconfirmed_preflighted_transaction_json(preflighted_handle, preflight_json)
         .map_err(js_error)
 }
@@ -2228,7 +2158,7 @@ pub fn wasm_register_reconfirmed_preflighted_transaction_json(
 pub fn wasm_register_finalized_preflighted_transaction_json(
     preflighted_handle: &str,
     request_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_finalized_preflighted_transaction_json(preflighted_handle, request_json)
         .map_err(js_error)
 }
@@ -2239,7 +2169,7 @@ pub fn wasm_register_submitted_preflighted_transaction_json(
     finalized_handle: &str,
     preflight_json: &str,
     receipt_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     register_submitted_preflighted_transaction_json(finalized_handle, preflight_json, receipt_json)
         .map_err(js_error)
 }
@@ -2248,7 +2178,7 @@ pub fn wasm_register_submitted_preflighted_transaction_json(
 #[wasm_bindgen(js_name = exportPreflightedTransactionInternal)]
 pub fn wasm_export_preflighted_transaction_internal(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     export_preflighted_transaction_json_internal(handle).map_err(js_error)
 }
 
@@ -2256,7 +2186,7 @@ pub fn wasm_export_preflighted_transaction_internal(
 #[wasm_bindgen(js_name = exportFinalizedPreflightedTransactionInternal)]
 pub fn wasm_export_finalized_preflighted_transaction_internal(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     export_finalized_preflighted_transaction_json_internal(handle).map_err(js_error)
 }
 
@@ -2264,7 +2194,7 @@ pub fn wasm_export_finalized_preflighted_transaction_internal(
 #[wasm_bindgen(js_name = exportSubmittedPreflightedTransactionInternal)]
 pub fn wasm_export_submitted_preflighted_transaction_internal(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     export_submitted_preflighted_transaction_json_internal(handle).map_err(js_error)
 }
 
@@ -2273,7 +2203,7 @@ pub fn wasm_export_submitted_preflighted_transaction_internal(
 #[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_preflighted_transaction(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     dangerously_export_preflighted_transaction_json(handle).map_err(js_error)
 }
 
@@ -2282,7 +2212,7 @@ pub fn wasm_dangerously_export_preflighted_transaction(
 #[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_finalized_preflighted_transaction(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     dangerously_export_finalized_preflighted_transaction_json(handle).map_err(js_error)
 }
 
@@ -2291,7 +2221,7 @@ pub fn wasm_dangerously_export_finalized_preflighted_transaction(
 #[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_submitted_preflighted_transaction(
     handle: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     dangerously_export_submitted_preflighted_transaction_json(handle).map_err(js_error)
 }
 
@@ -2301,7 +2231,7 @@ pub fn wasm_verify_artifact_bytes_json(
     manifest_json: &str,
     circuit: &str,
     artifacts_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_artifact_bytes_json(manifest_json, circuit, artifacts_json).map_err(js_error)
 }
 
@@ -2311,7 +2241,7 @@ pub fn wasm_verify_artifact_bytes(
     manifest_json: &str,
     circuit: &str,
     artifacts: Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
     let bundle = manifest
@@ -2326,7 +2256,7 @@ pub fn wasm_verify_signed_manifest(
     payload_json: &str,
     signature_hex: &str,
     public_key_hex: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_signed_manifest_json(payload_json, signature_hex, public_key_hex).map_err(js_error)
 }
 
@@ -2337,7 +2267,7 @@ pub fn wasm_verify_signed_manifest_artifacts_json(
     signature_hex: &str,
     public_key_hex: &str,
     artifacts_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     verify_signed_manifest_artifacts_json(
         payload_json,
         signature_hex,
@@ -2352,7 +2282,7 @@ pub fn wasm_verify_signed_manifest_artifacts_json(
 pub fn wasm_prepare_withdrawal_circuit_session_from_bytes(
     manifest_json: &str,
     artifacts: Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")
@@ -2365,7 +2295,7 @@ pub fn wasm_prepare_withdrawal_circuit_session_from_bytes(
 pub fn wasm_prepare_commitment_circuit_session_from_bytes(
     manifest_json: &str,
     artifacts: Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")
@@ -2379,7 +2309,7 @@ pub fn wasm_verify_withdrawal_proof(
     manifest_json: &str,
     artifacts: Array,
     proof_json: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")
@@ -2397,7 +2327,7 @@ pub fn wasm_verify_commitment_proof(
     manifest_json: &str,
     artifacts: Array,
     proof_json: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     let manifest = parse_manifest(manifest_json).map_err(js_error)?;
     let artifacts = from_wasm_artifact_bytes(artifacts).map_err(js_error)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")
@@ -2414,7 +2344,7 @@ pub fn wasm_verify_commitment_proof(
 pub fn wasm_verify_withdrawal_proof_with_session(
     session_handle: &str,
     proof_json: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     verify_withdrawal_proof_with_session_json(session_handle, proof_json).map_err(js_error)
 }
 
@@ -2424,7 +2354,7 @@ pub fn wasm_prove_withdrawal_with_witness_json(
     manifest_json: &str,
     artifacts_json: &str,
     witness_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_withdrawal_with_witness_json(manifest_json, artifacts_json, witness_json)
         .map_err(js_error)
 }
@@ -2434,7 +2364,7 @@ pub fn wasm_prove_withdrawal_with_witness_json(
 pub fn wasm_prove_withdrawal_with_session_witness_json(
     session_handle: &str,
     witness_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_withdrawal_with_session_witness_json(session_handle, witness_json).map_err(js_error)
 }
 
@@ -2443,7 +2373,7 @@ pub fn wasm_prove_withdrawal_with_session_witness_json(
 pub fn wasm_prove_withdrawal_with_session_witness_binary(
     session_handle: &str,
     witness_binary: Uint32Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_withdrawal_with_session_witness_binary(session_handle, witness_binary).map_err(js_error)
 }
 
@@ -2452,7 +2382,7 @@ pub fn wasm_prove_withdrawal_with_session_witness_binary(
 pub fn wasm_verify_commitment_proof_with_session(
     session_handle: &str,
     proof_json: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     verify_commitment_proof_with_session_json(session_handle, proof_json).map_err(js_error)
 }
 
@@ -2462,7 +2392,7 @@ pub fn wasm_prove_commitment_with_witness_json(
     manifest_json: &str,
     artifacts_json: &str,
     witness_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_commitment_with_witness_json(manifest_json, artifacts_json, witness_json)
         .map_err(js_error)
 }
@@ -2472,7 +2402,7 @@ pub fn wasm_prove_commitment_with_witness_json(
 pub fn wasm_prove_commitment_with_session_witness_json(
     session_handle: &str,
     witness_json: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_commitment_with_session_witness_json(session_handle, witness_json).map_err(js_error)
 }
 
@@ -2481,7 +2411,7 @@ pub fn wasm_prove_commitment_with_session_witness_json(
 pub fn wasm_prove_commitment_with_session_witness_binary(
     session_handle: &str,
     witness_binary: Uint32Array,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     prove_commitment_with_session_witness_binary(session_handle, witness_binary).map_err(js_error)
 }
 
@@ -2489,7 +2419,7 @@ pub fn wasm_prove_commitment_with_session_witness_binary(
 #[wasm_bindgen(js_name = removeWithdrawalCircuitSession)]
 pub fn wasm_remove_withdrawal_circuit_session(
     session_handle: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     remove_withdrawal_circuit_session(session_handle).map_err(js_error)
 }
 
@@ -2497,7 +2427,7 @@ pub fn wasm_remove_withdrawal_circuit_session(
 #[wasm_bindgen(js_name = removeCommitmentCircuitSession)]
 pub fn wasm_remove_commitment_circuit_session(
     session_handle: &str,
-) -> std::result::Result<bool, JsValue> {
+) -> std::result::Result<bool, WebError> {
     remove_commitment_circuit_session(session_handle).map_err(js_error)
 }
 
@@ -2507,7 +2437,7 @@ pub fn wasm_get_artifact_statuses_json(
     manifest_json: &str,
     artifacts_root: &str,
     circuit: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     get_artifact_statuses_json(manifest_json, artifacts_root, circuit).map_err(js_error)
 }
 
@@ -2517,13 +2447,13 @@ pub fn wasm_resolve_verified_artifact_bundle_json(
     manifest_json: &str,
     artifacts_root: &str,
     circuit: &str,
-) -> std::result::Result<String, JsValue> {
+) -> std::result::Result<String, WebError> {
     resolve_verified_artifact_bundle_json(manifest_json, artifacts_root, circuit).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn js_error(error: anyhow::Error) -> JsValue {
-    JsValue::from_str(&error.to_string())
+fn js_error(error: anyhow::Error) -> WebError {
+    WebError::from(error)
 }
 
 fn parse_json<T>(value: &str) -> Result<T>
@@ -2537,14 +2467,12 @@ fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    if value.len() > max_bytes {
-        bail!(
-            "JSON payload exceeds maximum size: {} > {} bytes",
-            value.len(),
-            max_bytes
-        );
-    }
-    serde_json::from_str(value).context("failed to parse JSON payload")
+    parse_json_with_limit_capped(value, max_bytes, "json_payload", |error| match error {
+        LimitError::PayloadTooLarge { limit, actual, .. } => {
+            anyhow::anyhow!("JSON payload exceeds maximum size: {actual} > {limit} bytes")
+        }
+        LimitError::Parse(message) => anyhow::anyhow!("failed to parse JSON payload: {message}"),
+    })
 }
 
 fn to_json_string(value: &impl Serialize) -> Result<String> {
@@ -2573,12 +2501,8 @@ fn parse_hex_bytes(value: &str) -> Result<Vec<u8>> {
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
-    match value {
-        "wasm" => Ok(ArtifactKind::Wasm),
-        "zkey" => Ok(ArtifactKind::Zkey),
-        "vkey" => Ok(ArtifactKind::Vkey),
-        _ => bail!("invalid artifact kind: {value}"),
-    }
+    parse_binding_artifact_kind(value)
+        .map_err(|_| anyhow::anyhow!("invalid artifact kind: {value}"))
 }
 
 fn parse_transaction_kind(value: &str) -> Result<TransactionKind> {
@@ -2599,10 +2523,19 @@ fn parse_root_read_kind(value: &str) -> Result<RootReadKind> {
 }
 
 fn parse_execution_policy_mode(value: &str) -> Result<ExecutionPolicyMode> {
-    match value {
-        "strict" => Ok(ExecutionPolicyMode::Strict),
-        "insecure_dev" => Ok(ExecutionPolicyMode::InsecureDev),
-        _ => bail!("invalid execution policy mode: {value}"),
+    privacy_pools_sdk_core::parsers::parse_execution_policy_mode(value)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn parse_read_consistency(value: &str) -> Result<privacy_pools_sdk_core::ReadConsistency> {
+    privacy_pools_sdk_core::parsers::parse_read_consistency(value)
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+}
+
+fn read_consistency_label(consistency: privacy_pools_sdk_core::ReadConsistency) -> String {
+    match consistency {
+        privacy_pools_sdk_core::ReadConsistency::Latest => "latest".to_owned(),
+        privacy_pools_sdk_core::ReadConsistency::Finalized => "finalized".to_owned(),
     }
 }
 
@@ -3060,6 +2993,8 @@ fn to_js_execution_preflight(report: ExecutionPreflightReport) -> JsExecutionPre
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: read_consistency_label(report.read_consistency),
+        max_fee_quote_wei: report.max_fee_quote_wei.map(|value| value.to_string()),
         mode: Some(execution_policy_mode_label(report.mode)),
         code_hash_checks: report
             .code_hash_checks
@@ -3207,8 +3142,13 @@ fn from_js_execution_preflight(
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
-        read_consistency: privacy_pools_sdk_core::ReadConsistency::Latest,
-        max_fee_quote_wei: None,
+        read_consistency: parse_read_consistency(&report.read_consistency)?,
+        max_fee_quote_wei: report
+            .max_fee_quote_wei
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .context("invalid maxFeeQuoteWei")?,
         mode: parse_execution_policy_mode(report.mode.as_deref().unwrap_or("strict"))?,
         code_hash_checks: report
             .code_hash_checks
@@ -3712,11 +3652,10 @@ fn from_js_pool_events(events: Vec<JsPoolEvent>) -> Result<Vec<PoolEvent>> {
 }
 
 fn from_js_recovery_policy(policy: &JsRecoveryPolicy) -> Result<RecoveryPolicy> {
-    let compatibility_mode = match policy.compatibility_mode.as_str() {
-        "strict" => CompatibilityMode::Strict,
-        "legacy" => CompatibilityMode::Legacy,
-        other => bail!("invalid compatibility mode: {other}"),
-    };
+    let compatibility_mode =
+        parse_binding_compatibility_mode(&policy.compatibility_mode).map_err(|_| {
+            anyhow::anyhow!("invalid compatibility mode: {}", policy.compatibility_mode)
+        })?;
     Ok(RecoveryPolicy {
         compatibility_mode,
         fail_closed: policy.fail_closed,
@@ -4004,13 +3943,7 @@ fn prepare_circuit_session_from_artifacts(
         prepared,
     };
 
-    SESSION_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("browser session registry poisoned: {error}"))
-        .map(|mut registry| {
-            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS);
-            registry.insert(handle, session.clone());
-        })?;
+    SESSION_REGISTRY.insert(handle, session.clone())?;
 
     Ok(session)
 }

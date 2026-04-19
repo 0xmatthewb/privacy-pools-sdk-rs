@@ -220,13 +220,12 @@ fn run_command(program: &str, args: &[String], cwd: PathBuf) -> String {
         .current_dir(cwd)
         .output()
         .unwrap_or_else(|error| panic!("failed to launch {program}: {error}"));
-    if !output.status.success() {
-        panic!(
-            "{program} failed\nstdout:\n{}\nstderr:\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    assert!(
+        output.status.success(),
+        "{program} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     String::from_utf8(output.stdout).expect("command output should be utf8")
 }

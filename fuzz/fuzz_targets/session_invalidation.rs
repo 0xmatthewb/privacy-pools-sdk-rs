@@ -9,8 +9,7 @@ use privacy_pools_sdk::{
 
 const COMMITMENT_MANIFEST_JSON: &str =
     include_str!("../../fixtures/artifacts/commitment-proving-manifest.json");
-const COMMITMENT_WASM: &[u8] =
-    include_bytes!("../../fixtures/circuits/commitment/commitment.wasm");
+const COMMITMENT_WASM: &[u8] = include_bytes!("../../fixtures/circuits/commitment/commitment.wasm");
 const COMMITMENT_ZKEY: &[u8] = include_bytes!("../../fixtures/artifacts/commitment.zkey");
 const COMMITMENT_VKEY: &[u8] = include_bytes!("../../fixtures/artifacts/commitment.vkey.json");
 

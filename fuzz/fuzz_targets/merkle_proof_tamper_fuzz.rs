@@ -32,8 +32,14 @@ fuzz_target!(|data: &[u8]| {
     }
 
     if data.is_empty() {
-        assert!(verify_merkle_proof(&tampered), "untampered proof should verify");
+        assert!(
+            verify_merkle_proof(&tampered),
+            "untampered proof should verify"
+        );
     } else {
-        assert!(!verify_merkle_proof(&tampered), "tampered proof should be rejected");
+        assert!(
+            !verify_merkle_proof(&tampered),
+            "tampered proof should be rejected"
+        );
     }
 });

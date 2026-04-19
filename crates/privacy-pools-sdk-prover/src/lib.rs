@@ -953,23 +953,23 @@ mod tests {
         }
     }
 
+    fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> u32 {
+        let end = *cursor + 4;
+        let value = u32::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+        *cursor = end;
+        value
+    }
+
+    fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> u64 {
+        let end = *cursor + 8;
+        let value = u64::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
+        *cursor = end;
+        value
+    }
+
     fn read_wtns_values(path: &PathBuf) -> Vec<String> {
         let bytes = fs::read(path).unwrap();
         let mut cursor = 0usize;
-
-        fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> u32 {
-            let end = *cursor + 4;
-            let value = u32::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
-            *cursor = end;
-            value
-        }
-
-        fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> u64 {
-            let end = *cursor + 8;
-            let value = u64::from_le_bytes(bytes[*cursor..end].try_into().unwrap());
-            *cursor = end;
-            value
-        }
 
         assert_eq!(&bytes[..4], b"wtns");
         cursor += 4;

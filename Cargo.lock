@@ -1262,13 +1262,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-platform"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba"
+dependencies = [
+ "serde",
+ "serde_core",
+]
+
+[[package]]
 name = "cargo_metadata"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd5eb614ed4c27c5d706420e4320fbe3216ab31fa1c33cd8246ac36dae4479ba"
 dependencies = [
  "camino",
- "cargo-platform",
+ "cargo-platform 0.1.9",
+ "semver 1.0.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "cargo_metadata"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef987d17b0a113becdd19d3d0022d04d7ef41f9efe4f3fb63ac44ba61df3ade9"
+dependencies = [
+ "camino",
+ "cargo-platform 0.3.3",
  "semver 1.0.28",
  "serde",
  "serde_json",
@@ -3375,6 +3399,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "trybuild",
@@ -3391,6 +3416,17 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "privacy-pools-sdk-bindings-core"
+version = "0.1.0"
+dependencies = [
+ "privacy-pools-sdk-artifacts",
+ "privacy-pools-sdk-core",
+ "privacy-pools-sdk-prover",
+ "privacy-pools-sdk-recovery",
  "thiserror 2.0.18",
 ]
 
@@ -3487,6 +3523,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "privacy-pools-sdk",
+ "privacy-pools-sdk-bindings-core",
  "serde",
  "serde_json",
  "sha2",
@@ -3509,6 +3546,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "privacy-pools-sdk",
+ "privacy-pools-sdk-bindings-core",
  "serde",
  "serde_json",
  "tokio",
@@ -3615,6 +3653,7 @@ dependencies = [
  "js-sys",
  "num-bigint",
  "privacy-pools-sdk-artifacts",
+ "privacy-pools-sdk-bindings-core",
  "privacy-pools-sdk-circuits",
  "privacy-pools-sdk-core",
  "privacy-pools-sdk-crypto",
@@ -3623,6 +3662,7 @@ dependencies = [
  "privacy-pools-sdk-tree",
  "privacy-pools-sdk-verifier",
  "serde",
+ "serde-wasm-bindgen",
  "serde_json",
  "uuid",
  "wasm-bindgen",
@@ -4356,6 +4396,17 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5105,7 +5156,7 @@ checksum = "dc5f2297ee5b893405bed1a6929faec4713a061df158ecf5198089f23910d470"
 dependencies = [
  "anyhow",
  "camino",
- "cargo_metadata",
+ "cargo_metadata 0.19.2",
  "clap",
  "uniffi_bindgen",
  "uniffi_core",
@@ -5122,7 +5173,7 @@ dependencies = [
  "anyhow",
  "askama",
  "camino",
- "cargo_metadata",
+ "cargo_metadata 0.19.2",
  "fs-err",
  "glob",
  "goblin",
@@ -5980,13 +6031,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "camino",
+ "cargo_metadata 0.23.1",
  "ed25519-dalek",
  "hex",
  "privacy-pools-sdk-artifacts",
  "serde",
  "serde_json",
  "sha2",
+ "syn 2.0.117",
  "tempfile",
+ "toml 0.9.12+spec-1.1.0",
  "uniffi",
 ]
 

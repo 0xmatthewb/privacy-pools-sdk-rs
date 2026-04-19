@@ -11,7 +11,7 @@ contract WithdrawalVerifierProofTest {
   Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
   function testRustGeneratedWithdrawalProofAccepted() external {
-    bytes memory encoded = vm.readFileBinary("fixtures/generated/withdrawal-proof.abi");
+    bytes memory encoded = vm.readFileBinary(vm.envString("PRIVACY_POOLS_PROOF_PATH"));
     (uint256[2] memory pA, uint256[2][2] memory pB, uint256[2] memory pC, uint256[8] memory pubSignals) =
       abi.decode(encoded, (uint256[2], uint256[2][2], uint256[2], uint256[8]));
 

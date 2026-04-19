@@ -18,6 +18,12 @@ use privacy_pools_sdk::{
         ProofBundle, RagequitExecutionConfig, RelayExecutionConfig, RootCheck, RootRead,
         RootReadKind, SnarkJsProof, TransactionKind, TransactionPlan, TransactionReceiptSummary,
         Withdrawal, WithdrawalExecutionConfig, WithdrawalWitnessRequest,
+        limits::{
+            LimitError, MAX_ARTIFACT_JSON_INPUT_BYTES, MAX_CIRCUIT_SESSIONS_PER_TYPE,
+            MAX_CONTROL_JSON_INPUT_BYTES, MAX_EXECUTION_HANDLES, MAX_RECOVERY_JSON_INPUT_BYTES,
+            MAX_SECRET_HANDLES, MAX_VERIFIED_PROOF_HANDLES,
+            parse_json_with_limit as parse_json_with_limit_capped,
+        },
         wire::{
             WireCommitment, WireCommitmentWitnessRequest, WireWithdrawal,
             WireWithdrawalWitnessRequest,
@@ -25,51 +31,152 @@ use privacy_pools_sdk::{
     },
     prover::{BackendProfile, ProverBackend, ProvingResult},
     recovery::{
-        CompatibilityMode, DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent,
-        RecoveredAccountState, RecoveredCommitment, RecoveredPoolAccount, RecoveredScope,
-        RecoveryKeyset, RecoveryPolicy, SpendableScope, WithdrawalEvent,
+        DepositEvent, PoolEvent, PoolRecoveryInput, RagequitEvent, RecoveredAccountState,
+        RecoveredCommitment, RecoveredPoolAccount, RecoveredScope, RecoveryKeyset, RecoveryPolicy,
+        SpendableScope, WithdrawalEvent,
     },
 };
+use privacy_pools_sdk_bindings_core::parsers::{
+    parse_artifact_kind as parse_binding_artifact_kind,
+    parse_backend_profile as parse_binding_backend_profile,
+    parse_compatibility_mode as parse_binding_compatibility_mode,
+};
+use privacy_pools_sdk_bindings_core::{EvictionPolicy, HandleRegistry};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    collections::HashMap,
     str::FromStr,
     sync::{
-        LazyLock, RwLock,
+        LazyLock,
         atomic::{AtomicU64, Ordering},
     },
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
-const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
-const MAX_SECRET_HANDLES: usize = 512;
-const MAX_VERIFIED_PROOF_HANDLES: usize = 256;
-const MAX_EXECUTION_HANDLES: usize = 256;
-const MAX_CIRCUIT_SESSIONS_PER_TYPE: usize = 64;
-
 static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(PrivacyPoolsSdk::default);
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
-static WITHDRAWAL_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, WithdrawalCircuitSession>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static COMMITMENT_SESSION_REGISTRY: LazyLock<RwLock<HashMap<String, CommitmentCircuitSession>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static SECRET_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, SecretHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, VerifiedProofHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-static EXECUTION_HANDLE_REGISTRY: LazyLock<RwLock<HashMap<String, ExecutionHandleEntry>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static WITHDRAWAL_SESSION_REGISTRY: LazyLock<HandleRegistry<WithdrawalCircuitSession>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(MAX_CIRCUIT_SESSIONS_PER_TYPE, EvictionPolicy::LruLowestKey)
+    });
+static COMMITMENT_SESSION_REGISTRY: LazyLock<HandleRegistry<CommitmentCircuitSession>> =
+    LazyLock::new(|| {
+        HandleRegistry::new(MAX_CIRCUIT_SESSIONS_PER_TYPE, EvictionPolicy::LruLowestKey)
+    });
+static SECRET_HANDLE_REGISTRY: LazyLock<HandleRegistry<SecretHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_SECRET_HANDLES, EvictionPolicy::LruLowestKey));
+static VERIFIED_PROOF_HANDLE_REGISTRY: LazyLock<HandleRegistry<VerifiedProofHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_VERIFIED_PROOF_HANDLES, EvictionPolicy::LruLowestKey));
+static EXECUTION_HANDLE_REGISTRY: LazyLock<HandleRegistry<ExecutionHandleEntry>> =
+    LazyLock::new(|| HandleRegistry::new(MAX_EXECUTION_HANDLES, EvictionPolicy::LruLowestKey));
 
-fn evict_lowest_key_if_needed<T>(registry: &mut HashMap<String, T>, capacity: usize) {
-    while registry.len() >= capacity {
-        let Some(handle) = registry.keys().min().cloned() else {
-            break;
-        };
-        registry.remove(&handle);
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "code", rename_all = "kebab-case")]
+enum NodeError {
+    ChainIdMismatch {
+        expected: u64,
+        actual: u64,
+    },
+    InvalidSignedTransaction {
+        message: String,
+    },
+    SignerRequiresExternalSigning,
+    UnmatchedRagequit {
+        scope: String,
+        label: String,
+    },
+    RegistryFull {
+        registry: String,
+        capacity: usize,
+    },
+    HandleAlreadyRegistered {
+        handle: String,
+    },
+    PayloadTooLarge {
+        field: String,
+        limit: u64,
+        actual: u64,
+    },
+    InvalidMnemonic {
+        message: String,
+    },
+    InvalidRelayData {
+        message: String,
+    },
+    OperationFailed {
+        message: String,
+    },
+}
+
+impl From<privacy_pools_sdk_bindings_core::BindingCoreError> for NodeError {
+    fn from(error: privacy_pools_sdk_bindings_core::BindingCoreError) -> Self {
+        match error {
+            privacy_pools_sdk_bindings_core::BindingCoreError::ChainIdMismatch {
+                expected,
+                actual,
+            } => Self::ChainIdMismatch { expected, actual },
+            privacy_pools_sdk_bindings_core::BindingCoreError::InvalidSignedTransaction(
+                message,
+            ) => Self::InvalidSignedTransaction { message },
+            privacy_pools_sdk_bindings_core::BindingCoreError::SignerRequiresExternalSigning => {
+                Self::SignerRequiresExternalSigning
+            }
+            privacy_pools_sdk_bindings_core::BindingCoreError::UnmatchedRagequit {
+                scope,
+                label,
+            } => Self::UnmatchedRagequit { scope, label },
+            privacy_pools_sdk_bindings_core::BindingCoreError::RegistryFull {
+                registry,
+                capacity,
+            } => Self::RegistryFull {
+                registry: registry.to_owned(),
+                capacity,
+            },
+            privacy_pools_sdk_bindings_core::BindingCoreError::HandleAlreadyRegistered(handle) => {
+                Self::HandleAlreadyRegistered { handle }
+            }
+            privacy_pools_sdk_bindings_core::BindingCoreError::PayloadTooLarge {
+                field,
+                limit,
+                actual,
+            } => Self::PayloadTooLarge {
+                field: field.to_owned(),
+                limit: limit as u64,
+                actual: actual as u64,
+            },
+            privacy_pools_sdk_bindings_core::BindingCoreError::InvalidMnemonic(message) => {
+                Self::InvalidMnemonic { message }
+            }
+            privacy_pools_sdk_bindings_core::BindingCoreError::InvalidRelayData(message) => {
+                Self::InvalidRelayData { message }
+            }
+        }
     }
+}
+
+impl From<anyhow::Error> for NodeError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::OperationFailed {
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<NodeError> for Error {
+    fn from(error: NodeError) -> Self {
+        let message = serde_json::to_string(&error).unwrap_or_else(|serialization_error| {
+            format!("{{\"code\":\"operation-failed\",\"message\":\"failed to serialize node error: {serialization_error}: {error:?}\"}}")
+        });
+        Error::from_reason(message)
+    }
+}
+
+fn binding_core_reason(error: privacy_pools_sdk_bindings_core::BindingCoreError) -> anyhow::Error {
+    anyhow!(serde_json::to_string(&NodeError::from(error)).unwrap_or_else(
+        |serialization_error| format!(
+            "{{\"code\":\"operation-failed\",\"message\":\"failed to serialize node error: {serialization_error}\"}}"
+        )
+    ))
 }
 
 #[derive(Debug, Clone)]
@@ -547,13 +654,12 @@ pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
 
 fn derive_master_keys_from_utf8_bytes(mnemonic: Vec<u8>) -> NapiResult<String> {
     let mnemonic = Zeroizing::new(mnemonic);
-    let result = (|| {
+    (|| {
         let phrase = std::str::from_utf8(&mnemonic)
             .map_err(|error| to_napi_error(anyhow!(error.to_string())))?;
         let keys = SDK.generate_master_keys(phrase).map_err(to_napi_error)?;
         register_secret_handle(SecretHandleEntry::MasterKeys(keys)).map_err(to_napi_error)
-    })();
-    result
+    })()
 }
 
 #[napi]
@@ -964,6 +1070,7 @@ pub fn verify_signed_manifest(
     signature_hex: String,
     public_key_hex: String,
 ) -> NapiResult<String> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES).map_err(to_napi_error)?;
     let payload = privacy_pools_sdk::artifacts::verify_signed_manifest_bytes(
         payload_json.as_bytes(),
         &signature_hex,
@@ -984,6 +1091,7 @@ pub fn verify_signed_manifest_artifacts(
     public_key_hex: String,
     artifacts_json: String,
 ) -> NapiResult<String> {
+    validate_json_boundary(&payload_json, MAX_CONTROL_JSON_INPUT_BYTES).map_err(to_napi_error)?;
     let artifacts = parse_json_with_limit::<Vec<JsSignedManifestArtifactBytes>>(
         &artifacts_json,
         MAX_ARTIFACT_JSON_INPUT_BYTES,
@@ -1020,13 +1128,9 @@ pub fn prepare_withdrawal_circuit_session(
         artifact_version: session.artifact_version().to_owned(),
     };
     WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)
-        .map(|mut registry| {
-            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
-            registry.insert(handle, session);
-        })?;
+        .insert(handle, session)
+        .map_err(binding_core_reason)
+        .map_err(to_napi_error)?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -1055,22 +1159,15 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
         artifact_version: session.artifact_version().to_owned(),
     };
     WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)
-        .map(|mut registry| {
-            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
-            registry.insert(handle, session);
-        })?;
+        .insert(handle, session)
+        .map_err(binding_core_reason)
+        .map_err(to_napi_error)?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
 #[napi]
 pub fn remove_withdrawal_circuit_session(session_handle: String) -> NapiResult<bool> {
     Ok(WITHDRAWAL_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)?
         .remove(&session_handle)
         .is_some())
 }
@@ -1091,13 +1188,9 @@ pub fn prepare_commitment_circuit_session(
         artifact_version: session.artifact_version().to_owned(),
     };
     COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)
-        .map(|mut registry| {
-            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
-            registry.insert(handle, session);
-        })?;
+        .insert(handle, session)
+        .map_err(binding_core_reason)
+        .map_err(to_napi_error)?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
@@ -1126,22 +1219,15 @@ pub fn prepare_commitment_circuit_session_from_bytes(
         artifact_version: session.artifact_version().to_owned(),
     };
     COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)
-        .map(|mut registry| {
-            evict_lowest_key_if_needed(&mut registry, MAX_CIRCUIT_SESSIONS_PER_TYPE);
-            registry.insert(handle, session);
-        })?;
+        .insert(handle, session)
+        .map_err(binding_core_reason)
+        .map_err(to_napi_error)?;
     to_json_string(&result).map_err(to_napi_error)
 }
 
 #[napi]
 pub fn remove_commitment_circuit_session(session_handle: String) -> NapiResult<bool> {
     Ok(COMMITMENT_SESSION_REGISTRY
-        .write()
-        .map_err(lock_error)
-        .map_err(to_napi_error)?
         .remove(&session_handle)
         .is_some())
 }
@@ -1993,18 +2079,20 @@ where
     parse_json_with_limit(value, MAX_CONTROL_JSON_INPUT_BYTES)
 }
 
+fn validate_json_boundary(value: &str, max_bytes: usize) -> Result<()> {
+    parse_json_with_limit::<serde_json::Value>(value, max_bytes).map(|_| ())
+}
+
 fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T>
 where
     T: DeserializeOwned,
 {
-    if value.len() > max_bytes {
-        bail!(
-            "JSON payload exceeds maximum size: {} > {} bytes",
-            value.len(),
-            max_bytes
-        );
-    }
-    serde_json::from_str(value).context("failed to parse JSON payload")
+    parse_json_with_limit_capped(value, max_bytes, "json_payload", |error| match error {
+        LimitError::PayloadTooLarge { limit, actual, .. } => {
+            anyhow!("JSON payload exceeds maximum size: {actual} > {limit} bytes")
+        }
+        LimitError::Parse(message) => anyhow!("failed to parse JSON payload: {message}"),
+    })
 }
 
 fn ensure_recovery_secret_exports_enabled() -> Result<()> {
@@ -2052,19 +2140,11 @@ fn parse_u128(value: &str) -> Result<u128> {
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
-    match value {
-        "wasm" => Ok(ArtifactKind::Wasm),
-        "zkey" => Ok(ArtifactKind::Zkey),
-        "vkey" => Ok(ArtifactKind::Vkey),
-        _ => bail!("invalid artifact kind: {value}"),
-    }
+    parse_binding_artifact_kind(value).map_err(|_| anyhow!("invalid artifact kind: {value}"))
 }
 
 fn parse_backend_profile(value: &str) -> Result<BackendProfile> {
-    match value {
-        "stable" => Ok(BackendProfile::Stable),
-        _ => bail!("invalid backend profile: {value}"),
-    }
+    parse_binding_backend_profile(value).map_err(|_| anyhow!("invalid backend profile: {value}"))
 }
 
 fn artifact_kind_label(kind: ArtifactKind) -> String {
@@ -2112,11 +2192,8 @@ fn execution_policy_mode_label(mode: ExecutionPolicyMode) -> String {
 }
 
 fn parse_read_consistency(value: &str) -> Result<privacy_pools_sdk::core::ReadConsistency> {
-    match value {
-        "latest" => Ok(privacy_pools_sdk::core::ReadConsistency::Latest),
-        "finalized" => Ok(privacy_pools_sdk::core::ReadConsistency::Finalized),
-        other => bail!("invalid read consistency: {other}"),
-    }
+    privacy_pools_sdk::core::parsers::parse_read_consistency(value)
+        .map_err(|error| anyhow!(error.to_string()))
 }
 
 fn read_consistency_label(consistency: privacy_pools_sdk::core::ReadConsistency) -> String {
@@ -2146,120 +2223,80 @@ fn next_secret_handle() -> String {
 
 fn register_secret_handle(entry: SecretHandleEntry) -> Result<String> {
     let handle = next_secret_handle();
-    let mut registry = SECRET_HANDLE_REGISTRY.write().map_err(lock_error)?;
-    evict_lowest_key_if_needed(&mut registry, MAX_SECRET_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    SECRET_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(binding_core_reason)
 }
 
 fn get_secret_handle(handle: &str) -> Result<SecretHandleEntry> {
     SECRET_HANDLE_REGISTRY
-        .read()
-        .map_err(lock_error)?
         .get(handle)
-        .cloned()
         .ok_or_else(|| anyhow!("secret handle not found: {handle}"))
 }
 
 fn remove_secret_handle_entry(handle: &str) -> Result<bool> {
-    Ok(SECRET_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .remove(handle)
-        .is_some())
+    Ok(SECRET_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_secret_handle_registry() -> Result<()> {
-    SECRET_HANDLE_REGISTRY.write().map_err(lock_error)?.clear();
+    SECRET_HANDLE_REGISTRY.clear();
     Ok(())
 }
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY.write().map_err(lock_error)?;
-    evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    VERIFIED_PROOF_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(binding_core_reason)
 }
 
 fn get_verified_proof_handle(handle: &str) -> Result<VerifiedProofHandleEntry> {
     VERIFIED_PROOF_HANDLE_REGISTRY
-        .read()
-        .map_err(lock_error)?
         .get(handle)
-        .cloned()
         .ok_or_else(|| anyhow!("verified proof handle not found: {handle}"))
 }
 
 fn remove_verified_proof_handle_entry(handle: &str) -> Result<bool> {
-    Ok(VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .remove(handle)
-        .is_some())
+    Ok(VERIFIED_PROOF_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_verified_proof_handle_registry() -> Result<()> {
-    VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .clear();
+    VERIFIED_PROOF_HANDLE_REGISTRY.clear();
     Ok(())
 }
 
 fn register_execution_handle(entry: ExecutionHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    let mut registry = EXECUTION_HANDLE_REGISTRY.write().map_err(lock_error)?;
-    evict_lowest_key_if_needed(&mut registry, MAX_EXECUTION_HANDLES);
-    registry.insert(handle.clone(), entry);
-    Ok(handle)
+    EXECUTION_HANDLE_REGISTRY
+        .insert(handle, entry)
+        .map_err(binding_core_reason)
 }
 
 fn get_execution_handle(handle: &str) -> Result<ExecutionHandleEntry> {
     EXECUTION_HANDLE_REGISTRY
-        .read()
-        .map_err(lock_error)?
         .get(handle)
-        .cloned()
         .ok_or_else(|| anyhow!("execution handle not found: {handle}"))
 }
 
 fn remove_execution_handle_entry(handle: &str) -> Result<bool> {
-    Ok(EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .remove(handle)
-        .is_some())
+    Ok(EXECUTION_HANDLE_REGISTRY.remove(handle).is_some())
 }
 
 fn clear_execution_handle_registry() -> Result<()> {
-    EXECUTION_HANDLE_REGISTRY
-        .write()
-        .map_err(lock_error)?
-        .clear();
+    EXECUTION_HANDLE_REGISTRY.clear();
     Ok(())
 }
 
 fn get_withdrawal_session(handle: &str) -> Result<WithdrawalCircuitSession> {
     WITHDRAWAL_SESSION_REGISTRY
-        .read()
-        .map_err(lock_error)?
         .get(handle)
-        .cloned()
         .ok_or_else(|| anyhow!("withdrawal circuit session handle not found: {handle}"))
 }
 
 fn get_commitment_session(handle: &str) -> Result<CommitmentCircuitSession> {
     COMMITMENT_SESSION_REGISTRY
-        .read()
-        .map_err(lock_error)?
         .get(handle)
-        .cloned()
         .ok_or_else(|| anyhow!("commitment circuit session handle not found: {handle}"))
-}
-
-fn lock_error<T>(error: std::sync::PoisonError<T>) -> anyhow::Error {
-    anyhow!("session registry lock poisoned: {error}")
 }
 
 fn to_napi_error(error: impl std::fmt::Display) -> Error {
@@ -2705,11 +2742,8 @@ fn from_js_pool_events(events: Vec<JsPoolEvent>) -> Result<Vec<PoolEvent>> {
 }
 
 fn from_js_recovery_policy(policy: &JsRecoveryPolicy) -> Result<RecoveryPolicy> {
-    let compatibility_mode = match policy.compatibility_mode.as_str() {
-        "strict" => CompatibilityMode::Strict,
-        "legacy" => CompatibilityMode::Legacy,
-        other => bail!("invalid compatibility mode: {other}"),
-    };
+    let compatibility_mode = parse_binding_compatibility_mode(&policy.compatibility_mode)
+        .map_err(|_| anyhow!("invalid compatibility mode: {}", policy.compatibility_mode))?;
     Ok(RecoveryPolicy {
         compatibility_mode,
         fail_closed: policy.fail_closed,
@@ -2934,16 +2968,17 @@ mod tests {
         "test test test test test test test test test test test junk"
     }
 
+    #[allow(dead_code)]
     fn recovery_policy_json() -> String {
         r#"{"compatibilityMode":"strict","failClosed":true}"#.to_owned()
     }
 
     fn clear_registries() {
-        SECRET_HANDLE_REGISTRY.write().unwrap().clear();
-        VERIFIED_PROOF_HANDLE_REGISTRY.write().unwrap().clear();
-        EXECUTION_HANDLE_REGISTRY.write().unwrap().clear();
-        WITHDRAWAL_SESSION_REGISTRY.write().unwrap().clear();
-        COMMITMENT_SESSION_REGISTRY.write().unwrap().clear();
+        SECRET_HANDLE_REGISTRY.clear();
+        VERIFIED_PROOF_HANDLE_REGISTRY.clear();
+        EXECUTION_HANDLE_REGISTRY.clear();
+        WITHDRAWAL_SESSION_REGISTRY.clear();
+        COMMITMENT_SESSION_REGISTRY.clear();
     }
 
     #[test]
@@ -2957,10 +2992,7 @@ mod tests {
             .unwrap();
         }
 
-        assert_eq!(
-            SECRET_HANDLE_REGISTRY.read().unwrap().len(),
-            MAX_SECRET_HANDLES
-        );
+        assert_eq!(SECRET_HANDLE_REGISTRY.len(), MAX_SECRET_HANDLES);
         clear_registries();
     }
 

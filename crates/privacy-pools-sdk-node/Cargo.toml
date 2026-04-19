@@ -13,18 +13,21 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
+# Gates debug and inspection APIs that do not return secret material.
 dangerous-exports = []
 local-mnemonic = ["privacy-pools-sdk/local-mnemonic"]
+# Gates APIs that return plaintext secret material.
 dangerous-key-export = ["privacy-pools-sdk/dangerous-key-export"]
 local-signer-client = ["privacy-pools-sdk/local-signer-client"]
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["serde"] }
 anyhow.workspace = true
-base64 = "0.22.1"
+base64 = { workspace = true }
 hex.workspace = true
 napi = { version = "3.8.4", features = ["async"] }
 napi-derive = "3.5.3"
+privacy-pools-sdk-bindings-core = { version = "0.1.0", path = "../privacy-pools-sdk-bindings-core" }
 privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true

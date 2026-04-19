@@ -43,7 +43,10 @@ fuzz_target!(|data: &[u8]| {
         }],
     );
     if mutated {
-        assert!(result.is_err(), "tampered signed manifest should be rejected");
+        assert!(
+            result.is_err(),
+            "tampered signed manifest should be rejected"
+        );
     } else {
         assert!(result.is_ok(), "untampered signed manifest should verify");
     }

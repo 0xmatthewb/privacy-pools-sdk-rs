@@ -51,7 +51,10 @@ fuzz_target!(|data: &[u8]| {
     let mutated = !wasm_seed.is_empty() || !zkey_seed.is_empty() || !vkey_seed.is_empty();
     let result = sdk.verify_artifact_bundle_bytes(&manifest, "withdraw", artifacts);
     if mutated {
-        assert!(result.is_err(), "tampered artifact bundle should be rejected");
+        assert!(
+            result.is_err(),
+            "tampered artifact bundle should be rejected"
+        );
     } else {
         assert!(result.is_ok(), "untampered artifact bundle should verify");
     }

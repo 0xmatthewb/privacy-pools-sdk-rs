@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/privacy-pools-sdk",
+    "crates/privacy-pools-sdk-bindings-core",
     "crates/privacy-pools-sdk-ffi",
     "crates/privacy-pools-sdk-node",
     "crates/privacy-pools-sdk-web",
@@ -70,6 +71,7 @@ url = "2.5.7"
 uuid = "1.23.0"
 zeroize = { version = "1.8.2", features = ["derive"] }
 zk-kit-lean-imt = { version = "0.1.1", features = ["serde"] }
+base64 = "0.22.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
