@@ -1,6 +1,19 @@
 name: reference-benchmarks
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/reference-benchmarks.yml"
+      - ".github/actions/install-rust-ci-tools/**"
+      - "bindings/**"
+      - "crates/**"
+      - "examples/react-native-app-smoke/**"
+      - "fixtures/**"
+      - "packages/react-native/**"
+      - "packages/sdk/**"
+      - "xtask/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
   schedule:
     - cron: "0 9 * * 1"
   workflow_dispatch:
@@ -10,6 +23,7 @@ permissions:
 
 jobs:
   desktop:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
       - reference-desktop
@@ -80,6 +94,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks
 
   react-native-ios:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
       - reference-ios
@@ -115,6 +130,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks/react-native-ios-stable.json
 
   react-native-android:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
       - reference-android
@@ -177,6 +193,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks/react-native-android-stable.json
 
   bundle:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     needs:
       - desktop
       - react-native-ios
