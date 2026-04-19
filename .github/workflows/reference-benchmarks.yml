@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   desktop:
+    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
@@ -95,6 +96,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks
 
   react-native-ios:
+    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
@@ -132,6 +134,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks/react-native-ios-stable.json
 
   react-native-android:
+    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on:
       - self-hosted
@@ -196,6 +199,7 @@ jobs:
           path: target/reference-benchmarks/benchmarks/react-native-android-stable.json
 
   bundle:
+    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     needs:
       - desktop

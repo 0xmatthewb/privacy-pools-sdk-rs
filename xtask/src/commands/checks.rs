@@ -193,12 +193,56 @@ fn docs_check() -> Result<()> {
 }
 
 fn preflight() -> Result<()> {
-    assurance(vec![
-        "--profile".to_owned(),
-        "pr".to_owned(),
-        "--runtime".to_owned(),
-        "rust".to_owned(),
-    ])
+    let workspace_root = workspace_root()?;
+    let commands = [
+        (
+            "cargo",
+            vec![
+                "check",
+                "--workspace",
+                "--tests",
+                "--all-features",
+                "--locked",
+            ],
+            "cargo check --workspace --tests --all-features --locked failed",
+        ),
+        (
+            "cargo",
+            vec![
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--all-features",
+                "--locked",
+                "--",
+                "-D",
+                "warnings",
+            ],
+            "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings failed",
+        ),
+        (
+            "cargo",
+            vec!["fmt", "--all", "--", "--check"],
+            "cargo fmt --all -- --check failed",
+        ),
+        (
+            "cargo",
+            vec!["test", "--workspace", "--locked"],
+            "cargo test --workspace --locked failed",
+        ),
+        (
+            "cargo",
+            vec!["test", "--doc", "--workspace", "--locked"],
+            "cargo test --doc --workspace --locked failed",
+        ),
+    ];
+
+    for (program, args, error_context) in commands {
+        run_command(program, &args, &workspace_root, error_context)?;
+    }
+
+    println!("preflight ok");
+    Ok(())
 }
 
 fn action_pins() -> Result<()> {

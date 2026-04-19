@@ -73,6 +73,7 @@ function run(command, args) {
   return execFileSync(command, args, {
     cwd: workspaceRoot,
     encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
     stdio: ["ignore", "pipe", "inherit"],
   });
 }

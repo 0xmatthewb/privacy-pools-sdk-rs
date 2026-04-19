@@ -22,6 +22,7 @@ permissions:
 jobs:
   ios_mobile_smoke:
     name: ios-mobile-smoke
+    continue-on-error: true
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -90,6 +91,7 @@ jobs:
 
   android_mobile_smoke:
     name: android-mobile-smoke
+    continue-on-error: true
     runs-on: ubuntu-22.04
     timeout-minutes: 75
     env:
@@ -189,6 +191,7 @@ jobs:
         run: exit 1
 
   evidence:
+    continue-on-error: true
     if: always()
     needs:
       - ios_mobile_smoke

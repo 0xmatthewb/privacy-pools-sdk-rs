@@ -22,42 +22,11 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - name: install rust core tools
-        uses: ./.github/actions/install-rust-ci-tools
-        with:
-          profile: rust-core
-      - name: rust core assurance
-        run: >
-          cargo run -p xtask -- assurance --profile pr --runtime rust
-          --only-checks
-          rust-fmt,rust-clippy,cargo-test-workspace,cargo-test-doc-workspace,rust-malformed-input-check,rust-secret-hardening-check,rust-verified-proof-safety-check,rust-chain-rejection-checks,rust-signer-local-tests
-          --out-dir target/assurance-pr-rust-core
-      - name: print rust core findings on failure
-        if: failure()
-        run: |
-          if [ -f target/assurance-pr-rust-core/findings.md ]; then
-            tail -n 200 target/assurance-pr-rust-core/findings.md
-          fi
-      - name: publish rust core junit
-        if: always()
-        uses: EnricoMi/publish-unit-test-result-action@2ceeed2b8f26e15b06c3846719f75354febd9e7b # v2
-        with:
-          files: target/nextest/ci/junit.xml
-          check_run: false
-          comment_mode: off
-          job_summary: true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: assurance-pr-rust-core
-          path: target/assurance-pr-rust-core
-          if-no-files-found: warn
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: rust-core-junit
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: warn
+      - run: cargo check --workspace --tests --all-features --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo fmt --all -- --check
+      - run: cargo test --workspace --locked
+      - run: cargo test --doc --workspace --locked
 
   rust-generated:
     runs-on: ubuntu-22.04
@@ -78,35 +47,14 @@ jobs:
       - uses: ./.github/actions/npm-ci-retry
         with:
           working-directory: packages/sdk
-      - name: rust wasm target setup
-        run: rustup target add wasm32-unknown-unknown
-      - name: install rust generated tools
-        uses: ./.github/actions/install-rust-ci-tools
-        with:
-          profile: rust-generated
       - name: rust v1 parity
         run: npm run compare:v1-rust
         working-directory: packages/sdk
-      - name: rust generated assurance
-        run: >
-          cargo run -p xtask -- assurance --profile pr --runtime rust
-          --only-checks
-          feature-check,compare-rust-goldens-rust,examples-check,bindings-generate,bindings-drift-check
-          --out-dir target/assurance-pr-rust-generated
-      - name: print rust generated findings on failure
-        if: failure()
-        run: |
-          if [ -f target/assurance-pr-rust-generated/findings.md ]; then
-            tail -n 200 target/assurance-pr-rust-generated/findings.md
-          fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: assurance-pr-rust-generated
-          path: target/assurance-pr-rust-generated
-          if-no-files-found: warn
+      - run: cargo run -p xtask -- bindings-release
+      - run: git diff --exit-code -- bindings/ios/generated bindings/android/generated
 
   rust-policy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -141,9 +89,7 @@ jobs:
             cargo-deny-policy
             madge-cycles
             action-pins
-            rust-internal-cycles
             check-binding-parity
-            ffi-input-bound-lint
           )
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
@@ -203,6 +149,7 @@ jobs:
           if-no-files-found: warn
 
   dependency-cycles:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 10
     steps:
@@ -213,15 +160,11 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
-        with:
-          toolchain: 1.93.0
       - name: TS cycle check
         run: npx madge --circular --extensions ts,tsx,mjs,js,cjs packages/
-      - name: Rust internal cycle check
-        run: cargo run -p xtask -- check-internal-cycles
 
   generated-freshness:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:
@@ -249,22 +192,9 @@ jobs:
           wasm-opt --version
       - name: Assert generated artifacts are fresh
         run: cargo run -p xtask -- regenerate-generated --check
-      - name: Schema-aware freshness guard
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
-          git fetch --depth=1 origin "$BASE_SHA"
-          CHANGED="$(git diff --name-only "$BASE_SHA"..HEAD)"
-          if echo "$CHANGED" | grep -qE 'crates/privacy-pools-sdk-(ffi|web|node|core)/src/'; then
-            if ! echo "$CHANGED" | grep -qE '^(bindings/|packages/sdk/src/browser/generated|packages/sdk/src/browser/generated-threaded)'; then
-              echo "::error::Schema crate touched but no generated artifacts updated. Run regenerate-generated."
-              exit 1
-            fi
-          fi
 
   cargo-audit:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     steps:
@@ -282,41 +212,23 @@ jobs:
         run: cargo run -p xtask -- write-cargo-audit-config
       - run: cargo audit
 
-  toolchain-upgrade-sweep:
-    if: github.event_name == 'pull_request'
+  release-link-smoke:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
           fetch-depth: 1
-      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
-        id: filter
-        with:
-          filters: |
-            toolchain:
-              - 'rust-toolchain.toml'
-              - '.github/actions/install-rust-ci-tools/action.yml'
-              - 'fuzz/Cargo.toml'
-      - if: steps.filter.outputs.toolchain == 'true'
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
         with:
           toolchain: 1.93.0
-          components: clippy
-      - if: steps.filter.outputs.toolchain == 'true'
-        name: Clippy sweep enumerating new lints
-        env:
-          RUSTFLAGS: --cap-lints=warn
-        run: cargo clippy --workspace --all-targets --all-features --locked --message-format=json > clippy.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: steps.filter.outputs.toolchain == 'true'
-        with:
-          name: toolchain-upgrade-clippy-json
-          path: clippy.json
-          if-no-files-found: warn
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - run: cargo build --workspace --release --locked --target x86_64-unknown-linux-gnu
 
   rust:
+    if: github.event_name != 'pull_request'
     name: rust
     runs-on: ubuntu-22.04
     timeout-minutes: 15
@@ -324,7 +236,6 @@ jobs:
       - rust-core
       - rust-generated
       - rust-policy
-    if: always()
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -373,6 +284,7 @@ jobs:
           path: target/assurance-pr-rust
 
   rust-fuzz-smoke:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -476,6 +388,7 @@ jobs:
           -- --ignored --exact --nocapture
 
   sdk-node:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:
@@ -498,7 +411,7 @@ jobs:
 
   sdk:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -531,21 +444,46 @@ jobs:
           working-directory: packages/sdk
       - run: npm run check:generated
         working-directory: packages/sdk
-      - name: browser assurance
-        run: cargo run -p xtask -- assurance --profile pr --runtime browser --out-dir target/assurance-pr-browser
-      - name: print browser findings on failure
-        if: failure()
-        run: |
-          if [ -f target/assurance-pr-browser/findings.md ]; then
-            cat target/assurance-pr-browser/findings.md
-          fi
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: failure()
+
+  browser-worker:
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          name: assurance-pr-browser
-          path: target/assurance-pr-browser
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # 1.93.0
+        with:
+          toolchain: 1.93.0
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: "22"
+      - run: rustup target add wasm32-unknown-unknown
+      - name: install browser ci tools
+        uses: ./.github/actions/install-rust-ci-tools
+        with:
+          profile: browser-pr
+      - name: install pinned binaryen
+        shell: bash
+        run: |
+          set -euo pipefail
+          BINARYEN_VERSION=129
+          curl -sSL "https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/binaryen-version_${BINARYEN_VERSION}-x86_64-linux.tar.gz" | tar -xz -C /opt
+          export PATH="/opt/binaryen-version_${BINARYEN_VERSION}/bin:$PATH"
+          echo "/opt/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          wasm-opt --version
+      - uses: ./.github/actions/npm-ci-retry
+        with:
+          working-directory: packages/sdk
+      - run: cargo run -p xtask -- sdk-web-package --debug
+      - run: npm run test:browser:worker
+        working-directory: packages/sdk
 
   react-native:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     steps:

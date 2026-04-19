@@ -104,10 +104,8 @@ fn print_help() {
     println!("  package-check    run the workspace package dry run");
     println!("  dependency-check validate accepted dependency-risk advisories");
     println!("  docs-check       validate dependency-policy docs stay in sync");
-    println!("  preflight        run the local PR preflight assurance subset");
-    println!(
-        "                   alias for `cargo run -p xtask -- assurance --profile pr --runtime rust`"
-    );
+    println!("  preflight        run the local PR Rust merge gate");
+    println!("                   runs cargo check, clippy, fmt, workspace tests, and doc tests");
     println!("  action-pins      validate GitHub Actions references stay SHA pinned");
     println!("  regenerate-generated");
     println!("                   regenerate checked-in browser and mobile bindings");
