@@ -60,7 +60,7 @@ fn build_assurance_catalog(
     let mut checks = vec![
         assurance_check_spec(
             "rust-fmt",
-            "cargo fmt --all --check --locked",
+            "cargo fmt --all --check",
             vec![AssuranceRuntime::Shared],
             "correctness",
             AssuranceCheckMode::Normative,
@@ -69,7 +69,6 @@ fn build_assurance_catalog(
                 "fmt".to_owned(),
                 "--all".to_owned(),
                 "--check".to_owned(),
-                "--locked".to_owned(),
             ],
             workspace_root.clone(),
             vec![],
