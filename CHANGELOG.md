@@ -16,10 +16,10 @@ The Rust crate is named `privacy-pools-sdk`. The repository remains
 
 ### Assurance and fuzz
 
-- Add TS parity fixtures, wrong-chain fuzz seed coverage, preflight tooling,
-  cycle detection, cargo-audit config generation, and toolchain canary checks.
-- Add generated-artifact freshness, action pinning, and advisory-policy CI
-  ratchets.
+- Add TS parity fixtures and wrong-chain fuzz seed coverage, and skip the
+  merkle proof tamper fuzz harness when the input is entirely zero bytes.
+- Add a local `xtask preflight` alias and a unified `xtask regenerate-generated`
+  command for browser and mobile artifact refreshes.
 
 ### Bindings
 
@@ -30,10 +30,12 @@ The Rust crate is named `privacy-pools-sdk`. The repository remains
 
 ### CI
 
-- Pin Linux runners to `ubuntu-22.04`, add nextest/JUnit preparation, and
-  expand release and PR workflow coverage.
+- Keep the PR merge gate focused on required Rust, parity, generated-artifact,
+  symbol-scan, and Solidity-verifier jobs.
+- Mark mobile, benchmark, fuzz, and browser-worker lanes advisory on pull
+  requests while keeping them visible.
 
 ### Docs
 
-- Add preflight, regeneration, CI triage, binding parity, flake triage, and
-  toolchain upgrade runbooks.
+- Add consolidated CI guidance and contributing notes for preflight,
+  regeneration, toolchain bumps, and advisory-lane triage.

@@ -156,11 +156,22 @@ cargo run -p xtask -- mobile-smoke-local --platform all --surface all --evidence
 cargo run -p xtask -- sdk-smoke
 ```
 
-The regular CI workflow runs the fast Rust, Node, browser, and React Native
-assurance lanes on every push and pull request.
-For the local Rust PR gate, run `cargo run -p xtask -- preflight`.
-To wire that into Git locally, symlink
-`scripts/hooks/pre-push.sh` to `.git/hooks/pre-push`.
+### Development Workflow
+
+For the local Rust PR gate, run:
+
+```sh
+cargo run -p xtask -- preflight
+```
+
+To wire that into Git locally, symlink `scripts/hooks/pre-push.sh` to
+`.git/hooks/pre-push`.
+
+The required PR checks stay focused on the Rust workspace gate, parity,
+generated artifacts, default-artifact symbols, and Solidity verifier
+acceptance. `mobile-smoke`, `reference-benchmarks`, `assurance-fuzz`, and the
+browser worker Playwright lane remain visible but intentionally non-blocking.
+See [`docs/ci.md`](docs/ci.md) for the current gate and triage flow.
 
 ### Dangerous Feature Gates
 
@@ -203,7 +214,9 @@ Further documentation:
 - [`docs/assurance.md`](docs/assurance.md)
 - [`docs/assurance-review-guide.md`](docs/assurance-review-guide.md)
 - [`docs/binding-parity.md`](docs/binding-parity.md)
+- [`docs/ci.md`](docs/ci.md)
 - [`docs/ci-runbook.md`](docs/ci-runbook.md)
+- [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - [`docs/dependency-audit.md`](docs/dependency-audit.md)
 - [`docs/flake-triage.md`](docs/flake-triage.md)
 - [`docs/preflight.md`](docs/preflight.md)
