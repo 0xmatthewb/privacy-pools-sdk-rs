@@ -10592,6 +10592,42 @@ mod tests {
     }
 
     #[test]
+    fn advisory_metadata_rejects_expired_review_dates() {
+        let contents = r#"
+[metadata.RUSTSEC-2099-0001]
+owner = "sdk-core"
+review_date = "2000-01-01"
+exit_condition = "upgrade the dependency"
+reachability = "transitive"
+"#;
+
+        let error =
+            validate_advisory_metadata_sections(contents, &[String::from("RUSTSEC-2099-0001")])
+                .unwrap_err()
+                .to_string();
+
+        assert!(error.contains("expired review_date"), "{error}");
+    }
+
+    #[test]
+    fn advisory_metadata_rejects_invalid_review_dates() {
+        let contents = r#"
+[metadata.RUSTSEC-2099-0002]
+owner = "sdk-core"
+review_date = "2026-02-30"
+exit_condition = "upgrade the dependency"
+reachability = "transitive"
+"#;
+
+        let error =
+            validate_advisory_metadata_sections(contents, &[String::from("RUSTSEC-2099-0002")])
+                .unwrap_err()
+                .to_string();
+
+        assert!(error.contains("invalid review_date"), "{error}");
+    }
+
+    #[test]
     fn package_check_uses_workspace_dry_run() {
         let args = package_check_args();
 
