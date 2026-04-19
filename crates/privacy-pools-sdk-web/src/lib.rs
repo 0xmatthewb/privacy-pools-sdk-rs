@@ -4028,6 +4028,25 @@ fn to_js_session_handle(session: &BrowserCircuitSession) -> JsWithdrawalCircuitS
 #[cfg(test)]
 mod tests {
     use super::*;
+    use privacy_pools_sdk_verifier::PreparedVerifier;
+
+    fn verification_only_session() -> BrowserCircuitSession {
+        BrowserCircuitSession {
+            handle: "browser-test-session".to_owned(),
+            circuit: "withdraw".to_owned(),
+            artifact_version: "test".to_owned(),
+            verifier: PreparedVerifier::from_vkey_bytes(include_bytes!(
+                "../../../fixtures/artifacts/browser-verification.vkey.json"
+            ))
+            .expect("browser verification key fixture parses"),
+            prepared: None,
+        }
+    }
+
+    fn padded_witness_payload(target_len: usize) -> String {
+        assert!(target_len >= 5, "witness payload must fit [\"1\"]");
+        format!("[{}\"1\"]", " ".repeat(target_len - 5))
+    }
 
     #[test]
     fn browser_status_reports_proving_available() {
@@ -4035,6 +4054,24 @@ mod tests {
         assert_eq!(status.runtime, "browser");
         assert!(status.proving_available);
         assert!(status.reason.contains("browser proving"));
+    }
+
+    #[test]
+    fn prove_with_session_witness_accepts_just_under_limit_payloads() {
+        let session = verification_only_session();
+        let witness_json = padded_witness_payload(MAX_WITNESS_JSON_INPUT_BYTES - 1);
+        let error = prove_with_session_witness(&session, &witness_json).unwrap_err();
+
+        assert!(error.to_string().contains("prepared for verification only"));
+    }
+
+    #[test]
+    fn prove_with_session_witness_rejects_payloads_above_limit() {
+        let session = verification_only_session();
+        let witness_json = padded_witness_payload(MAX_WITNESS_JSON_INPUT_BYTES + 1);
+        let error = prove_with_session_witness(&session, &witness_json).unwrap_err();
+
+        assert!(error.to_string().contains("exceeds maximum size"));
     }
 
     #[cfg(feature = "dangerous-key-export")]

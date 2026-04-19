@@ -1047,9 +1047,13 @@ mod tests {
         ))
         .unwrap();
 
-        let normalized: Value =
-            serde_json::from_str(&serialize_withdrawal_circuit_input(&input).unwrap()).unwrap();
+        let serialized = serialize_withdrawal_circuit_input(&input).unwrap();
+        let normalized: Value = serde_json::from_str(&serialized).unwrap();
         assert_eq!(normalized, fixture["expected"]["normalizedInputs"]);
+        assert_eq!(
+            serialized,
+            serde_json::to_string(&fixture["expected"]["normalizedInputs"]).unwrap()
+        );
     }
 
     #[test]
