@@ -23,13 +23,14 @@ alloy-primitives = { workspace = true, features = ["serde"] }
 anyhow.workspace = true
 base64 = "0.22.1"
 hex.workspace = true
-napi = "3.8.4"
+napi = { version = "3.8.4", features = ["async"] }
 napi-derive = "3.5.3"
 privacy-pools-sdk = { version = "0.1.0", path = "../privacy-pools-sdk" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+zeroize.workspace = true
 
 [build-dependencies]
 napi-build = "2.3.1"

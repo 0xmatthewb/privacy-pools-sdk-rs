@@ -1,3 +1,10 @@
+//! Compatibility wire types for cross-language SDK and circuit payloads.
+//!
+//! `WireCommitment` is an explicit declassification boundary. It derives
+//! `Serialize` and `Debug`, and any caller that writes it to logs, crash
+//! reports, analytics, or persistent storage will leak commitment preimage
+//! secrets in plaintext.
+
 use crate::{
     CircuitMerkleWitness, Commitment, CommitmentCircuitInput, CommitmentPreimage,
     CommitmentWitnessRequest, CoreError, FieldElement, MasterKeys, Nullifier, Precommitment,

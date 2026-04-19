@@ -329,39 +329,32 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
                 continue
             }
 
-            let masterKeys = try PrivacyPoolsSdkClient.masterKeys(forMnemonic: try string(fixture, "mnemonic"))
-            checks.append(("\(fixtureName): masterKeys", dictionariesEqual([
-                "masterNullifier": masterKeys.masterNullifier,
-                "masterSecret": masterKeys.masterSecret,
-            ], try dictionary(expected, "masterKeys"))))
+            let masterKeysHandle = try PrivacyPoolsSdkClient.masterKeysHandle(
+                forMnemonic: try string(fixture, "mnemonic")
+            )
+            checks.append(("\(fixtureName): masterKeysHandle", !masterKeysHandle.isEmpty))
 
-            let depositSecrets = try PrivacyPoolsSdkClient.depositSecrets(
-                masterNullifier: masterKeys.masterNullifier,
-                masterSecret: masterKeys.masterSecret,
+            let depositSecretsHandle = try PrivacyPoolsSdkClient.depositSecretsHandle(
+                masterKeysHandle: masterKeysHandle,
                 scope: try string(fixture, "scope"),
                 index: try string(fixture, "depositIndex")
             )
-            checks.append(("\(fixtureName): depositSecrets", dictionariesEqual([
-                "nullifier": depositSecrets.nullifier,
-                "secret": depositSecrets.secret,
-            ], try dictionary(expected, "depositSecrets"))))
+            checks.append(("\(fixtureName): depositSecretsHandle", !depositSecretsHandle.isEmpty))
 
-            let withdrawalSecrets = try PrivacyPoolsSdkClient.withdrawalSecrets(
-                masterNullifier: masterKeys.masterNullifier,
-                masterSecret: masterKeys.masterSecret,
+            let withdrawalSecretsHandle = try PrivacyPoolsSdkClient.withdrawalSecretsHandle(
+                masterKeysHandle: masterKeysHandle,
                 label: try string(fixture, "label"),
                 index: try string(fixture, "withdrawalIndex")
             )
-            checks.append(("\(fixtureName): withdrawalSecrets", dictionariesEqual([
-                "nullifier": withdrawalSecrets.nullifier,
-                "secret": withdrawalSecrets.secret,
-            ], try dictionary(expected, "withdrawalSecrets"))))
+            checks.append(("\(fixtureName): withdrawalSecretsHandle", !withdrawalSecretsHandle.isEmpty))
+
+            let expectedDepositSecrets = try dictionary(expected, "depositSecrets")
 
             let commitment = try PrivacyPoolsSdkClient.commitment(
                 value: try string(fixture, "value"),
                 label: try string(fixture, "label"),
-                nullifier: depositSecrets.nullifier,
-                secret: depositSecrets.secret
+                nullifier: try string(expectedDepositSecrets, "nullifier"),
+                secret: try string(expectedDepositSecrets, "secret")
             )
             let expectedPrecommitmentHash = try string(expected, "precommitmentHash")
             checks.append(("\(fixtureName): precommitmentHash", commitment.precommitmentHash == expectedPrecommitmentHash))

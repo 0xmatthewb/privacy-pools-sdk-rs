@@ -347,48 +347,30 @@ class NativeProveVerifyInstrumentedTest {
                 continue
             }
 
-            val masterKeys = PrivacyPoolsSdk.masterKeys(fixture.getString("mnemonic"))
-            checks += "${fixture.getString("name")}: masterKeys" to jsonEquals(
-                JSONObject().apply {
-                    put("masterNullifier", masterKeys.masterNullifier)
-                    put("masterSecret", masterKeys.masterSecret)
-                },
-                expected.getJSONObject("masterKeys"),
-            )
+            val masterKeysHandle = PrivacyPoolsSdk.masterKeysHandle(fixture.getString("mnemonic"))
+            checks += "${fixture.getString("name")}: masterKeysHandle" to masterKeysHandle.isNotEmpty()
 
-            val depositSecrets = PrivacyPoolsSdk.depositSecrets(
-                masterKeys.masterNullifier,
-                masterKeys.masterSecret,
+            val depositSecretsHandle = PrivacyPoolsSdk.depositSecretsHandle(
+                masterKeysHandle,
                 fixture.getString("scope"),
                 fixture.getString("depositIndex"),
             )
-            checks += "${fixture.getString("name")}: depositSecrets" to jsonEquals(
-                JSONObject().apply {
-                    put("nullifier", depositSecrets.nullifier)
-                    put("secret", depositSecrets.secret)
-                },
-                expected.getJSONObject("depositSecrets"),
-            )
+            checks += "${fixture.getString("name")}: depositSecretsHandle" to depositSecretsHandle.isNotEmpty()
 
-            val withdrawalSecrets = PrivacyPoolsSdk.withdrawalSecrets(
-                masterKeys.masterNullifier,
-                masterKeys.masterSecret,
+            val withdrawalSecretsHandle = PrivacyPoolsSdk.withdrawalSecretsHandle(
+                masterKeysHandle,
                 fixture.getString("label"),
                 fixture.getString("withdrawalIndex"),
             )
-            checks += "${fixture.getString("name")}: withdrawalSecrets" to jsonEquals(
-                JSONObject().apply {
-                    put("nullifier", withdrawalSecrets.nullifier)
-                    put("secret", withdrawalSecrets.secret)
-                },
-                expected.getJSONObject("withdrawalSecrets"),
-            )
+            checks += "${fixture.getString("name")}: withdrawalSecretsHandle" to withdrawalSecretsHandle.isNotEmpty()
+
+            val expectedDepositSecrets = expected.getJSONObject("depositSecrets")
 
             val commitment = PrivacyPoolsSdk.commitment(
                 fixture.getString("value"),
                 fixture.getString("label"),
-                depositSecrets.nullifier,
-                depositSecrets.secret,
+                expectedDepositSecrets.getString("nullifier"),
+                expectedDepositSecrets.getString("secret"),
             )
             checks += "${fixture.getString("name")}: precommitmentHash" to (
                 commitment.precommitmentHash == expected.getString("precommitmentHash")

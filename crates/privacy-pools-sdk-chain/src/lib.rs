@@ -1,7 +1,7 @@
 use alloy_consensus::{
     Transaction as ConsensusTransaction, TxEnvelope, transaction::SignerRecoverable,
 };
-use alloy_eips::Decodable2718;
+use alloy_eips::{BlockId, Decodable2718};
 use alloy_network::{Ethereum, ReceiptResponse};
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_provider::{DynProvider, Provider, ProviderBuilder};
@@ -10,11 +10,14 @@ use alloy_sol_types::{SolCall, SolValue, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_core::{
     CodeHashCheck, ExecutionPolicy, ExecutionPreflightReport, FinalizedTransactionRequest,
-    FormattedGroth16Proof, ProofBundle, RootCheck, RootRead, RootReadKind, TransactionKind,
-    TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32, parse_decimal_field,
+    FormattedGroth16Proof, ProofBundle, ReadConsistency, RootCheck, RootRead, RootReadKind,
+    TransactionKind, TransactionPlan, TransactionReceiptSummary, Withdrawal, field_to_hex_32,
+    parse_decimal_field,
 };
 #[cfg(feature = "local-signer-client")]
 use privacy_pools_sdk_signer::{LocalMnemonicSigner, SignerAdapter};
+use serde_json::Value;
+use std::sync::LazyLock;
 use thiserror::Error;
 use url::Url;
 
@@ -60,6 +63,13 @@ sol! {
 }
 
 const ROOT_HISTORY_SIZE: u32 = 64;
+pub const WITHDRAW_PUBLIC_SIGNAL_COUNT: usize = 8;
+pub const RAGEQUIT_PUBLIC_SIGNAL_COUNT: usize = 4;
+
+static WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
+    parse_vkey_public_signal_count(include_str!("../../../fixtures/artifacts/withdraw.vkey.json"))
+        .expect("withdraw verification key should declare nPublic")
+});
 
 #[derive(Debug, Error)]
 pub enum ChainError {
@@ -69,6 +79,12 @@ pub enum ChainError {
     InvalidWithdrawPublicSignals(usize),
     #[error("ragequit proof must contain exactly 4 public signals, got {0}")]
     InvalidRagequitPublicSignals(usize),
+    #[error("{circuit} verification key expects {actual} public signals but formatter expects {expected}")]
+    PublicSignalCountDrift {
+        circuit: &'static str,
+        expected: usize,
+        actual: usize,
+    },
     #[error("withdraw proof public signal mismatch for {field}: expected {expected}, got {actual}")]
     WithdrawProofSignalMismatch {
         field: &'static str,
@@ -143,6 +159,12 @@ pub enum ChainError {
         expected: String,
         actual: String,
     },
+    #[error("quoted fee `{field}` exceeds configured cap: quoted {quoted}, cap {cap}")]
+    FeeQuoteExceedsCap {
+        field: &'static str,
+        quoted: u128,
+        cap: u128,
+    },
     #[error("rpc request failed: {0}")]
     Transport(String),
 }
@@ -157,7 +179,11 @@ pub struct FeeParameters {
 #[async_trait]
 pub trait ExecutionClient: Send + Sync {
     async fn chain_id(&self) -> Result<u64, ChainError>;
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError>;
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError>;
     async fn read_root(&self, read: &RootRead) -> Result<U256, ChainError>;
     async fn simulate_transaction(
         &self,
@@ -229,10 +255,15 @@ impl ExecutionClient for HttpExecutionClient {
             .map_err(|error| ChainError::Transport(error.to_string()))
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         let code = self
             .provider
             .get_code_at(address)
+            .block_id(block_id_for_consistency(consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         Ok(keccak256(code))
@@ -242,6 +273,7 @@ impl ExecutionClient for HttpExecutionClient {
         let output = self
             .provider
             .call(root_read_request(read))
+            .block(block_id_for_consistency(read.consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         decode_root_response(&output)
@@ -326,10 +358,15 @@ impl ExecutionClient for LocalSignerExecutionClient {
             .map_err(|error| ChainError::Transport(error.to_string()))
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         let code = self
             .provider
             .get_code_at(address)
+            .block_id(block_id_for_consistency(consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         Ok(keccak256(code))
@@ -339,6 +376,7 @@ impl ExecutionClient for LocalSignerExecutionClient {
         let output = self
             .provider
             .call(root_read_request(read))
+            .block(block_id_for_consistency(read.consistency))
             .await
             .map_err(|error| ChainError::Transport(error.to_string()))?;
         decode_root_response(&output)
@@ -499,6 +537,11 @@ pub fn format_groth16_proof(proof: &ProofBundle) -> Result<FormattedGroth16Proof
 }
 
 pub fn withdraw_public_signals(proof: &ProofBundle) -> Result<[U256; 8], ChainError> {
+    ensure_public_signal_count(
+        "withdraw",
+        *WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT,
+        WITHDRAW_PUBLIC_SIGNAL_COUNT,
+    )?;
     let public_signals = proof
         .public_signals
         .iter()
@@ -567,29 +610,36 @@ fn bn254_scalar_field_modulus() -> U256 {
     .expect("valid BN254 scalar field modulus")
 }
 
-pub fn state_root_read(pool_address: Address) -> RootRead {
+pub fn state_root_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
     }
 }
 
-pub fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead {
+pub fn asp_root_read(
+    entrypoint_address: Address,
+    pool_address: Address,
+    consistency: ReadConsistency,
+) -> RootRead {
     RootRead {
         kind: RootReadKind::Asp,
         contract_address: entrypoint_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IEntrypoint::latestRootCall {}.abi_encode()),
     }
 }
 
-fn pool_entrypoint_read(pool_address: Address) -> RootRead {
+fn pool_entrypoint_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::ENTRYPOINTCall {}.abi_encode()),
     }
 }
@@ -644,6 +694,8 @@ pub fn plan_relay_transaction(
 
     parse_relay_data(&withdrawal.data)?;
 
+    // Relay enforces a non-zero withdrawn value at the contract boundary,
+    // while direct withdraw and ragequit flows intentionally allow zero values.
     let public_signals = withdraw_public_signals(proof)?;
     if public_signals[2].is_zero() {
         return Err(ChainError::RelayRequiresNonZeroWithdrawValue);
@@ -713,6 +765,37 @@ fn parse_relay_data(data: &Bytes) -> Result<RelayDataAbi, ChainError> {
     Ok(relay_data)
 }
 
+#[doc(hidden)]
+pub fn decode_relay_data(data: &Bytes) -> Result<(), ChainError> {
+    parse_relay_data(data).map(|_| ())
+}
+
+fn ensure_public_signal_count(
+    circuit: &'static str,
+    actual: usize,
+    expected: usize,
+) -> Result<(), ChainError> {
+    if actual != expected {
+        return Err(ChainError::PublicSignalCountDrift {
+            circuit,
+            expected,
+            actual,
+        });
+    }
+    Ok(())
+}
+
+fn parse_vkey_public_signal_count(vkey_json: &str) -> Result<usize, ChainError> {
+    let json: Value =
+        serde_json::from_str(vkey_json).map_err(|error| ChainError::InvalidRelayData(error.to_string()))?;
+    let count = json
+        .get("nPublic")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| ChainError::InvalidRelayData("verification key missing nPublic".to_owned()))?;
+    usize::try_from(count)
+        .map_err(|_| ChainError::InvalidRelayData("verification key nPublic exceeds usize".to_owned()))
+}
+
 pub async fn preflight_withdrawal<C: ExecutionClient>(
     client: &C,
     plan: &TransactionPlan,
@@ -722,7 +805,8 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
     policy: &ExecutionPolicy,
 ) -> Result<ExecutionPreflightReport, ChainError> {
     ensure_non_zero_address(pool_address, "pool address")?;
-    let entrypoint_address = read_pool_entrypoint_address(client, pool_address).await?;
+    let entrypoint_address =
+        read_pool_entrypoint_address(client, pool_address, policy.read_consistency).await?;
 
     preflight_transaction(
         client,
@@ -732,7 +816,7 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
         policy,
         vec![
             (
-                state_root_read(pool_address),
+                state_root_read(pool_address, policy.read_consistency),
                 expected_state_root,
                 ChainError::StateRootMismatch {
                     expected: expected_state_root,
@@ -740,7 +824,7 @@ pub async fn preflight_withdrawal<C: ExecutionClient>(
                 },
             ),
             (
-                asp_root_read(entrypoint_address, pool_address),
+                asp_root_read(entrypoint_address, pool_address, policy.read_consistency),
                 expected_asp_root,
                 ChainError::AspRootMismatch {
                     expected: expected_asp_root,
@@ -767,7 +851,13 @@ pub async fn preflight_relay<C: ExecutionClient>(
 ) -> Result<ExecutionPreflightReport, ChainError> {
     ensure_non_zero_address(entrypoint_address, "entrypoint address")?;
     ensure_non_zero_address(pool_address, "pool address")?;
-    verify_pool_entrypoint_address(client, pool_address, entrypoint_address).await?;
+    verify_pool_entrypoint_address(
+        client,
+        pool_address,
+        entrypoint_address,
+        policy.read_consistency,
+    )
+    .await?;
     preflight_transaction(
         client,
         plan,
@@ -776,7 +866,7 @@ pub async fn preflight_relay<C: ExecutionClient>(
         policy,
         vec![
             (
-                state_root_read(pool_address),
+                state_root_read(pool_address, policy.read_consistency),
                 expected_state_root,
                 ChainError::StateRootMismatch {
                     expected: expected_state_root,
@@ -784,7 +874,7 @@ pub async fn preflight_relay<C: ExecutionClient>(
                 },
             ),
             (
-                asp_root_read(entrypoint_address, pool_address),
+                asp_root_read(entrypoint_address, pool_address, policy.read_consistency),
                 expected_asp_root,
                 ChainError::AspRootMismatch {
                     expected: expected_asp_root,
@@ -842,7 +932,9 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                 address: check.address,
             });
         }
-        let actual_code_hash = client.code_hash(check.address).await?;
+        let actual_code_hash = client
+            .code_hash(check.address, report.read_consistency)
+            .await?;
         let matches_expected = if let Some(expected_code_hash) = check.expected_code_hash {
             if expected_code_hash != actual_code_hash {
                 return Err(ChainError::CodeHashMismatch {
@@ -875,7 +967,8 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                     "relay preflight report is missing a pool state root check".to_owned(),
                 )
             })?;
-        verify_pool_entrypoint_address(client, pool_address, report.target).await?;
+        verify_pool_entrypoint_address(client, pool_address, report.target, report.read_consistency)
+            .await?;
     }
 
     let mut root_checks = Vec::with_capacity(report.root_checks.len());
@@ -883,7 +976,13 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
         match check.kind {
             RootReadKind::PoolState => {
                 let actual_root =
-                    verify_known_pool_root(client, check.pool_address, check.expected_root).await?;
+                    verify_known_pool_root(
+                        client,
+                        check.pool_address,
+                        check.expected_root,
+                        report.read_consistency,
+                    )
+                    .await?;
                 root_checks.push(RootCheck {
                     kind: check.kind,
                     contract_address: check.contract_address,
@@ -898,6 +997,7 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                     kind: check.kind,
                     contract_address: check.contract_address,
                     pool_address: check.pool_address,
+                    consistency: report.read_consistency,
                     call_data: root_call_data(
                         check.kind,
                         check.contract_address,
@@ -935,6 +1035,8 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        read_consistency: report.read_consistency,
+        max_fee_quote_wei: report.max_fee_quote_wei,
         mode: report.mode,
         code_hash_checks,
         root_checks,
@@ -949,6 +1051,7 @@ pub async fn finalize_transaction<C: FinalizationClient>(
     let refreshed_preflight = reconfirm_preflight(client, plan, report).await?;
     let fees = client.fee_parameters().await?;
     let nonce = client.next_nonce(refreshed_preflight.caller).await?;
+    enforce_fee_cap(refreshed_preflight.max_fee_quote_wei, &fees)?;
 
     Ok((
         refreshed_preflight.clone(),
@@ -973,8 +1076,15 @@ pub async fn submit_signed_transaction<C: FinalizationClient>(
     request: &FinalizedTransactionRequest,
     encoded_tx: &[u8],
 ) -> Result<TransactionReceiptSummary, ChainError> {
-    validate_signed_transaction(encoded_tx, request)?;
+    validate_signed_transaction_request(encoded_tx, request)?;
     client.submit_raw_transaction(encoded_tx).await
+}
+
+pub fn validate_signed_transaction_request(
+    encoded_tx: &[u8],
+    request: &FinalizedTransactionRequest,
+) -> Result<(), ChainError> {
+    validate_signed_transaction(encoded_tx, request)
 }
 
 async fn preflight_transaction<C: ExecutionClient>(
@@ -1008,7 +1118,7 @@ async fn preflight_transaction<C: ExecutionClient>(
             return Err(ChainError::MissingCodeHashExpectation { address });
         }
 
-        let actual_code_hash = client.code_hash(address).await?;
+        let actual_code_hash = client.code_hash(address, policy.read_consistency).await?;
         let matches_expected = if let Some(expected_code_hash) = expected_code_hash {
             if expected_code_hash != actual_code_hash {
                 return Err(ChainError::CodeHashMismatch {
@@ -1035,7 +1145,13 @@ async fn preflight_transaction<C: ExecutionClient>(
         match read.kind {
             RootReadKind::PoolState => {
                 let actual_root =
-                    verify_known_pool_root(client, read.pool_address, expected_root).await?;
+                    verify_known_pool_root(
+                        client,
+                        read.pool_address,
+                        expected_root,
+                        read.consistency,
+                    )
+                    .await?;
                 root_checks.push(RootCheck {
                     kind: read.kind,
                     contract_address: read.contract_address,
@@ -1080,6 +1196,8 @@ async fn preflight_transaction<C: ExecutionClient>(
         chain_id_matches: true,
         simulated: true,
         estimated_gas,
+        read_consistency: policy.read_consistency,
+        max_fee_quote_wei: policy.max_fee_quote_wei,
         mode: policy.mode,
         code_hash_checks,
         root_checks,
@@ -1129,20 +1247,26 @@ fn root_call_data(kind: RootReadKind, _contract_address: Address, pool_address: 
     }
 }
 
-fn current_root_index_read(pool_address: Address) -> RootRead {
+fn current_root_index_read(pool_address: Address, consistency: ReadConsistency) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(IPrivacyPool::currentRootIndexCall {}.abi_encode()),
     }
 }
 
-fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
+fn historical_state_root_read(
+    pool_address: Address,
+    index: u32,
+    consistency: ReadConsistency,
+) -> RootRead {
     RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency,
         call_data: Bytes::from(
             IPrivacyPool::rootsCall {
                 index: U256::from(index),
@@ -1155,9 +1279,10 @@ fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
 async fn read_pool_entrypoint_address<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
+    consistency: ReadConsistency,
 ) -> Result<Address, ChainError> {
     let encoded = client
-        .read_root(&pool_entrypoint_read(pool_address))
+        .read_root(&pool_entrypoint_read(pool_address, consistency))
         .await?;
     let address = decode_address_word(encoded)?;
     ensure_non_zero_address(address, "pool entrypoint address")?;
@@ -1168,8 +1293,9 @@ async fn verify_pool_entrypoint_address<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
     expected_entrypoint: Address,
+    consistency: ReadConsistency,
 ) -> Result<(), ChainError> {
-    let actual_entrypoint = read_pool_entrypoint_address(client, pool_address).await?;
+    let actual_entrypoint = read_pool_entrypoint_address(client, pool_address, consistency).await?;
     if actual_entrypoint != expected_entrypoint {
         return Err(ChainError::EntrypointMismatch {
             pool: pool_address,
@@ -1201,8 +1327,11 @@ async fn verify_known_pool_root<C: ExecutionClient>(
     client: &C,
     pool_address: Address,
     expected_root: U256,
+    consistency: ReadConsistency,
 ) -> Result<U256, ChainError> {
-    let current_root = client.read_root(&state_root_read(pool_address)).await?;
+    let current_root = client
+        .read_root(&state_root_read(pool_address, consistency))
+        .await?;
     if current_root == expected_root {
         return Ok(actual_known_root(expected_root));
     }
@@ -1216,14 +1345,14 @@ async fn verify_known_pool_root<C: ExecutionClient>(
 
     let current_index = decode_root_index(
         client
-            .read_root(&current_root_index_read(pool_address))
+            .read_root(&current_root_index_read(pool_address, consistency))
             .await?,
     )?;
     let mut index = current_index;
 
     for _ in 0..ROOT_HISTORY_SIZE {
         let historical_root = client
-            .read_root(&historical_state_root_read(pool_address, index))
+            .read_root(&historical_state_root_read(pool_address, index, consistency))
             .await?;
         if historical_root == expected_root {
             return Ok(actual_known_root(expected_root));
@@ -1235,6 +1364,49 @@ async fn verify_known_pool_root<C: ExecutionClient>(
         expected: expected_root,
         actual: current_root,
     })
+}
+
+fn block_id_for_consistency(consistency: ReadConsistency) -> BlockId {
+    match consistency {
+        ReadConsistency::Latest => BlockId::latest(),
+        ReadConsistency::Finalized => BlockId::finalized(),
+    }
+}
+
+fn enforce_fee_cap(max_fee_quote_wei: Option<u128>, fees: &FeeParameters) -> Result<(), ChainError> {
+    let Some(cap) = max_fee_quote_wei else {
+        return Ok(());
+    };
+
+    if let Some(gas_price) = fees.gas_price
+        && gas_price > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "gas_price",
+            quoted: gas_price,
+            cap,
+        });
+    }
+    if let Some(max_fee_per_gas) = fees.max_fee_per_gas
+        && max_fee_per_gas > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "max_fee_per_gas",
+            quoted: max_fee_per_gas,
+            cap,
+        });
+    }
+    if let Some(max_priority_fee_per_gas) = fees.max_priority_fee_per_gas
+        && max_priority_fee_per_gas > cap
+    {
+        return Err(ChainError::FeeQuoteExceedsCap {
+            field: "max_priority_fee_per_gas",
+            quoted: max_priority_fee_per_gas,
+            cap,
+        });
+    }
+
+    Ok(())
 }
 
 fn actual_known_root(root: U256) -> U256 {
@@ -1474,13 +1646,37 @@ mod tests {
         )
     }
 
+    fn state_root_read(pool_address: Address) -> RootRead {
+        super::state_root_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead {
+        super::asp_root_read(entrypoint_address, pool_address, ReadConsistency::Latest)
+    }
+
+    fn pool_entrypoint_read(pool_address: Address) -> RootRead {
+        super::pool_entrypoint_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn current_root_index_read(pool_address: Address) -> RootRead {
+        super::current_root_index_read(pool_address, ReadConsistency::Latest)
+    }
+
+    fn historical_state_root_read(pool_address: Address, index: u32) -> RootRead {
+        super::historical_state_root_read(pool_address, index, ReadConsistency::Latest)
+    }
+
     #[async_trait]
     impl ExecutionClient for MockExecutionClient {
         async fn chain_id(&self) -> Result<u64, ChainError> {
             Ok(self.chain_id)
         }
 
-        async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+        async fn code_hash(
+            &self,
+            address: Address,
+            _consistency: ReadConsistency,
+        ) -> Result<B256, ChainError> {
             self.code_hashes
                 .get(&address)
                 .copied()
@@ -1509,7 +1705,7 @@ mod tests {
     }
 
     #[test]
-    fn uses_current_root_for_pool_state_reads() {
+    fn state_root_read_calls_current_root_on_pool() {
         let pool = address!("0987654321098765432109876543210987654321");
         let read = state_root_read(pool);
         let asp_read = asp_root_read(address!("1234567890123456789012345678901234567890"), pool);
@@ -2073,6 +2269,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy)
@@ -2156,6 +2354,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2247,6 +2447,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2325,6 +2527,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2421,6 +2625,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         let report =
@@ -2507,6 +2713,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2592,6 +2800,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2656,6 +2866,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2721,6 +2933,8 @@ mod tests {
             )),
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2815,6 +3029,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2901,6 +3117,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -2970,6 +3188,8 @@ mod tests {
             expected_pool_code_hash: None,
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
 
         assert!(matches!(
@@ -3063,6 +3283,8 @@ mod tests {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             )),
             mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
         };
         let report = preflight_relay(
             &valid_client,

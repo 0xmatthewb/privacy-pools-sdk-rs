@@ -43,7 +43,7 @@ export const DEFAULT_LOG_FETCH_CONFIG = Object.freeze({
 
 const EVENT_ABI = Object.freeze({
   deposits:
-    "event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _merkleRoot)",
+    "event Deposited(address indexed _depositor, uint256 _commitment, uint256 _label, uint256 _value, uint256 _precommitmentHash)",
   withdrawals:
     "event Withdrawn(address indexed _processooor, uint256 _value, uint256 _spentNullifier, uint256 _newCommitment)",
   ragequits:
@@ -1237,9 +1237,17 @@ function toDepositEvent(log) {
   const depositor = args._depositor;
   const commitment = requiredEventField(args._commitment, "deposit commitment");
   const label = requiredEventField(args._label, "deposit label");
-  const value = args._value ?? 0n;
-  const precommitment = requiredEventField(args._merkleRoot, "deposit precommitment");
+  const value = requiredEventField(args._value, "deposit value");
+  const precommitment = requiredEventField(
+    args._precommitmentHash,
+    "deposit precommitment",
+  );
   const blockNumber = requiredEventField(log.blockNumber, "deposit blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "deposit transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "deposit logIndex");
   const transactionHash = requiredEventField(log.transactionHash, "deposit transactionHash");
   if (!depositor) {
     throw new DataError("invalid deposit log: missing depositor");
@@ -1254,6 +1262,10 @@ function toDepositEvent(log) {
     precommitmentHash: BigInt(precommitment),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1274,6 +1286,11 @@ function toWithdrawalEvent(log) {
     "withdrawal newCommitment",
   );
   const blockNumber = requiredEventField(log.blockNumber, "withdrawal blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "withdrawal transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "withdrawal logIndex");
   const transactionHash = requiredEventField(
     log.transactionHash,
     "withdrawal transactionHash",
@@ -1287,6 +1304,10 @@ function toWithdrawalEvent(log) {
     newCommitmentHash: BigInt(newCommitment),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1300,8 +1321,13 @@ function toRagequitEvent(log) {
   const ragequitter = args._ragequitter;
   const commitment = requiredEventField(args._commitment, "ragequit commitment");
   const label = requiredEventField(args._label, "ragequit label");
-  const value = args._value ?? 0n;
+  const value = requiredEventField(args._value, "ragequit value");
   const blockNumber = requiredEventField(log.blockNumber, "ragequit blockNumber");
+  const transactionIndex = requiredEventField(
+    log.transactionIndex,
+    "ragequit transactionIndex",
+  );
+  const logIndex = requiredEventField(log.logIndex, "ragequit logIndex");
   const transactionHash = requiredEventField(log.transactionHash, "ragequit transactionHash");
   if (!ragequitter) {
     throw new DataError("invalid ragequit log: missing ragequitter");
@@ -1314,6 +1340,10 @@ function toRagequitEvent(log) {
     value: BigInt(value),
     blockNumber: BigInt(blockNumber),
     block_number: Number(blockNumber),
+    transactionIndex: Number(transactionIndex),
+    transaction_index: Number(transactionIndex),
+    logIndex: Number(logIndex),
+    log_index: Number(logIndex),
     transactionHash: String(transactionHash),
     transaction_hash: String(transactionHash),
   };
@@ -1385,6 +1415,8 @@ function normalizeDepositEvent(event) {
       event.precommitmentHash ?? event.precommitment_hash ?? event.precommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }
@@ -1405,6 +1437,8 @@ function normalizeWithdrawalEvent(event) {
         event.newCommitment,
     ),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }
@@ -1417,6 +1451,8 @@ function normalizeRagequitEvent(event) {
     label: decimalString(event.label),
     value: decimalString(event.value),
     blockNumber: Number(event.blockNumber ?? event.block_number),
+    transactionIndex: Number(event.transactionIndex ?? event.transaction_index),
+    logIndex: Number(event.logIndex ?? event.log_index),
     transactionHash: normalizeBytes32(event.transactionHash ?? event.transaction_hash),
   };
 }

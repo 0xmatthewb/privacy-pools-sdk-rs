@@ -162,6 +162,11 @@ export async function deriveMasterKeysHandle(mnemonic) {
   return wasm.deriveMasterKeysHandle(mnemonic);
 }
 
+export async function deriveMasterKeysHandleBytes(mnemonicBytes) {
+  const wasm = await getWasmModule();
+  return wasm.deriveMasterKeysHandleBytes(toUint8Array(mnemonicBytes));
+}
+
 export async function deriveDepositSecrets(masterKeys, scope, index) {
   return invokeJson(
     "deriveDepositSecretsJson",
@@ -568,7 +573,7 @@ export async function finalizePreflightedTransactionHandle(
 ) {
   const wasm = await getWasmModule();
   const preflighted = JSON.parse(
-    wasm.dangerouslyExportPreflightedTransaction(preflightedHandle),
+    wasm.exportPreflightedTransactionInternal(preflightedHandle),
   );
   const refreshed = await reconfirmBrowserPreflight(preflighted, rpcUrl);
   const refreshedHandle = await registerReconfirmedPreflightedTransaction(
@@ -600,7 +605,7 @@ export async function submitFinalizedPreflightedTransactionHandle(
 ) {
   const wasm = await getWasmModule();
   const finalized = JSON.parse(
-    wasm.dangerouslyExportFinalizedPreflightedTransaction(finalizedHandle),
+    wasm.exportFinalizedPreflightedTransactionInternal(finalizedHandle),
   );
   const refreshed = await reconfirmBrowserPreflight(finalized.preflighted, rpcUrl);
   const client = await createBrowserPublicClient(rpcUrl);
@@ -1556,6 +1561,9 @@ function normalizeThreadCount(threadCount) {
 
 async function invokeJson(methodName, ...args) {
   const wasm = await getWasmModule();
+  if (typeof wasm[methodName] !== "function") {
+    throw new Error(`${methodName} is unavailable in this browser build`);
+  }
   return JSON.parse(wasm[methodName](...args));
 }
 
@@ -2101,6 +2109,10 @@ function normalizeExecutionPolicy(policy = {}, plan) {
       policy.expectedEntrypointCodeHash ??
       policy.expected_entrypoint_code_hash ??
       null,
+    readConsistency:
+      policy.readConsistency ?? policy.read_consistency ?? "latest",
+    maxFeeQuoteWei:
+      policy.maxFeeQuoteWei ?? policy.max_fee_quote_wei ?? null,
     mode: policy.mode ?? "strict",
   };
 }

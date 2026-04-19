@@ -388,6 +388,8 @@ export type ArtifactBytesInput = {
   bytes: Uint8Array | ArrayBuffer | number[];
 };
 
+export type ByteInput = Uint8Array | ArrayBuffer | number[];
+
 export type SignedManifestArtifactBytesInput = {
   filename: string;
   bytes: Uint8Array | ArrayBuffer | number[];
@@ -738,23 +740,13 @@ export class PrivacyPoolsSdkClient {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
   supportsExperimentalThreadedBrowserProving(): Promise<boolean>;
-  deriveMasterKeys(mnemonic: string): Promise<MasterKeys>;
   deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
-  deriveDepositSecrets(
-    masterKeys: MasterKeys,
-    scope: string,
-    index: string,
-  ): Promise<Secrets>;
+  deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
   generateDepositSecretsHandle(
     masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
     scope: string,
     index: string,
   ): Promise<SecretHandle>;
-  deriveWithdrawalSecrets(
-    masterKeys: MasterKeys,
-    label: string,
-    index: string,
-  ): Promise<Secrets>;
   generateWithdrawalSecretsHandle(
     masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
     label: string,
@@ -931,6 +923,7 @@ export function initializeExperimentalThreadedBrowserProving(options?: {
   threadCount?: number;
 }): Promise<ExperimentalThreadedInitialization>;
 export function deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+export function deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
 export function generateDepositSecretsHandle(
   masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
   scope: string | bigint,
@@ -961,29 +954,6 @@ export function verifySignedManifestArtifacts(
   publicKeyHex: string,
   artifacts: SignedManifestArtifactBytesInput[],
 ): Promise<VerifiedSignedArtifactManifest>;
-export function generateMasterKeys(mnemonic: string): Promise<V1MasterKeys>;
-export function generateDepositSecrets(
-  masterKeys: MasterKeys | V1MasterKeys,
-  scope: string | bigint,
-  index: string | bigint,
-): Promise<V1Secrets>;
-export function generateDepositSecrets(
-  masterNullifier: string | bigint,
-  masterSecret: string | bigint,
-  scope: string | bigint,
-  index: string | bigint,
-): Promise<V1Secrets>;
-export function generateWithdrawalSecrets(
-  masterKeys: MasterKeys | V1MasterKeys,
-  label: string | bigint,
-  index: string | bigint,
-): Promise<V1Secrets>;
-export function generateWithdrawalSecrets(
-  masterNullifier: string | bigint,
-  masterSecret: string | bigint,
-  label: string | bigint,
-  index: string | bigint,
-): Promise<V1Secrets>;
 export function getCommitment(
   value: string | bigint,
   label: string | bigint,

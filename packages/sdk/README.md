@@ -22,6 +22,9 @@ Current status:
   with a default capacity of four sessions; call `clearCircuitSessionCache()` on
   a client or `clearBrowserCircuitSessionCache()` from the runtime to release
   cached browser session artifacts and their matching Rust/WASM sessions
+- browser callers should invoke `proveWithdrawalWithSession()` from a Web
+  Worker via `createWorkerClient(...)`; calling it on the main thread will
+  freeze the page until proof generation completes
 - the v1 facade can fetch public deposit, withdrawal, and ragequit logs through
   caller-provided RPC/client transport, then pass those public event DTOs into
   Rust-backed recovery helpers; mnemonics, nullifier secrets, witnesses, and

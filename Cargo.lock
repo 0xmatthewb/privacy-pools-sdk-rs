@@ -2889,6 +2889,7 @@ dependencies = [
  "napi-sys",
  "nohash-hasher",
  "rustc-hash",
+ "tokio",
 ]
 
 [[package]]
@@ -3358,6 +3359,7 @@ name = "privacy-pools-sdk"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
  "async-trait",
  "hex",
  "privacy-pools-sdk-artifacts",
@@ -3491,6 +3493,7 @@ dependencies = [
  "tokio",
  "uniffi",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -3509,6 +3512,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -3620,6 +3624,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-rayon",
+ "zeroize",
 ]
 
 [[package]]

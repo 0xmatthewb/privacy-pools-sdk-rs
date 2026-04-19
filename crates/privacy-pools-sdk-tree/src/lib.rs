@@ -1,6 +1,6 @@
 use alloy_primitives::U256;
 use lean_imt::lean_imt::{LeanIMT, LeanIMTError, MerkleProof as LeanMerkleProof};
-use privacy_pools_sdk_core::{CircuitMerkleWitness, FieldElement, MerkleProof};
+use privacy_pools_sdk_core::{CircuitMerkleWitness, FieldElement, MerkleProof, parse_decimal_field};
 use privacy_pools_sdk_crypto::poseidon_hash;
 use thiserror::Error;
 
@@ -18,6 +18,12 @@ pub enum TreeError {
     InvalidCircuitDepth { depth: usize, proof_depth: usize },
     #[error("circuit depth {depth} exceeds protocol maximum {max_depth}")]
     DepthExceedsProtocolMaximum { depth: usize, max_depth: usize },
+    #[error("non-canonical field element for {field}: {value} >= {modulus}")]
+    NonCanonicalField {
+        field: &'static str,
+        value: FieldElement,
+        modulus: FieldElement,
+    },
     #[error(transparent)]
     LeanImt(#[from] LeanIMTError),
     #[error(transparent)]
@@ -28,6 +34,10 @@ pub fn generate_merkle_proof(
     leaves: &[FieldElement],
     leaf: FieldElement,
 ) -> Result<MerkleProof, TreeError> {
+    for value in leaves {
+        ensure_canonical_field(*value, "leaf")?;
+    }
+    ensure_canonical_field(leaf, "leaf")?;
     let leaf_bytes = leaves
         .iter()
         .copied()
@@ -37,18 +47,22 @@ pub fn generate_merkle_proof(
     let leaf_index = tree
         .index_of(&field_to_bytes(leaf))
         .ok_or(TreeError::LeafNotFound)?;
-    let proof = tree.generate_proof(leaf_index)?;
-    Ok(from_lean_proof(proof))
+    let proof = from_lean_proof(tree.generate_proof(leaf_index)?);
+    validate_merkle_proof_fields(&proof)?;
+    Ok(proof)
 }
 
-pub fn verify_merkle_proof(proof: &MerkleProof) -> Result<bool, TreeError> {
+pub fn verify_merkle_proof(proof: &MerkleProof) -> bool {
+    if validate_merkle_proof_fields(proof).is_err() {
+        return false;
+    }
     let lean = LeanMerkleProof {
         root: field_to_bytes(proof.root),
         leaf: field_to_bytes(proof.leaf),
         index: proof.index,
         siblings: proof.siblings.iter().copied().map(field_to_bytes).collect(),
     };
-    Ok(LeanIMT::<32>::verify_proof(&lean, lean_poseidon_hash))
+    LeanIMT::<32>::verify_proof(&lean, lean_poseidon_hash)
 }
 
 pub fn to_circuit_witness(
@@ -137,7 +151,10 @@ fn from_lean_proof(proof: LeanMerkleProof<32>) -> MerkleProof {
 fn lean_poseidon_hash(input: &[u8]) -> [u8; 32] {
     let left = U256::from_be_slice(&input[..32]);
     let right = U256::from_be_slice(&input[32..64]);
-    field_to_bytes(poseidon_hash(&[left, right]).expect("poseidon pair hash should succeed"))
+    field_to_bytes(
+        poseidon_hash(&[left, right])
+            .unwrap_or_else(|_| panic!("poseidon pair hash should not fail for canonical pairs")),
+    )
 }
 
 fn bytes_to_field(bytes: [u8; 32]) -> U256 {
@@ -146,6 +163,34 @@ fn bytes_to_field(bytes: [u8; 32]) -> U256 {
 
 fn field_to_bytes(value: U256) -> [u8; 32] {
     value.to_be_bytes::<32>()
+}
+
+fn validate_merkle_proof_fields(proof: &MerkleProof) -> Result<(), TreeError> {
+    ensure_canonical_field(proof.root, "root")?;
+    ensure_canonical_field(proof.leaf, "leaf")?;
+    for sibling in &proof.siblings {
+        ensure_canonical_field(*sibling, "sibling")?;
+    }
+    Ok(())
+}
+
+fn ensure_canonical_field(value: FieldElement, field: &'static str) -> Result<(), TreeError> {
+    let modulus = snark_scalar_field_modulus();
+    if value >= modulus {
+        return Err(TreeError::NonCanonicalField {
+            field,
+            value,
+            modulus,
+        });
+    }
+    Ok(())
+}
+
+fn snark_scalar_field_modulus() -> FieldElement {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    )
+    .expect("valid BN254 scalar field modulus")
 }
 
 #[cfg(test)]
@@ -193,7 +238,7 @@ mod tests {
         assert_eq!(witness.siblings[3], U256::ZERO);
         assert_eq!(compute_circuit_root(&witness).unwrap(), proof.root);
         assert!(verify_circuit_witness(&witness).unwrap());
-        assert!(verify_merkle_proof(&proof).unwrap());
+        assert!(verify_merkle_proof(&proof));
     }
 
     #[test]
@@ -210,7 +255,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(proof.index, 1);
-        assert!(verify_merkle_proof(&proof).unwrap());
+        assert!(verify_merkle_proof(&proof));
     }
 
     #[test]
@@ -237,7 +282,7 @@ mod tests {
         assert_eq!(proof.leaf, U256::from(44));
         assert_eq!(proof.index, 0);
         assert!(proof.siblings.is_empty());
-        assert!(verify_merkle_proof(&proof).unwrap());
+        assert!(verify_merkle_proof(&proof));
 
         let witness = to_circuit_witness(&proof, DEFAULT_CIRCUIT_DEPTH).unwrap();
         assert_eq!(witness.siblings.len(), DEFAULT_CIRCUIT_DEPTH);
@@ -415,7 +460,7 @@ mod tests {
 
             prop_assert_eq!(proof.leaf, leaf);
             prop_assert!(proof.index < leaves.len());
-            prop_assert!(verify_merkle_proof(&proof).expect("proof verifies"));
+            prop_assert!(verify_merkle_proof(&proof));
             prop_assert_eq!(
                 reference_circuit_root(proof.leaf, proof.index, &proof.siblings),
                 proof.root

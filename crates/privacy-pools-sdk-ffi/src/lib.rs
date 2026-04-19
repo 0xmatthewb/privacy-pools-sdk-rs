@@ -12,7 +12,7 @@ use privacy_pools_sdk::{
     },
     core::{
         CircuitMerkleWitness, CodeHashCheck, CommitmentCircuitInput, CommitmentWitnessRequest,
-        ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
+        ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport, ReadConsistency,
         FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
         RagequitExecutionConfig, RelayExecutionConfig, RootCheck, RootReadKind, SnarkJsProof,
         TransactionPlan, TransactionReceiptSummary, Withdrawal, WithdrawalCircuitInput,
@@ -37,6 +37,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+use zeroize::Zeroize;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum FfiError {
@@ -58,6 +59,8 @@ pub enum FfiError {
     SessionNotFound(String),
     #[error("signer handle not found: {0}")]
     SignerNotFound(String),
+    #[error("signer handle is already registered: {0}")]
+    HandleAlreadyRegistered(String),
     #[error("secret handle not found: {0}")]
     SecretHandleNotFound(String),
     #[error("verified proof handle not found: {0}")]
@@ -70,15 +73,10 @@ pub enum FfiError {
     SignerRequiresExternalSigning(String),
     #[error("artifact manifest parse failed: {0}")]
     InvalidManifest(String),
+    #[error("signed transaction did not match the finalized request: {0}")]
+    InvalidSignedTransaction(String),
     #[error("sdk operation failed: {0}")]
     OperationFailed(String),
-}
-
-#[cfg(not(feature = "dangerous-exports"))]
-fn dangerous_exports_disabled<T>() -> Result<T, FfiError> {
-    Err(FfiError::OperationFailed(
-        "dangerous export helpers are disabled in this build; rebuild with feature `dangerous-exports` to use the debug surface".to_owned(),
-    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -155,6 +153,8 @@ pub struct FfiExecutionPolicy {
     pub caller: String,
     pub expected_pool_code_hash: Option<String>,
     pub expected_entrypoint_code_hash: Option<String>,
+    pub read_consistency: Option<String>,
+    pub max_fee_quote_wei: Option<String>,
     pub mode: Option<String>,
 }
 
@@ -186,6 +186,8 @@ pub struct FfiExecutionPreflightReport {
     pub chain_id_matches: bool,
     pub simulated: bool,
     pub estimated_gas: u64,
+    pub read_consistency: Option<String>,
+    pub max_fee_quote_wei: Option<String>,
     pub mode: Option<String>,
     pub code_hash_checks: Vec<FfiCodeHashCheck>,
     pub root_checks: Vec<FfiRootCheck>,
@@ -604,6 +606,23 @@ fn parse_execution_policy_mode(value: &str) -> Result<ExecutionPolicyMode, FfiEr
     }
 }
 
+fn parse_read_consistency(value: &str) -> Result<ReadConsistency, FfiError> {
+    match value {
+        "latest" => Ok(ReadConsistency::Latest),
+        "finalized" => Ok(ReadConsistency::Finalized),
+        _ => Err(FfiError::OperationFailed(format!(
+            "invalid read consistency: {value}"
+        ))),
+    }
+}
+
+fn read_consistency_label(consistency: ReadConsistency) -> String {
+    match consistency {
+        ReadConsistency::Latest => "latest".to_owned(),
+        ReadConsistency::Finalized => "finalized".to_owned(),
+    }
+}
+
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind, FfiError> {
     match value {
         "wasm" => Ok(ArtifactKind::Wasm),
@@ -746,6 +765,9 @@ fn register_signer(handle: String, signer: RegisteredSigner) -> Result<FfiSigner
     let mut registry = SIGNER_REGISTRY
         .write()
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    if registry.contains_key(&handle) {
+        return Err(FfiError::HandleAlreadyRegistered(handle));
+    }
     registry.insert(handle, signer);
     Ok(ffi)
 }
@@ -1283,6 +1305,18 @@ fn from_ffi_execution_policy(policy: FfiExecutionPolicy) -> Result<ExecutionPoli
             .as_deref()
             .map(parse_hash)
             .transpose()?,
+        read_consistency: policy
+            .read_consistency
+            .as_deref()
+            .map(parse_read_consistency)
+            .transpose()?
+            .unwrap_or(ReadConsistency::Latest),
+        max_fee_quote_wei: policy
+            .max_fee_quote_wei
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
         mode,
     })
 }
@@ -1317,6 +1351,8 @@ fn to_ffi_execution_preflight(report: ExecutionPreflightReport) -> FfiExecutionP
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: Some(read_consistency_label(report.read_consistency)),
+        max_fee_quote_wei: report.max_fee_quote_wei.map(|value| value.to_string()),
         mode: Some(match report.mode {
             ExecutionPolicyMode::Strict => "strict".to_owned(),
             ExecutionPolicyMode::InsecureDev => "insecure_dev".to_owned(),
@@ -1591,6 +1627,18 @@ fn from_ffi_execution_preflight(
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: report
+            .read_consistency
+            .as_deref()
+            .map(parse_read_consistency)
+            .transpose()?
+            .unwrap_or(ReadConsistency::Latest),
+        max_fee_quote_wei: report
+            .max_fee_quote_wei
+            .as_deref()
+            .map(str::parse::<u128>)
+            .transpose()
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?,
         mode,
         code_hash_checks: report
             .code_hash_checks
@@ -2080,6 +2128,7 @@ pub fn get_stable_backend_name() -> Result<String, FfiError> {
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     let keys = sdk()
         .generate_master_keys(&mnemonic)
@@ -2091,6 +2140,19 @@ pub fn derive_master_keys(mnemonic: String) -> Result<FfiMasterKeys, FfiError> {
     })
 }
 
+fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<String, FfiError> {
+    let result = (|| {
+        let phrase = std::str::from_utf8(&mnemonic)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        let keys = sdk()
+            .generate_master_keys(phrase)
+            .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+        register_secret_handle(SecretHandleEntry::MasterKeys(keys))
+    })();
+    mnemonic.zeroize();
+    result
+}
+
 #[uniffi::export]
 pub fn derive_master_keys_handle(mnemonic: String) -> Result<String, FfiError> {
     let keys = sdk()
@@ -2100,14 +2162,13 @@ pub fn derive_master_keys_handle(mnemonic: String) -> Result<String, FfiError> {
 }
 
 #[uniffi::export]
-pub fn dangerously_export_master_keys(handle: String) -> Result<FfiMasterKeys, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
+pub fn derive_master_keys_handle_bytes(mnemonic: Vec<u8>) -> Result<String, FfiError> {
+    derive_master_keys_handle_from_utf8_bytes(mnemonic)
+}
 
-    #[cfg(feature = "dangerous-exports")]
+#[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_master_keys(handle: String) -> Result<FfiMasterKeys, FfiError> {
     match registered_secret_handle(&handle)? {
         SecretHandleEntry::MasterKeys(keys) => Ok(FfiMasterKeys {
             master_nullifier: keys.master_nullifier.to_decimal_string(),
@@ -2120,6 +2181,7 @@ pub fn dangerously_export_master_keys(handle: String) -> Result<FfiMasterKeys, F
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_deposit_secrets(
     master_nullifier: String,
     master_secret: String,
@@ -2191,6 +2253,7 @@ pub fn generate_withdrawal_secrets_handle(
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_withdrawal_secrets(
     master_nullifier: String,
     master_secret: String,
@@ -2252,14 +2315,8 @@ pub fn get_commitment_from_handles(
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_commitment_preimage(handle: String) -> Result<FfiCommitment, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match registered_secret_handle(&handle)? {
         SecretHandleEntry::CommitmentRequest(request) => Ok(to_ffi_commitment(request.commitment)),
         _ => Err(FfiError::OperationFailed(
@@ -2269,14 +2326,8 @@ pub fn dangerously_export_commitment_preimage(handle: String) -> Result<FfiCommi
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_secret(handle: String) -> Result<FfiSecrets, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match registered_secret_handle(&handle)? {
         SecretHandleEntry::Secrets { nullifier, secret } => Ok(to_ffi_secrets((nullifier, secret))),
         _ => Err(FfiError::OperationFailed(
@@ -3102,15 +3153,14 @@ pub fn submit_signed_transaction(
     finalized: FfiFinalizedTransactionExecution,
     signed_transaction: String,
 ) -> Result<FfiSubmittedTransactionExecution, FfiError> {
+    let finalized = from_ffi_finalized_execution(finalized)?;
     let encoded_tx = hex::decode(signed_transaction.trim_start_matches("0x"))
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    privacy_pools_sdk::chain::validate_signed_transaction_request(&encoded_tx, &finalized.request)
+        .map_err(|error| FfiError::InvalidSignedTransaction(error.to_string()))?;
 
     Ok(to_ffi_submitted_execution(block_on_sdk(
-        sdk().submit_finalized_transaction(
-            &rpc_url,
-            from_ffi_finalized_execution(finalized)?,
-            &encoded_tx,
-        ),
+        sdk().submit_finalized_transaction(&rpc_url, finalized, &encoded_tx),
     )?))
 }
 
@@ -3398,6 +3448,8 @@ pub fn submit_finalized_preflighted_transaction_handle(
     };
     let encoded_tx = hex::decode(signed_transaction.trim_start_matches("0x"))
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
+    privacy_pools_sdk::chain::validate_signed_transaction_request(&encoded_tx, finalized.request())
+        .map_err(|error| FfiError::InvalidSignedTransaction(error.to_string()))?;
     let client = privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url)
         .map_err(|error| FfiError::OperationFailed(error.to_string()))?;
     let submitted = block_on_sdk(sdk().submit_finalized_preflighted_transaction_with_client(
@@ -3409,16 +3461,10 @@ pub fn submit_finalized_preflighted_transaction_handle(
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_preflighted_transaction(
     handle: String,
 ) -> Result<FfiPreflightedTransaction, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match registered_execution_handle(&handle)? {
         ExecutionHandleEntry::Preflighted(preflighted) => {
             Ok(to_ffi_preflighted_transaction(&preflighted))
@@ -3430,16 +3476,10 @@ pub fn dangerously_export_preflighted_transaction(
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_finalized_preflighted_transaction(
     handle: String,
 ) -> Result<FfiFinalizedPreflightedTransaction, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match registered_execution_handle(&handle)? {
         ExecutionHandleEntry::Finalized(finalized) => {
             Ok(to_ffi_finalized_preflighted_transaction(&finalized))
@@ -3451,16 +3491,10 @@ pub fn dangerously_export_finalized_preflighted_transaction(
 }
 
 #[uniffi::export]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_submitted_preflighted_transaction(
     handle: String,
 ) -> Result<FfiSubmittedPreflightedTransaction, FfiError> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match registered_execution_handle(&handle)? {
         ExecutionHandleEntry::Submitted(submitted) => {
             Ok(to_ffi_submitted_preflighted_transaction(&submitted))
@@ -3699,25 +3733,26 @@ mod tests {
     fn ffi_withdrawal_request() -> FfiWithdrawalWitnessRequest {
         let crypto_fixture = vector();
         let withdrawal_fixture = withdrawal_vector();
-        let keys =
-            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
-        let deposit = derive_deposit_secrets(
-            keys.master_nullifier,
-            keys.master_secret,
-            crypto_fixture["scope"].as_str().unwrap().to_owned(),
-            "0".to_owned(),
-        )
-        .unwrap();
-        let commitment = get_commitment(
-            withdrawal_fixture["existingValue"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
-            deposit.nullifier,
-            deposit.secret,
-        )
-        .unwrap();
+        let keys = sdk()
+            .generate_master_keys(crypto_fixture["mnemonic"].as_str().unwrap())
+            .unwrap();
+        let deposit = sdk()
+            .generate_deposit_secrets(
+                &keys,
+                parse_field(crypto_fixture["scope"].as_str().unwrap()).unwrap(),
+                U256::ZERO,
+            )
+            .unwrap();
+        let commitment = to_ffi_commitment(
+            sdk()
+                .build_commitment(
+                    parse_field(withdrawal_fixture["existingValue"].as_str().unwrap()).unwrap(),
+                    parse_field(withdrawal_fixture["label"].as_str().unwrap()).unwrap(),
+                    deposit.0,
+                    deposit.1,
+                )
+                .unwrap(),
+        );
 
         FfiWithdrawalWitnessRequest {
             commitment,
@@ -3839,6 +3874,7 @@ mod tests {
         async fn code_hash(
             &self,
             address: Address,
+            _consistency: ReadConsistency,
         ) -> Result<B256, privacy_pools_sdk::chain::ChainError> {
             if address == self.pool {
                 Ok(self.pool_code_hash)
@@ -3856,7 +3892,10 @@ mod tests {
             match read.kind {
                 RootReadKind::Asp => Ok(self.asp_root),
                 RootReadKind::PoolState => {
-                    let state_root_read = privacy_pools_sdk::chain::state_root_read(self.pool);
+                    let state_root_read = privacy_pools_sdk::chain::state_root_read(
+                        self.pool,
+                        ReadConsistency::Latest,
+                    );
                     if read.call_data == state_root_read.call_data {
                         Ok(self.state_root)
                     } else {
@@ -4208,11 +4247,20 @@ mod tests {
 
         let state_call = format!(
             "0x{}",
-            hex::encode(privacy_pools_sdk::chain::state_root_read(pool).call_data)
+            hex::encode(
+                privacy_pools_sdk::chain::state_root_read(pool, ReadConsistency::Latest).call_data
+            )
         );
         let asp_call = format!(
             "0x{}",
-            hex::encode(privacy_pools_sdk::chain::asp_root_read(entrypoint, pool).call_data)
+            hex::encode(
+                privacy_pools_sdk::chain::asp_root_read(
+                    entrypoint,
+                    pool,
+                    ReadConsistency::Latest,
+                )
+                .call_data
+            )
         );
 
         if to == format!("{pool:#x}") && data == state_call {
@@ -4579,6 +4627,7 @@ mod tests {
         format!("0x{}", hex::encode(envelope.encoded_2718()))
     }
 
+    #[cfg(feature = "dangerous-key-export")]
     #[test]
     fn ffi_exports_match_crypto_and_merkle_vectors() {
         let fixture = vector();
@@ -5017,6 +5066,8 @@ mod tests {
             ),
             expected_pool_code_hash: Some(expected_pool_code_hash),
             expected_entrypoint_code_hash: Some(expected_entrypoint_code_hash),
+            read_consistency: Some("latest".to_owned()),
+            max_fee_quote_wei: Some("2000000000".to_owned()),
             mode: Some("strict".to_owned()),
         };
 
@@ -5108,30 +5159,11 @@ mod tests {
 
     #[test]
     fn ffi_builds_typed_withdrawal_circuit_inputs() {
-        let crypto_fixture = vector();
         let withdrawal_fixture: Value = serde_json::from_str(include_str!(
             "../../../fixtures/vectors/withdrawal-circuit-input.json"
         ))
         .unwrap();
-        let keys =
-            derive_master_keys(crypto_fixture["mnemonic"].as_str().unwrap().to_owned()).unwrap();
-        let deposit = derive_deposit_secrets(
-            keys.master_nullifier.clone(),
-            keys.master_secret.clone(),
-            crypto_fixture["scope"].as_str().unwrap().to_owned(),
-            "0".to_owned(),
-        )
-        .unwrap();
-        let commitment = get_commitment(
-            withdrawal_fixture["existingValue"]
-                .as_str()
-                .unwrap()
-                .to_owned(),
-            withdrawal_fixture["label"].as_str().unwrap().to_owned(),
-            deposit.nullifier,
-            deposit.secret,
-        )
-        .unwrap();
+        let commitment = ffi_withdrawal_request().commitment;
 
         let request = FfiWithdrawalWitnessRequest {
             commitment,
@@ -5139,7 +5171,7 @@ mod tests {
                 processooor: "0x1111111111111111111111111111111111111111".to_owned(),
                 data: vec![0x12, 0x34],
             },
-            scope: crypto_fixture["scope"].as_str().unwrap().to_owned(),
+            scope: vector()["scope"].as_str().unwrap().to_owned(),
             withdrawal_amount: withdrawal_fixture["withdrawalAmount"]
                 .as_str()
                 .unwrap()
@@ -5798,6 +5830,8 @@ mod tests {
                             chain_id_matches: true,
                             simulated: true,
                             estimated_gas: 42_000,
+                            read_consistency: Some("finalized".to_owned()),
+                            max_fee_quote_wei: Some("9999".to_owned()),
                             mode: Some("strict".to_owned()),
                             code_hash_checks: vec![],
                             root_checks: vec![],

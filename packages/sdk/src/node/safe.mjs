@@ -31,11 +31,9 @@ const SAFE_CLIENT_METHODS = [
   "getRuntimeCapabilities",
   "getVersion",
   "getStableBackendName",
-  "deriveMasterKeys",
   "deriveMasterKeysHandle",
-  "deriveDepositSecrets",
+  "deriveMasterKeysHandleBytes",
   "generateDepositSecretsHandle",
-  "deriveWithdrawalSecrets",
   "generateWithdrawalSecretsHandle",
   "getCommitment",
   "getCommitmentFromHandles",
@@ -108,6 +106,8 @@ const defaultClient = createPrivacyPoolsSdkClient();
 
 export const deriveMasterKeysHandle = (mnemonic) =>
   defaultClient.deriveMasterKeysHandle(mnemonic);
+export const deriveMasterKeysHandleBytes = (mnemonicBytes) =>
+  defaultClient.deriveMasterKeysHandleBytes(mnemonicBytes);
 export const generateDepositSecretsHandle = (masterKeys, scope, index) =>
   defaultClient.generateDepositSecretsHandle(masterKeys, scope, index);
 export const generateWithdrawalSecretsHandle = (masterKeys, label, index) =>
@@ -254,10 +254,7 @@ export {
   circuitToAsset,
   deriveRecoveryKeyset,
   formatGroth16ProofBundle,
-  generateDepositSecrets,
-  generateMasterKeys,
   generateMerkleProof,
-  generateWithdrawalSecrets,
   getCommitment,
   hashPrecommitment,
   isCurrentStateRoot,

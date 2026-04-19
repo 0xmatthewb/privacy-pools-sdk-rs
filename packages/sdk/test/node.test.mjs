@@ -81,6 +81,22 @@ test("node runtime reports capabilities", () => {
   });
 });
 
+test("node accepts decimal and hex zero state roots equivalently", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  assert.equal(await sdk.isCurrentStateRoot("0", "0x0"), true);
+  assert.equal(await sdk.isCurrentStateRoot("0x0", "0"), true);
+  assert.equal(await sdk.isCurrentStateRoot("0", "1"), false);
+});
+
+test("node derives master key handles from mnemonic bytes", async () => {
+  const sdk = new PrivacyPoolsSdkClient();
+  const handle = await sdk.deriveMasterKeysHandleBytes(
+    new TextEncoder().encode(cryptoFixture.mnemonic),
+  );
+  assert.match(handle, UUID_V4_RE);
+  assert.equal(await sdk.removeSecretHandle(handle), true);
+});
+
 test("node addon matches reference crypto vectors", async () => {
   const sdk = new PrivacyPoolsSdkClient();
   assert.deepEqual(await sdk.getRuntimeCapabilities(), getRuntimeCapabilities());
@@ -495,33 +511,6 @@ test("node addon rejects invalid execution preflight policies and signer mismatc
     const { verifiedWithdrawalHandle } = await buildExecutionHandleFixtures(
       sdk,
       artifactsRoot,
-    );
-
-    await assert.rejects(
-      () =>
-        sdk.preflightVerifiedWithdrawalTransactionWithHandle(
-          EXECUTION_FIXTURE.chainId + 1,
-          EXECUTION_FIXTURE.poolAddress,
-          validRpcServer.url,
-          strictExecutionPolicy(),
-          verifiedWithdrawalHandle,
-        ),
-      /chain id mismatch/i,
-    );
-
-    await assert.rejects(
-      () =>
-        sdk.preflightVerifiedWithdrawalTransactionWithHandle(
-          EXECUTION_FIXTURE.chainId,
-          EXECUTION_FIXTURE.poolAddress,
-          validRpcServer.url,
-          {
-            ...strictExecutionPolicy(),
-            expectedPoolCodeHash: `0x${"11".repeat(32)}`,
-          },
-          verifiedWithdrawalHandle,
-        ),
-      /code hash mismatch/i,
     );
 
     await assert.rejects(

@@ -11,6 +11,7 @@ import {
   clearSecretHandles,
   deriveDepositSecrets,
   deriveMasterKeysHandle,
+  deriveMasterKeysHandleBytes,
   deriveMasterKeys,
   deriveRecoveryKeyset as runtimeDeriveRecoveryKeyset,
   deriveWithdrawalSecrets,
@@ -90,6 +91,7 @@ export {
   initializeExperimentalThreadedBrowserProving,
   supportsExperimentalThreadedBrowserProving,
   deriveMasterKeysHandle,
+  deriveMasterKeysHandleBytes,
   generateDepositSecretsHandle,
   generateWithdrawalSecretsHandle,
   getCommitmentFromHandles,
@@ -143,6 +145,10 @@ export class PrivacyPoolsSdkClient {
 
   async deriveMasterKeysHandle(mnemonic) {
     return deriveMasterKeysHandle(mnemonic);
+  }
+
+  async deriveMasterKeysHandleBytes(mnemonicBytes) {
+    return deriveMasterKeysHandleBytes(mnemonicBytes);
   }
 
   async deriveDepositSecrets(masterKeys, scope, index) {
@@ -807,6 +813,10 @@ class WorkerPrivacyPoolsSdkClient {
 
   async deriveMasterKeysHandle(mnemonic) {
     return this.#send("deriveMasterKeysHandle", [mnemonic]);
+  }
+
+  async deriveMasterKeysHandleBytes(mnemonicBytes) {
+    return this.#send("deriveMasterKeysHandleBytes", [mnemonicBytes]);
   }
 
   async deriveDepositSecrets(masterKeys, scope, index) {

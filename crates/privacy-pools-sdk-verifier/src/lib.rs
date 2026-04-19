@@ -429,7 +429,15 @@ fn parse_optional_bn254_value(
     missing_message: &str,
 ) -> Result<Bn254Fq, VerifierError> {
     match value {
-        Some(value) => parse_bn254_value(Some(value), missing_message),
+        Some(value) => {
+            let parsed = parse_bn254_value(Some(value), missing_message)?;
+            if parsed == Bn254Fq::from(0u64) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G1 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bn254Fq::from(1u64))
@@ -442,7 +450,15 @@ fn parse_optional_bls12_381_value(
     missing_message: &str,
 ) -> Result<Bls12_381Fq, VerifierError> {
     match value {
-        Some(value) => parse_bls12_381_value(Some(value), missing_message),
+        Some(value) => {
+            let parsed = parse_bls12_381_value(Some(value), missing_message)?;
+            if parsed == Bls12_381Fq::from(0u64) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G1 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bls12_381Fq::from(1u64))
@@ -455,7 +471,15 @@ fn parse_optional_bn254_fq2(
     missing_message: &str,
 ) -> Result<Bn254Fq2, VerifierError> {
     match value {
-        Some(value) => parse_bn254_fq2(value),
+        Some(value) => {
+            let parsed = parse_bn254_fq2(value)?;
+            if parsed == Bn254Fq2::new(Bn254Fq::from(0u64), Bn254Fq::from(0u64)) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G2 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bn254Fq2::new(Bn254Fq::from(1u64), Bn254Fq::from(0u64)))
@@ -468,7 +492,15 @@ fn parse_optional_bls12_381_fq2(
     missing_message: &str,
 ) -> Result<Bls12_381Fq2, VerifierError> {
     match value {
-        Some(value) => parse_bls12_381_fq2(value),
+        Some(value) => {
+            let parsed = parse_bls12_381_fq2(value)?;
+            if parsed == Bls12_381Fq2::new(Bls12_381Fq::from(0u64), Bls12_381Fq::from(0u64)) {
+                return Err(VerifierError::InvalidVerificationKey(
+                    "verification key G2 z must not be zero".to_owned(),
+                ));
+            }
+            Ok(parsed)
+        }
         None => {
             let _ = missing_message;
             Ok(Bls12_381Fq2::new(

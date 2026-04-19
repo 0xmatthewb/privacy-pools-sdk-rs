@@ -41,8 +41,29 @@ use std::{
 use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroize;
 #[cfg(all(target_arch = "wasm32", feature = "threaded"))]
 pub use wasm_bindgen_rayon::init_thread_pool;
+
+const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
+const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_TOTAL_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+
+static BN254_BASE_FIELD_MODULUS: LazyLock<U256> = LazyLock::new(|| {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+    )
+    .expect("valid BN254 base field modulus")
+});
+
+static BN254_SCALAR_FIELD_MODULUS: LazyLock<U256> = LazyLock::new(|| {
+    parse_decimal_field(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    )
+    .expect("valid BN254 scalar field modulus")
+});
 
 sol! {
     struct WithdrawalAbi {
@@ -179,6 +200,8 @@ struct JsDepositEvent {
     value: String,
     precommitment_hash: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -189,6 +212,8 @@ struct JsWithdrawalEvent {
     spent_nullifier_hash: String,
     new_commitment_hash: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -199,6 +224,8 @@ struct JsRagequitEvent {
     label: String,
     value: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -640,11 +667,13 @@ pub fn get_stable_backend_name() -> &'static str {
     "Arkworks"
 }
 
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_master_keys_json(mnemonic: &str) -> Result<String> {
     let keys = privacy_pools_sdk_crypto::generate_master_keys(mnemonic)?;
     to_json_string(&WireMasterKeys::from(&keys))
 }
 
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_deposit_secrets_json(
     master_keys_json: &str,
     scope: &str,
@@ -662,6 +691,7 @@ pub fn derive_deposit_secrets_json(
     })
 }
 
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_withdrawal_secrets_json(
     master_keys_json: &str,
     label: &str,
@@ -697,6 +727,16 @@ pub fn get_commitment_json(
 pub fn import_master_keys_handle_json(master_keys_json: &str) -> Result<String> {
     let keys: MasterKeys = parse_json::<WireMasterKeys>(master_keys_json)?.try_into()?;
     register_secret_handle(SecretHandleEntry::MasterKeys(keys))
+}
+
+fn derive_master_keys_handle_from_utf8_bytes(mut mnemonic: Vec<u8>) -> Result<String> {
+    let result = (|| {
+        let phrase = std::str::from_utf8(&mnemonic)?;
+        let keys = privacy_pools_sdk_crypto::generate_master_keys(phrase)?;
+        register_secret_handle(SecretHandleEntry::MasterKeys(keys))
+    })();
+    mnemonic.zeroize();
+    result
 }
 
 pub fn derive_master_keys_handle(mnemonic: &str) -> Result<String> {
@@ -756,28 +796,16 @@ pub fn get_commitment_from_handles(
     register_secret_handle(SecretHandleEntry::Commitment(commitment))
 }
 
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_master_keys(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match secret_handle(handle)? {
         SecretHandleEntry::MasterKeys(keys) => to_json_string(&WireMasterKeys::from(&keys)),
         _ => bail!("browser secret handle `{handle}` is not a master-keys handle"),
     }
 }
 
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_commitment_preimage(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match secret_handle(handle)? {
         SecretHandleEntry::Commitment(commitment) => {
             to_json_string(&WireCommitment::from(&commitment))
@@ -786,14 +814,8 @@ pub fn dangerously_export_commitment_preimage(handle: &str) -> Result<String> {
     }
 }
 
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_secret(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match secret_handle(handle)? {
         SecretHandleEntry::Secrets { nullifier, secret } => to_json_string(&JsSecrets {
             nullifier: nullifier.to_decimal_string(),
@@ -957,7 +979,11 @@ pub fn verify_withdrawal_proof_for_handles_json(
 }
 
 pub fn checkpoint_recovery_json(events_json: &str, policy_json: &str) -> Result<String> {
-    let events = parse_json::<Vec<JsPoolEvent>>(events_json).and_then(from_js_pool_events)?;
+    let events = parse_json_with_limit::<Vec<JsPoolEvent>>(
+        events_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_pool_events)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
     let checkpoint = privacy_pools_sdk_recovery::checkpoint(&events, policy)?;
@@ -976,7 +1002,10 @@ pub fn recover_account_state_json(
     pools_json: &str,
     policy_json: &str,
 ) -> Result<String> {
-    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(pools_json)
+    let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
+        pools_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_pool_recovery_inputs)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
@@ -991,7 +1020,10 @@ pub fn recover_account_state_with_keyset_json(
 ) -> Result<String> {
     let keyset = parse_json::<JsRecoveryKeyset>(keyset_json)
         .and_then(|keyset| from_js_recovery_keyset(&keyset))?;
-    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(pools_json)
+    let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
+        pools_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_pool_recovery_inputs)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
@@ -1306,14 +1338,7 @@ pub fn register_submitted_preflighted_transaction_json(
     ))
 }
 
-pub fn dangerously_export_preflighted_transaction_json(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
+fn export_preflighted_transaction_json_internal(handle: &str) -> Result<String> {
     match execution_handle(handle)? {
         ExecutionHandleEntry::Preflighted(transaction) => {
             to_json_string(&to_js_preflighted_transaction(&transaction))
@@ -1322,14 +1347,7 @@ pub fn dangerously_export_preflighted_transaction_json(handle: &str) -> Result<S
     }
 }
 
-pub fn dangerously_export_finalized_preflighted_transaction_json(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
+fn export_finalized_preflighted_transaction_json_internal(handle: &str) -> Result<String> {
     match execution_handle(handle)? {
         ExecutionHandleEntry::Finalized(finalized) => {
             to_json_string(&to_js_finalized_preflighted_transaction(&finalized))
@@ -1338,14 +1356,7 @@ pub fn dangerously_export_finalized_preflighted_transaction_json(handle: &str) -
     }
 }
 
-pub fn dangerously_export_submitted_preflighted_transaction_json(handle: &str) -> Result<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return dangerous_exports_disabled();
-    }
-
-    #[cfg(feature = "dangerous-exports")]
+fn export_submitted_preflighted_transaction_json_internal(handle: &str) -> Result<String> {
     match execution_handle(handle)? {
         ExecutionHandleEntry::Submitted(submitted) => {
             to_json_string(&to_js_submitted_preflighted_transaction(&submitted))
@@ -1354,14 +1365,32 @@ pub fn dangerously_export_submitted_preflighted_transaction_json(handle: &str) -
     }
 }
 
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_preflighted_transaction_json(handle: &str) -> Result<String> {
+    export_preflighted_transaction_json_internal(handle)
+}
+
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_finalized_preflighted_transaction_json(handle: &str) -> Result<String> {
+    export_finalized_preflighted_transaction_json_internal(handle)
+}
+
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_submitted_preflighted_transaction_json(handle: &str) -> Result<String> {
+    export_submitted_preflighted_transaction_json_internal(handle)
+}
+
 pub fn verify_artifact_bytes_json(
     manifest_json: &str,
     circuit: &str,
     artifacts_json: &str,
 ) -> Result<String> {
     let manifest = parse_manifest(manifest_json)?;
-    let artifacts =
-        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_artifact_bytes)?;
     let bundle = manifest.verify_bundle_bytes(circuit, artifacts)?;
     to_json_string(&to_js_verified_artifact_bundle(&bundle))
 }
@@ -1388,8 +1417,11 @@ pub fn verify_signed_manifest_artifacts_json(
     public_key_hex: &str,
     artifacts_json: &str,
 ) -> Result<String> {
-    let artifacts = parse_json::<Vec<JsSignedManifestArtifactBytes>>(artifacts_json)
-        .and_then(from_js_signed_manifest_artifact_bytes)?;
+    let artifacts = parse_json_with_limit::<Vec<JsSignedManifestArtifactBytes>>(
+        artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_signed_manifest_artifact_bytes)?;
     let verified = privacy_pools_sdk_artifacts::verify_signed_manifest_artifact_bytes(
         payload_json.as_bytes(),
         signature_hex,
@@ -1431,8 +1463,11 @@ pub fn prepare_withdrawal_circuit_session_from_bytes_json(
     artifacts_json: &str,
 ) -> Result<String> {
     let manifest = parse_manifest(manifest_json)?;
-    let artifacts =
-        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_artifact_bytes)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "withdraw")?;
     to_json_string(&to_js_session_handle(&session))
 }
@@ -1442,8 +1477,11 @@ pub fn prepare_commitment_circuit_session_from_bytes_json(
     artifacts_json: &str,
 ) -> Result<String> {
     let manifest = parse_manifest(manifest_json)?;
-    let artifacts =
-        parse_json::<Vec<JsArtifactBytes>>(artifacts_json).and_then(from_js_artifact_bytes)?;
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_artifact_bytes)?;
     let session = prepare_circuit_session_from_artifacts(&manifest, artifacts, "commitment")?;
     to_json_string(&to_js_session_handle(&session))
 }
@@ -1650,8 +1688,8 @@ pub fn wasm_get_version() -> String {
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = getBrowserSupportStatusJson)]
-pub fn wasm_get_browser_support_status_json() -> String {
-    to_json_string(&get_browser_support_status()).expect("browser support status must serialize")
+pub fn wasm_get_browser_support_status_json() -> std::result::Result<String, JsValue> {
+    to_json_string(&get_browser_support_status()).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1661,12 +1699,14 @@ pub fn wasm_get_stable_backend_name() -> String {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(feature = "dangerous-key-export")]
 #[wasm_bindgen(js_name = deriveMasterKeysJson)]
 pub fn wasm_derive_master_keys_json(mnemonic: &str) -> std::result::Result<String, JsValue> {
     derive_master_keys_json(mnemonic).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(feature = "dangerous-key-export")]
 #[wasm_bindgen(js_name = deriveDepositSecretsJson)]
 pub fn wasm_derive_deposit_secrets_json(
     master_keys_json: &str,
@@ -1677,6 +1717,7 @@ pub fn wasm_derive_deposit_secrets_json(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[cfg(feature = "dangerous-key-export")]
 #[wasm_bindgen(js_name = deriveWithdrawalSecretsJson)]
 pub fn wasm_derive_withdrawal_secrets_json(
     master_keys_json: &str,
@@ -1712,6 +1753,14 @@ pub fn wasm_derive_master_keys_handle(mnemonic: &str) -> std::result::Result<Str
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = deriveMasterKeysHandleBytes)]
+pub fn wasm_derive_master_keys_handle_bytes(
+    mnemonic: Uint8Array,
+) -> std::result::Result<String, JsValue> {
+    derive_master_keys_handle_from_utf8_bytes(mnemonic.to_vec()).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = generateDepositSecretsHandle)]
 pub fn wasm_generate_deposit_secrets_handle(
     master_keys_handle: &str,
@@ -1743,12 +1792,14 @@ pub fn wasm_get_commitment_from_handles(
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportMasterKeys)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_master_keys(handle: &str) -> std::result::Result<String, JsValue> {
     dangerously_export_master_keys(handle).map_err(js_error)
 }
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportCommitmentPreimage)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_commitment_preimage(
     handle: &str,
 ) -> std::result::Result<String, JsValue> {
@@ -1757,6 +1808,7 @@ pub fn wasm_dangerously_export_commitment_preimage(
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportSecret)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_secret(handle: &str) -> std::result::Result<String, JsValue> {
     dangerously_export_secret(handle).map_err(js_error)
 }
@@ -2163,7 +2215,32 @@ pub fn wasm_register_submitted_preflighted_transaction_json(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = exportPreflightedTransactionInternal)]
+pub fn wasm_export_preflighted_transaction_internal(
+    handle: &str,
+) -> std::result::Result<String, JsValue> {
+    export_preflighted_transaction_json_internal(handle).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = exportFinalizedPreflightedTransactionInternal)]
+pub fn wasm_export_finalized_preflighted_transaction_internal(
+    handle: &str,
+) -> std::result::Result<String, JsValue> {
+    export_finalized_preflighted_transaction_json_internal(handle).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = exportSubmittedPreflightedTransactionInternal)]
+pub fn wasm_export_submitted_preflighted_transaction_internal(
+    handle: &str,
+) -> std::result::Result<String, JsValue> {
+    export_submitted_preflighted_transaction_json_internal(handle).map_err(js_error)
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportPreflightedTransaction)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_preflighted_transaction(
     handle: &str,
 ) -> std::result::Result<String, JsValue> {
@@ -2172,6 +2249,7 @@ pub fn wasm_dangerously_export_preflighted_transaction(
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportFinalizedPreflightedTransaction)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_finalized_preflighted_transaction(
     handle: &str,
 ) -> std::result::Result<String, JsValue> {
@@ -2180,6 +2258,7 @@ pub fn wasm_dangerously_export_finalized_preflighted_transaction(
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = dangerouslyExportSubmittedPreflightedTransaction)]
+#[cfg(feature = "dangerous-exports")]
 pub fn wasm_dangerously_export_submitted_preflighted_transaction(
     handle: &str,
 ) -> std::result::Result<String, JsValue> {
@@ -2417,17 +2496,24 @@ fn js_error(error: anyhow::Error) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
-#[cfg(not(feature = "dangerous-exports"))]
-fn dangerous_exports_disabled<T>() -> Result<T> {
-    bail!(
-        "dangerous export helpers are disabled in this build; rebuild with feature `dangerous-exports` to use the debug surface"
-    )
-}
-
 fn parse_json<T>(value: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
+    parse_json_with_limit(value, MAX_CONTROL_JSON_INPUT_BYTES)
+}
+
+fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    if value.len() > max_bytes {
+        bail!(
+            "JSON payload exceeds maximum size: {} > {} bytes",
+            value.len(),
+            max_bytes
+        );
+    }
     serde_json::from_str(value).context("failed to parse JSON payload")
 }
 
@@ -2710,17 +2796,11 @@ fn ensure_canonical_proof_field(field: &str, value: U256, modulus: U256) -> Resu
 }
 
 fn bn254_base_field_modulus() -> U256 {
-    parse_decimal_field(
-        "21888242871839275222246405745257275088696311157297823662689037894645226208583",
-    )
-    .expect("valid BN254 base field modulus")
+    *BN254_BASE_FIELD_MODULUS
 }
 
 fn bn254_scalar_field_modulus() -> U256 {
-    parse_decimal_field(
-        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
-    )
-    .expect("valid BN254 scalar field modulus")
+    *BN254_SCALAR_FIELD_MODULUS
 }
 
 fn prover_backend_label(kind: ProverBackend) -> String {
@@ -3097,6 +3177,8 @@ fn from_js_execution_preflight(
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: privacy_pools_sdk_core::ReadConsistency::Latest,
+        max_fee_quote_wei: None,
         mode: parse_execution_policy_mode(report.mode.as_deref().unwrap_or("strict"))?,
         code_hash_checks: report
             .code_hash_checks
@@ -3174,6 +3256,7 @@ fn state_root_read(pool_address: Address) -> RootRead {
         kind: RootReadKind::PoolState,
         contract_address: pool_address,
         pool_address,
+        consistency: privacy_pools_sdk_core::ReadConsistency::Latest,
         call_data: Bytes::from(IPrivacyPool::currentRootCall {}.abi_encode()),
     }
 }
@@ -3183,6 +3266,7 @@ fn asp_root_read(entrypoint_address: Address, pool_address: Address) -> RootRead
         kind: RootReadKind::Asp,
         contract_address: entrypoint_address,
         pool_address,
+        consistency: privacy_pools_sdk_core::ReadConsistency::Latest,
         call_data: Bytes::from(IEntrypoint::latestRootCall {}.abi_encode()),
     }
 }
@@ -3496,7 +3580,7 @@ fn from_js_signed_manifest_artifact_bytes(
 fn from_wasm_artifact_bytes(
     artifacts: Array,
 ) -> Result<Vec<privacy_pools_sdk_artifacts::ArtifactBytes>> {
-    artifacts
+    let artifacts = artifacts
         .iter()
         .map(|artifact| {
             let kind = Reflect::get(&artifact, &JsValue::from_str("kind"))
@@ -3505,13 +3589,30 @@ fn from_wasm_artifact_bytes(
                 .context("artifact kind must be a string")?;
             let bytes = Reflect::get(&artifact, &JsValue::from_str("bytes"))
                 .map_err(|error| anyhow::anyhow!("failed to read artifact bytes: {error:?}"))?;
+            let bytes = Uint8Array::new(&bytes).to_vec();
+            if bytes.len() > MAX_ARTIFACT_BYTES {
+                bail!(
+                    "artifact bytes exceed maximum size: {} > {} bytes",
+                    bytes.len(),
+                    MAX_ARTIFACT_BYTES
+                );
+            }
 
             Ok(privacy_pools_sdk_artifacts::ArtifactBytes {
                 kind: parse_artifact_kind(&kind)?,
-                bytes: Uint8Array::new(&bytes).to_vec(),
+                bytes,
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>>>()?;
+    let total_bytes = artifacts.iter().map(|artifact| artifact.bytes.len()).sum::<usize>();
+    if total_bytes > MAX_TOTAL_ARTIFACT_BYTES {
+        bail!(
+            "artifact bundle exceeds maximum size: {} > {} bytes",
+            total_bytes,
+            MAX_TOTAL_ARTIFACT_BYTES
+        );
+    }
+    Ok(artifacts)
 }
 
 fn to_js_artifact_status(version: &str, status: ArtifactStatus) -> JsArtifactStatus {
@@ -3645,6 +3746,8 @@ fn from_js_deposit_event(event: &JsDepositEvent) -> Result<DepositEvent> {
         value: parse_field(&event.value)?,
         precommitment_hash: parse_field(&event.precommitment_hash)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -3655,6 +3758,8 @@ fn from_js_withdrawal_event(event: &JsWithdrawalEvent) -> Result<WithdrawalEvent
         spent_nullifier_hash: parse_field(&event.spent_nullifier_hash)?,
         new_commitment_hash: parse_field(&event.new_commitment_hash)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -3665,6 +3770,8 @@ fn from_js_ragequit_event(event: &JsRagequitEvent) -> Result<RagequitEvent> {
         label: parse_field(&event.label)?,
         value: parse_field(&event.value)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -3675,6 +3782,8 @@ fn to_js_ragequit_event(event: &RagequitEvent) -> JsRagequitEvent {
         label: field_label(event.label),
         value: field_label(event.value),
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: event.transaction_hash.to_string(),
     }
 }

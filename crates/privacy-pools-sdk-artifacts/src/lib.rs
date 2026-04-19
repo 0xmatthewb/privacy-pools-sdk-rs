@@ -7,6 +7,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+const MAX_SIGNED_MANIFEST_PAYLOAD_BYTES: usize = 128 * 1024;
+const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_TOTAL_ARTIFACT_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArtifactKind {
@@ -23,6 +27,12 @@ pub struct ArtifactDescriptor {
     pub sha256: String,
 }
 
+/// Unsigned artifact manifest metadata.
+///
+/// Production callers should prefer the signed-manifest verification entrypoints
+/// such as [`verify_signed_manifest_artifact_bytes`] and
+/// [`verify_signed_manifest_artifact_files`] with a pinned Ed25519 public key.
+/// Bare `ArtifactManifest` loading is intended for CI and local test flows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactManifest {
     pub version: String,
@@ -182,6 +192,12 @@ pub enum ArtifactError {
     InvalidSignedManifest(String),
     #[error("artifact manifest signature verification failed")]
     InvalidManifestSignature,
+    #[error("artifact payload `{field}` exceeds the configured byte cap: {actual} > {max}")]
+    PayloadTooLarge {
+        field: &'static str,
+        actual: usize,
+        max: usize,
+    },
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -384,6 +400,11 @@ pub fn verify_signed_manifest_bytes(
     signature_hex: &str,
     public_key_hex: &str,
 ) -> Result<SignedArtifactManifestPayload, ArtifactError> {
+    ensure_size_cap(
+        "signed_manifest_payload",
+        payload_json.len(),
+        MAX_SIGNED_MANIFEST_PAYLOAD_BYTES,
+    )?;
     let signature_bytes = decode_fixed_hex::<64>(signature_hex)?;
     let public_key_bytes = decode_fixed_hex::<32>(public_key_hex)?;
     let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
@@ -406,13 +427,17 @@ pub fn verify_signed_manifest_artifact_bytes(
 ) -> Result<VerifiedSignedArtifactManifest, ArtifactError> {
     let payload = verify_signed_manifest_bytes(payload_json, signature_hex, public_key_hex)?;
     let mut supplied = HashMap::new();
+    let mut total_bytes = 0_usize;
     for artifact in artifacts {
+        ensure_size_cap("artifact", artifact.bytes.len(), MAX_ARTIFACT_BYTES)?;
+        total_bytes = total_bytes.saturating_add(artifact.bytes.len());
         if supplied.insert(artifact.filename, artifact.bytes).is_some() {
             return Err(ArtifactError::InvalidSignedManifest(
                 "duplicate artifact filename supplied".to_owned(),
             ));
         }
     }
+    ensure_size_cap("artifact_total", total_bytes, MAX_TOTAL_ARTIFACT_BYTES)?;
 
     for descriptor in &payload.manifest.artifacts {
         let bytes = supplied.remove(&descriptor.filename).ok_or_else(|| {
@@ -441,6 +466,7 @@ pub fn verify_signed_manifest_artifact_files(
     root: impl AsRef<Path>,
 ) -> Result<VerifiedSignedArtifactManifest, ArtifactError> {
     let payload = verify_signed_manifest_bytes(payload_json, signature_hex, public_key_hex)?;
+    let mut total_bytes = 0_usize;
 
     for descriptor in &payload.manifest.artifacts {
         let path = payload.manifest.resolve_path(root.as_ref(), descriptor);
@@ -448,14 +474,24 @@ pub fn verify_signed_manifest_artifact_files(
             return Err(ArtifactError::MissingArtifactFile(path));
         }
         let bytes = fs::read(&path)?;
+        ensure_size_cap("artifact", bytes.len(), MAX_ARTIFACT_BYTES)?;
+        total_bytes = total_bytes.saturating_add(bytes.len());
         verify_artifact_bytes(descriptor, &bytes)?;
     }
+    ensure_size_cap("artifact_total", total_bytes, MAX_TOTAL_ARTIFACT_BYTES)?;
 
     let artifact_count = payload.manifest.artifacts.len();
     Ok(VerifiedSignedArtifactManifest {
         payload,
         artifact_count,
     })
+}
+
+fn ensure_size_cap(field: &'static str, actual: usize, max: usize) -> Result<(), ArtifactError> {
+    if actual > max {
+        return Err(ArtifactError::PayloadTooLarge { field, actual, max });
+    }
+    Ok(())
 }
 
 fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], ArtifactError> {

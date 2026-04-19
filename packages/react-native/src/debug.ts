@@ -20,29 +20,38 @@ function requireNativeModule() {
   return module;
 }
 
+function requireDangerousMethod(methodName: string) {
+  const module = requireNativeModule() as Record<string, unknown>;
+  const method = module[methodName];
+  if (typeof method !== "function") {
+    throw new Error(`${methodName} is unavailable in this React Native build`);
+  }
+  return method as (...args: unknown[]) => unknown;
+}
+
 export const dangerouslyExportMasterKeys = (
   handle: SecretHandle,
-): Promise<MasterKeys> => requireNativeModule().dangerouslyExportMasterKeys(handle);
+): Promise<MasterKeys> => requireDangerousMethod("dangerouslyExportMasterKeys")(handle) as Promise<MasterKeys>;
 
 export const dangerouslyExportSecret = (
   handle: SecretHandle,
-): Promise<Secrets> => requireNativeModule().dangerouslyExportSecret(handle);
+): Promise<Secrets> => requireDangerousMethod("dangerouslyExportSecret")(handle) as Promise<Secrets>;
 
 export const dangerouslyExportCommitmentPreimage = (
   handle: SecretHandle,
-): Promise<Commitment> => requireNativeModule().dangerouslyExportCommitmentPreimage(handle);
+): Promise<Commitment> => requireDangerousMethod("dangerouslyExportCommitmentPreimage")(handle) as Promise<Commitment>;
 
 export const dangerouslyExportPreflightedTransaction = (
   handle: PreflightedTransactionHandle,
 ): Promise<PreflightedTransaction> =>
-  requireNativeModule().dangerouslyExportPreflightedTransaction(handle);
+  requireDangerousMethod("dangerouslyExportPreflightedTransaction")(handle) as Promise<PreflightedTransaction>;
 
 export const dangerouslyExportFinalizedPreflightedTransaction = (
   handle: FinalizedPreflightedTransactionHandle,
 ): Promise<FinalizedPreflightedTransaction> =>
-  requireNativeModule().dangerouslyExportFinalizedPreflightedTransaction(handle);
+  requireDangerousMethod("dangerouslyExportFinalizedPreflightedTransaction")(handle) as Promise<FinalizedPreflightedTransaction>;
 
 export const dangerouslyExportSubmittedPreflightedTransaction = (
   handle: SubmittedPreflightedTransactionHandle,
 ): Promise<SubmittedPreflightedTransaction> =>
-  requireNativeModule().dangerouslyExportSubmittedPreflightedTransaction(handle);
+  requireDangerousMethod("dangerouslyExportSubmittedPreflightedTransaction")(handle) as Promise<SubmittedPreflightedTransaction>;

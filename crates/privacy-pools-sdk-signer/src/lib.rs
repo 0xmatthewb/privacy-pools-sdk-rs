@@ -44,6 +44,10 @@ pub enum SignerError {
     #[error(transparent)]
     #[cfg(feature = "local-mnemonic")]
     Local(#[from] LocalSignerError),
+    #[error("transaction chain id must be non-zero")]
+    InvalidChainId,
+    #[error("provider chain id mismatch: expected {expected}, got {actual}")]
+    ChainIdMismatch { expected: u64, actual: u64 },
     #[error("invalid finalized transaction fee model")]
     InvalidFeeModel,
     #[error("failed to sign transaction: {0}")]
@@ -54,7 +58,7 @@ pub enum SignerError {
 impl LocalMnemonicSigner {
     pub fn from_phrase_nth(phrase: &str, index: u32) -> Result<Self, SignerError> {
         Ok(Self {
-            signer: MnemonicBuilder::from_phrase_nth(phrase, index),
+            signer: MnemonicBuilder::try_from_phrase_nth(phrase, index)?,
         })
     }
 
@@ -78,6 +82,9 @@ impl LocalMnemonicSigner {
         &self,
         request: &FinalizedTransactionRequest,
     ) -> Result<Bytes, SignerError> {
+        if request.chain_id == 0 {
+            return Err(SignerError::InvalidChainId);
+        }
         let envelope = if let Some(gas_price) = request.gas_price {
             let mut tx = TxLegacy {
                 chain_id: Some(request.chain_id),

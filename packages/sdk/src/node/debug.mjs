@@ -1,6 +1,9 @@
 import { native } from "../native.mjs";
 
 function unwrapNativeValue(result) {
+  if (result && typeof result.then === "function") {
+    return result.then(unwrapNativeValue);
+  }
   if (result instanceof Error) {
     throw result;
   }
@@ -8,6 +11,9 @@ function unwrapNativeValue(result) {
 }
 
 function parseNativeJson(result) {
+  if (result && typeof result.then === "function") {
+    return result.then(parseNativeJson);
+  }
   const payload = unwrapNativeValue(result);
   try {
     return JSON.parse(payload);
@@ -20,20 +26,28 @@ function parseNativeJson(result) {
   }
 }
 
+function requireDangerousNative(methodName) {
+  const method = native[methodName];
+  if (typeof method !== "function") {
+    throw new Error(`${methodName} is unavailable in this Node build`);
+  }
+  return method;
+}
+
 export const dangerouslyExportMasterKeys = async (handle) =>
-  parseNativeJson(native.dangerouslyExportMasterKeys(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportMasterKeys")(handle));
 
 export const dangerouslyExportSecret = async (handle) =>
-  parseNativeJson(native.dangerouslyExportSecret(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportSecret")(handle));
 
 export const dangerouslyExportCommitmentPreimage = async (handle) =>
-  parseNativeJson(native.dangerouslyExportCommitmentPreimage(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportCommitmentPreimage")(handle));
 
 export const dangerouslyExportPreflightedTransaction = async (handle) =>
-  parseNativeJson(native.dangerouslyExportPreflightedTransaction(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportPreflightedTransaction")(handle));
 
 export const dangerouslyExportFinalizedPreflightedTransaction = async (handle) =>
-  parseNativeJson(native.dangerouslyExportFinalizedPreflightedTransaction(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportFinalizedPreflightedTransaction")(handle));
 
 export const dangerouslyExportSubmittedPreflightedTransaction = async (handle) =>
-  parseNativeJson(native.dangerouslyExportSubmittedPreflightedTransaction(handle));
+  parseNativeJson(requireDangerousNative("dangerouslyExportSubmittedPreflightedTransaction")(handle));

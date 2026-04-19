@@ -25,27 +25,17 @@ export function clearSecretHandles(): boolean;
 
 export function clearVerifiedProofHandles(): boolean;
 
-export function dangerouslyExportCommitmentPreimage(handle: string): string;
-
-export function dangerouslyExportFinalizedPreflightedTransaction(handle: string): string;
-
-export function dangerouslyExportMasterKeys(handle: string): string;
-
-export function dangerouslyExportPreflightedTransaction(handle: string): string;
-
-export function dangerouslyExportSecret(handle: string): string;
-
-export function dangerouslyExportSubmittedPreflightedTransaction(handle: string): string;
-
-export function deriveDepositSecretsJson(master_keys_json: string, scope: string, index: string): string;
-
 export function deriveMasterKeysHandle(mnemonic: string): string;
 
-export function deriveMasterKeysJson(mnemonic: string): string;
+export function deriveMasterKeysHandleBytes(mnemonic: Uint8Array): string;
 
 export function deriveRecoveryKeysetJson(mnemonic: string, policy_json: string): string;
 
-export function deriveWithdrawalSecretsJson(master_keys_json: string, label: string, index: string): string;
+export function exportFinalizedPreflightedTransactionInternal(handle: string): string;
+
+export function exportPreflightedTransactionInternal(handle: string): string;
+
+export function exportSubmittedPreflightedTransactionInternal(handle: string): string;
 
 export function formatGroth16ProofBundleJson(proof_json: string): string;
 
@@ -157,90 +147,82 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly buildCircuitMerkleWitnessJson: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly buildCommitmentCircuitInputJson: (a: number, b: number) => [number, number, number, number];
-    readonly buildCommitmentWitnessInputFromHandleJson: (a: number, b: number) => [number, number, number, number];
-    readonly buildCommitmentWitnessInputJson: (a: number, b: number) => [number, number, number, number];
-    readonly buildWithdrawalCircuitInputJson: (a: number, b: number) => [number, number, number, number];
-    readonly buildWithdrawalWitnessInputFromHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => [number, number, number, number];
-    readonly buildWithdrawalWitnessInputJson: (a: number, b: number) => [number, number, number, number];
-    readonly calculateWithdrawalContextJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly checkpointRecoveryJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly clearExecutionHandles: () => [number, number, number];
-    readonly clearSecretHandles: () => [number, number, number];
-    readonly clearVerifiedProofHandles: () => [number, number, number];
-    readonly dangerouslyExportCommitmentPreimage: (a: number, b: number) => [number, number, number, number];
-    readonly dangerouslyExportFinalizedPreflightedTransaction: (a: number, b: number) => [number, number, number, number];
-    readonly dangerouslyExportMasterKeys: (a: number, b: number) => [number, number, number, number];
-    readonly dangerouslyExportPreflightedTransaction: (a: number, b: number) => [number, number, number, number];
-    readonly dangerouslyExportSecret: (a: number, b: number) => [number, number, number, number];
-    readonly dangerouslyExportSubmittedPreflightedTransaction: (a: number, b: number) => [number, number, number, number];
-    readonly deriveDepositSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly deriveMasterKeysHandle: (a: number, b: number) => [number, number, number, number];
-    readonly deriveMasterKeysJson: (a: number, b: number) => [number, number, number, number];
-    readonly deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly deriveWithdrawalSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly formatGroth16ProofBundleJson: (a: number, b: number) => [number, number, number, number];
-    readonly generateDepositSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly generateMerkleProofJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly generateWithdrawalSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly getArtifactStatusesJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly getBrowserSupportStatusJson: () => [number, number];
-    readonly getCommitmentFromHandles: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly getCommitmentJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly getStableBackendName: () => [number, number];
-    readonly getVersion: () => [number, number];
-    readonly importMasterKeysHandleJson: (a: number, b: number) => [number, number, number, number];
-    readonly isCurrentStateRoot: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly planAspRootReadJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly planPoolStateRootReadJson: (a: number, b: number) => [number, number, number, number];
-    readonly planRagequitTransactionJson: (a: bigint, b: number, c: number, d: number, e: number) => [number, number, number, number];
-    readonly planRelayTransactionJson: (a: bigint, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number, number];
-    readonly planVerifiedRagequitTransactionWithHandleJson: (a: bigint, b: number, c: number, d: number, e: number) => [number, number, number, number];
-    readonly planVerifiedRelayTransactionWithHandleJson: (a: bigint, b: number, c: number, d: number, e: number) => [number, number, number, number];
-    readonly planVerifiedWithdrawalTransactionWithHandleJson: (a: bigint, b: number, c: number, d: number, e: number) => [number, number, number, number];
-    readonly planWithdrawalTransactionJson: (a: bigint, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
-    readonly prepareCommitmentCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
-    readonly prepareWithdrawalCircuitSessionFromBytes: (a: number, b: number, c: any) => [number, number, number, number];
-    readonly proveCommitmentWithSessionWitnessBinary: (a: number, b: number, c: any) => [number, number, number, number];
-    readonly proveCommitmentWithSessionWitnessJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly proveCommitmentWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly proveWithdrawalWithSessionWitnessBinary: (a: number, b: number, c: any) => [number, number, number, number];
-    readonly proveWithdrawalWithSessionWitnessJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly proveWithdrawalWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly recoverAccountStateJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly registerFinalizedPreflightedTransactionJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly registerReconfirmedPreflightedTransactionJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly registerSubmittedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly registerVerifiedRagequitPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly registerVerifiedRelayPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
-    readonly registerVerifiedWithdrawalPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly removeCommitmentCircuitSession: (a: number, b: number) => [number, number, number];
-    readonly removeExecutionHandle: (a: number, b: number) => [number, number, number];
-    readonly removeSecretHandle: (a: number, b: number) => [number, number, number];
-    readonly removeVerifiedProofHandle: (a: number, b: number) => [number, number, number];
-    readonly removeWithdrawalCircuitSession: (a: number, b: number) => [number, number, number];
-    readonly resolveVerifiedArtifactBundleJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly verifyArtifactBytes: (a: number, b: number, c: number, d: number, e: any) => [number, number, number, number];
-    readonly verifyArtifactBytesJson: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly verifyCommitmentProof: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
-    readonly verifyCommitmentProofForHandleJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly verifyCommitmentProofWithSession: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly verifyRagequitProofForHandleJson: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-    readonly verifySignedManifest: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly verifySignedManifestArtifactsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly verifyWithdrawalProof: (a: number, b: number, c: any, d: number, e: number) => [number, number, number];
-    readonly verifyWithdrawalProofForHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number) => [number, number, number, number];
-    readonly verifyWithdrawalProofWithSession: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_exn_store: (a: number) => void;
-    readonly __externref_table_alloc: () => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __externref_table_dealloc: (a: number) => void;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-    readonly __wbindgen_start: () => void;
+    readonly buildCircuitMerkleWitnessJson: (a: number, b: number, c: number, d: number) => void;
+    readonly buildCommitmentCircuitInputJson: (a: number, b: number, c: number) => void;
+    readonly buildCommitmentWitnessInputFromHandleJson: (a: number, b: number, c: number) => void;
+    readonly buildCommitmentWitnessInputJson: (a: number, b: number, c: number) => void;
+    readonly buildWithdrawalCircuitInputJson: (a: number, b: number, c: number) => void;
+    readonly buildWithdrawalWitnessInputFromHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => void;
+    readonly buildWithdrawalWitnessInputJson: (a: number, b: number, c: number) => void;
+    readonly calculateWithdrawalContextJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly checkpointRecoveryJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly clearExecutionHandles: (a: number) => void;
+    readonly clearSecretHandles: (a: number) => void;
+    readonly clearVerifiedProofHandles: (a: number) => void;
+    readonly deriveMasterKeysHandle: (a: number, b: number, c: number) => void;
+    readonly deriveMasterKeysHandleBytes: (a: number, b: number) => void;
+    readonly deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly exportFinalizedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+    readonly exportPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+    readonly exportSubmittedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+    readonly formatGroth16ProofBundleJson: (a: number, b: number, c: number) => void;
+    readonly generateDepositSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly generateMerkleProofJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly generateWithdrawalSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly getArtifactStatusesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly getBrowserSupportStatusJson: (a: number) => void;
+    readonly getCommitmentFromHandles: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly getCommitmentJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+    readonly getStableBackendName: (a: number) => void;
+    readonly getVersion: (a: number) => void;
+    readonly importMasterKeysHandleJson: (a: number, b: number, c: number) => void;
+    readonly isCurrentStateRoot: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly planAspRootReadJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly planPoolStateRootReadJson: (a: number, b: number, c: number) => void;
+    readonly planRagequitTransactionJson: (a: number, b: bigint, c: number, d: number, e: number, f: number) => void;
+    readonly planRelayTransactionJson: (a: number, b: bigint, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+    readonly planVerifiedRagequitTransactionWithHandleJson: (a: number, b: bigint, c: number, d: number, e: number, f: number) => void;
+    readonly planVerifiedRelayTransactionWithHandleJson: (a: number, b: bigint, c: number, d: number, e: number, f: number) => void;
+    readonly planVerifiedWithdrawalTransactionWithHandleJson: (a: number, b: bigint, c: number, d: number, e: number, f: number) => void;
+    readonly planWithdrawalTransactionJson: (a: number, b: bigint, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly prepareCommitmentCircuitSessionFromBytes: (a: number, b: number, c: number, d: number) => void;
+    readonly prepareWithdrawalCircuitSessionFromBytes: (a: number, b: number, c: number, d: number) => void;
+    readonly proveCommitmentWithSessionWitnessBinary: (a: number, b: number, c: number, d: number) => void;
+    readonly proveCommitmentWithSessionWitnessJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly proveCommitmentWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly proveWithdrawalWithSessionWitnessBinary: (a: number, b: number, c: number, d: number) => void;
+    readonly proveWithdrawalWithSessionWitnessJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly proveWithdrawalWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly recoverAccountStateJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly registerFinalizedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly registerReconfirmedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly registerSubmittedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly registerVerifiedRagequitPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+    readonly registerVerifiedRelayPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
+    readonly registerVerifiedWithdrawalPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+    readonly removeCommitmentCircuitSession: (a: number, b: number, c: number) => void;
+    readonly removeExecutionHandle: (a: number, b: number, c: number) => void;
+    readonly removeSecretHandle: (a: number, b: number, c: number) => void;
+    readonly removeVerifiedProofHandle: (a: number, b: number, c: number) => void;
+    readonly removeWithdrawalCircuitSession: (a: number, b: number, c: number) => void;
+    readonly resolveVerifiedArtifactBundleJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly verifyArtifactBytes: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly verifyArtifactBytesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly verifyCommitmentProof: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly verifyCommitmentProofForHandleJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly verifyCommitmentProofWithSession: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly verifyRagequitProofForHandleJson: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly verifySignedManifest: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly verifySignedManifestArtifactsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
+    readonly verifyWithdrawalProof: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly verifyWithdrawalProofForHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number) => void;
+    readonly verifyWithdrawalProofWithSession: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

@@ -28,20 +28,6 @@ final class PrivacyPoolsSdkModule: NSObject {
         }
     }
 
-    @objc(deriveMasterKeys:resolver:rejecter:)
-    func deriveMasterKeys(
-        mnemonic: String,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock,
-    ) {
-        do {
-            let keys = try PrivacyPoolsSdkClient.masterKeys(forMnemonic: mnemonic)
-            resolve(masterKeysMap(keys))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
-    }
-
     @objc(deriveMasterKeysHandle:resolver:rejecter:)
     func deriveMasterKeysHandle(
         mnemonic: String,
@@ -55,39 +41,31 @@ final class PrivacyPoolsSdkModule: NSObject {
         }
     }
 
+    @objc(deriveMasterKeysHandleBytes:resolver:rejecter:)
+    func deriveMasterKeysHandleBytes(
+        mnemonicBytes: [NSNumber],
+        resolver resolve: RCTPromiseResolveBlock,
+        rejecter reject: RCTPromiseRejectBlock,
+    ) {
+        do {
+            resolve(try PrivacyPoolsSdkClient.masterKeysHandle(forMnemonicBytes: Data(mnemonicBytes.map(\.uint8Value))))
+        } catch {
+            reject("ffi_error", error.localizedDescription, error)
+        }
+    }
+
     @objc(dangerouslyExportMasterKeys:resolver:rejecter:)
     func dangerouslyExportMasterKeys(
         handle: String,
         resolver resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock,
     ) {
-        do {
-            resolve(masterKeysMap(try PrivacyPoolsSdkClient.exportMasterKeys(handle: handle)))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
-    }
-
-    @objc(deriveDepositSecrets:masterSecret:scope:index:resolver:rejecter:)
-    func deriveDepositSecrets(
-        masterNullifier: String,
-        masterSecret: String,
-        scope: String,
-        index: String,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock,
-    ) {
-        do {
-            let secrets = try PrivacyPoolsSdkClient.depositSecrets(
-                masterNullifier: masterNullifier,
-                masterSecret: masterSecret,
-                scope: scope,
-                index: index
-            )
-            resolve(secretsMap(secrets))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
+        let error = NSError(
+            domain: "PrivacyPoolsSdk",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "plaintext secret export is unavailable in this build"]
+        )
+        reject("ffi_error", error.localizedDescription, error)
     }
 
     @objc(generateDepositSecretsHandle:scope:index:resolver:rejecter:)
@@ -104,28 +82,6 @@ final class PrivacyPoolsSdkModule: NSObject {
                 scope: scope,
                 index: index
             ))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
-    }
-
-    @objc(deriveWithdrawalSecrets:masterSecret:label:index:resolver:rejecter:)
-    func deriveWithdrawalSecrets(
-        masterNullifier: String,
-        masterSecret: String,
-        label: String,
-        index: String,
-        resolver resolve: RCTPromiseResolveBlock,
-        rejecter reject: RCTPromiseRejectBlock,
-    ) {
-        do {
-            let secrets = try PrivacyPoolsSdkClient.withdrawalSecrets(
-                masterNullifier: masterNullifier,
-                masterSecret: masterSecret,
-                label: label,
-                index: index
-            )
-            resolve(secretsMap(secrets))
         } catch {
             reject("ffi_error", error.localizedDescription, error)
         }
@@ -156,11 +112,12 @@ final class PrivacyPoolsSdkModule: NSObject {
         resolver resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock,
     ) {
-        do {
-            resolve(secretsMap(try PrivacyPoolsSdkClient.exportSecret(handle: handle)))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
+        let error = NSError(
+            domain: "PrivacyPoolsSdk",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "plaintext secret export is unavailable in this build"]
+        )
+        reject("ffi_error", error.localizedDescription, error)
     }
 
     @objc(getCommitment:label:nullifier:secret:resolver:rejecter:)
@@ -210,11 +167,12 @@ final class PrivacyPoolsSdkModule: NSObject {
         resolver resolve: RCTPromiseResolveBlock,
         rejecter reject: RCTPromiseRejectBlock,
     ) {
-        do {
-            resolve(commitmentMap(try PrivacyPoolsSdkClient.exportCommitmentPreimage(handle: handle)))
-        } catch {
-            reject("ffi_error", error.localizedDescription, error)
-        }
+        let error = NSError(
+            domain: "PrivacyPoolsSdk",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "plaintext secret export is unavailable in this build"]
+        )
+        reject("ffi_error", error.localizedDescription, error)
     }
 
     @objc(buildWithdrawalWitnessRequestHandle:resolver:rejecter:)
@@ -1808,7 +1766,7 @@ final class PrivacyPoolsSdkModule: NSObject {
     }
 
     private func executionPreflightMap(_ report: FfiExecutionPreflightReport) -> [String: Any] {
-        [
+        var map: [String: Any] = [
             "kind": report.kind,
             "caller": report.caller,
             "target": report.target,
@@ -1820,6 +1778,16 @@ final class PrivacyPoolsSdkModule: NSObject {
             "code_hash_checks": report.codeHashChecks.map(codeHashCheckMap),
             "root_checks": report.rootChecks.map(rootCheckMap),
         ]
+        if let readConsistency = report.readConsistency {
+            map["read_consistency"] = readConsistency
+        }
+        if let maxFeeQuoteWei = report.maxFeeQuoteWei {
+            map["max_fee_quote_wei"] = maxFeeQuoteWei
+        }
+        if let mode = report.mode {
+            map["mode"] = mode
+        }
+        return map
     }
 
     private func codeHashCheckMap(_ check: FfiCodeHashCheck) -> [String: Any] {
@@ -2052,6 +2020,8 @@ final class PrivacyPoolsSdkModule: NSObject {
             chainIdMatches: chainIdMatches,
             simulated: simulated,
             estimatedGas: estimatedGas.uint64Value,
+            readConsistency: value["read_consistency"] as? String,
+            maxFeeQuoteWei: value["max_fee_quote_wei"] as? String,
             mode: value["mode"] as? String,
             codeHashChecks: try codeHashChecks.map(codeHashCheckRecord),
             rootChecks: try rootChecks.map(rootCheckRecord)
@@ -2272,6 +2242,8 @@ final class PrivacyPoolsSdkModule: NSObject {
             caller: caller,
             expectedPoolCodeHash: value["expected_pool_code_hash"] as? String,
             expectedEntrypointCodeHash: value["expected_entrypoint_code_hash"] as? String,
+            readConsistency: value["read_consistency"] as? String,
+            maxFeeQuoteWei: value["max_fee_quote_wei"] as? String,
             mode: value["mode"] as? String
         )
     }

@@ -2,11 +2,12 @@ use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_sol_types::{SolCall, sol};
 use async_trait::async_trait;
 use privacy_pools_sdk_chain::{
-    ChainError, ExecutionClient, asp_root_read, preflight_withdrawal, state_root_read,
+    ChainError, ExecutionClient, asp_root_read as chain_asp_root_read, preflight_withdrawal,
+    state_root_read as chain_state_root_read,
 };
 use privacy_pools_sdk_core::{
-    ExecutionPolicy, ExecutionPolicyMode, FormattedGroth16Proof, RootRead, RootReadKind,
-    TransactionKind, TransactionPlan,
+    ExecutionPolicy, ExecutionPolicyMode, FormattedGroth16Proof, ReadConsistency, RootRead,
+    RootReadKind, TransactionKind, TransactionPlan,
 };
 use proptest::prelude::*;
 use std::collections::HashMap;
@@ -22,6 +23,14 @@ sol! {
 
 const ROOT_HISTORY_SIZE: u32 = 64;
 
+fn state_root_read(pool: Address) -> RootRead {
+    chain_state_root_read(pool, ReadConsistency::Latest)
+}
+
+fn asp_root_read(entrypoint: Address, pool: Address) -> RootRead {
+    chain_asp_root_read(entrypoint, pool, ReadConsistency::Latest)
+}
+
 #[derive(Debug, Clone)]
 struct MockClient {
     chain_id: u64,
@@ -36,6 +45,7 @@ fn entrypoint_read(pool: Address) -> RootRead {
         contract_address: pool,
         pool_address: pool,
         call_data: Bytes::from(IPrivacyPoolSpec::ENTRYPOINTCall {}.abi_encode()),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -45,6 +55,7 @@ fn current_root_index_read(pool: Address) -> RootRead {
         contract_address: pool,
         pool_address: pool,
         call_data: Bytes::from(IPrivacyPoolSpec::currentRootIndexCall {}.abi_encode()),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -59,6 +70,7 @@ fn historical_state_root_read(pool: Address, index: u32) -> RootRead {
             }
             .abi_encode(),
         ),
+        consistency: ReadConsistency::Latest,
     }
 }
 
@@ -68,7 +80,11 @@ impl ExecutionClient for MockClient {
         Ok(self.chain_id)
     }
 
-    async fn code_hash(&self, address: Address) -> Result<B256, ChainError> {
+    async fn code_hash(
+        &self,
+        address: Address,
+        _consistency: ReadConsistency,
+    ) -> Result<B256, ChainError> {
         self.code_hashes
             .get(&address)
             .copied()
@@ -132,6 +148,8 @@ fn strict_policy(
         expected_pool_code_hash: Some(expected_pool_code_hash),
         expected_entrypoint_code_hash: Some(expected_entrypoint_code_hash),
         mode: ExecutionPolicyMode::Strict,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None
     }
 }
 

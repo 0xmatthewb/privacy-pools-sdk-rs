@@ -41,6 +41,8 @@ export type Commitment = {
   secret: string;
 };
 
+export type ByteInput = Uint8Array | ArrayBuffer | number[];
+
 export type Withdrawal = {
   processooor: string;
   data: number[];
@@ -85,6 +87,8 @@ export type ExecutionPolicy = {
   caller: string;
   expected_pool_code_hash?: string | null;
   expected_entrypoint_code_hash?: string | null;
+  read_consistency?: "latest" | "finalized" | null;
+  max_fee_quote_wei?: string | null;
   mode?: "strict" | "insecure_dev" | null;
 };
 
@@ -136,6 +140,8 @@ export type ExecutionPreflightReport = {
   chain_id_matches: boolean;
   simulated: boolean;
   estimated_gas: number;
+  read_consistency?: "latest" | "finalized" | null;
+  max_fee_quote_wei?: string | null;
   mode?: "strict" | "insecure_dev" | null;
   code_hash_checks: CodeHashCheck[];
   root_checks: RootCheck[];
@@ -365,28 +371,16 @@ type WaitForJobOptions = {
 export type NativePrivacyPoolsSdkModule = {
   getVersion(): Promise<string>;
   getStableBackendName(): Promise<string>;
-  deriveMasterKeys(mnemonic: string): Promise<MasterKeys>;
   deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+  deriveMasterKeysHandleBytes(mnemonicBytes: number[]): Promise<SecretHandle>;
   /** Compatibility/testing escape hatch. Avoid in normal integrations. */
   /** Compatibility/testing escape hatch. Avoid in normal integrations. */
   dangerouslyExportMasterKeys(handle: SecretHandle): Promise<MasterKeys>;
-  deriveDepositSecrets(
-    masterNullifier: string,
-    masterSecret: string,
-    scope: string,
-    index: string,
-  ): Promise<Secrets>;
   generateDepositSecretsHandle(
     masterKeysHandle: SecretHandle,
     scope: string,
     index: string,
   ): Promise<SecretHandle>;
-  deriveWithdrawalSecrets(
-    masterNullifier: string,
-    masterSecret: string,
-    label: string,
-    index: string,
-  ): Promise<Secrets>;
   generateWithdrawalSecretsHandle(
     masterKeysHandle: SecretHandle,
     label: string,
@@ -833,25 +827,14 @@ export const getStableBackendName = (): Promise<string> =>
     requireNativeModule().getStableBackendName(),
   ).then(normalizeBackendName);
 
-export const deriveMasterKeys = (mnemonic: string): Promise<MasterKeys> =>
-  requireNativeModule().deriveMasterKeys(mnemonic);
-
 export const deriveMasterKeysHandle = (
   mnemonic: string,
 ): Promise<SecretHandle> => requireNativeModule().deriveMasterKeysHandle(mnemonic);
 
-export const deriveDepositSecrets = (
-  masterNullifier: string,
-  masterSecret: string,
-  scope: string,
-  index: string,
-): Promise<Secrets> =>
-  requireNativeModule().deriveDepositSecrets(
-    masterNullifier,
-    masterSecret,
-    scope,
-    index,
-  );
+export const deriveMasterKeysHandleBytes = (
+  mnemonicBytes: ByteInput,
+): Promise<SecretHandle> =>
+  requireNativeModule().deriveMasterKeysHandleBytes(normalizeByteInput(mnemonicBytes));
 
 export const generateDepositSecretsHandle = (
   masterKeysHandle: SecretHandle,
@@ -861,19 +844,6 @@ export const generateDepositSecretsHandle = (
   requireNativeModule().generateDepositSecretsHandle(
     masterKeysHandle,
     scope,
-    index,
-  );
-
-export const deriveWithdrawalSecrets = (
-  masterNullifier: string,
-  masterSecret: string,
-  label: string,
-  index: string,
-): Promise<Secrets> =>
-  requireNativeModule().deriveWithdrawalSecrets(
-    masterNullifier,
-    masterSecret,
-    label,
     index,
   );
 
@@ -1894,3 +1864,19 @@ export const checkpointRecovery = (
   policy: RecoveryPolicy,
 ): Promise<RecoveryCheckpoint> =>
   requireNativeModule().checkpointRecovery(events, policy);
+
+function normalizeByteInput(bytes: ByteInput): number[] {
+  if (Array.isArray(bytes)) {
+    return bytes;
+  }
+
+  if (bytes instanceof Uint8Array) {
+    return Array.from(bytes);
+  }
+
+  if (bytes instanceof ArrayBuffer) {
+    return Array.from(new Uint8Array(bytes));
+  }
+
+  throw new TypeError("mnemonic bytes must be a Uint8Array, ArrayBuffer, or number[]");
+}

@@ -655,25 +655,9 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles(
     ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets(
-    ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys(
-    ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle(
     ): Short
-    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets(
+    external fun uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle_bytes(
     ): Short
     external fun uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle(
     ): Short
@@ -848,25 +832,9 @@ external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_secret_handles(uniffi_ou
 ): Byte
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_clear_verified_proof_handles(uniffi_out_err: UniffiRustCallStatus,
 ): Byte
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(`handle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
-): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
-external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(`masterNullifier`: RustBuffer.ByValue,`masterSecret`: RustBuffer.ByValue,`label`: RustBuffer.ByValue,`index`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
+external fun uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle_bytes(`mnemonic`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
 external fun uniffi_privacy_pools_sdk_ffi_fn_func_finalize_preflighted_transaction_handle(`rpcUrl`: RustBuffer.ByValue,`preflightedHandle`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus,
 ): RustBuffer.ByValue
@@ -1157,34 +1125,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage() != 10373.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction() != 19222.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys() != 61984.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction() != 33607.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret() != 41510.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction() != 18160.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433.toShort()) {
+    if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle_bytes() != 2592.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle() != 15730.toShort()) {
@@ -2156,6 +2100,10 @@ data class FfiExecutionPolicy (
     ,
     var `expectedEntrypointCodeHash`: kotlin.String?
     ,
+    var `readConsistency`: kotlin.String?
+    ,
+    var `maxFeeQuoteWei`: kotlin.String?
+    ,
     var `mode`: kotlin.String?
 
 ){
@@ -2178,6 +2126,8 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -2186,6 +2136,8 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterString.allocationSize(value.`caller`) +
             FfiConverterOptionalString.allocationSize(value.`expectedPoolCodeHash`) +
             FfiConverterOptionalString.allocationSize(value.`expectedEntrypointCodeHash`) +
+            FfiConverterOptionalString.allocationSize(value.`readConsistency`) +
+            FfiConverterOptionalString.allocationSize(value.`maxFeeQuoteWei`) +
             FfiConverterOptionalString.allocationSize(value.`mode`)
     )
 
@@ -2194,6 +2146,8 @@ public object FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer<FfiExec
             FfiConverterString.write(value.`caller`, buf)
             FfiConverterOptionalString.write(value.`expectedPoolCodeHash`, buf)
             FfiConverterOptionalString.write(value.`expectedEntrypointCodeHash`, buf)
+            FfiConverterOptionalString.write(value.`readConsistency`, buf)
+            FfiConverterOptionalString.write(value.`maxFeeQuoteWei`, buf)
             FfiConverterOptionalString.write(value.`mode`, buf)
     }
 }
@@ -2216,6 +2170,10 @@ data class FfiExecutionPreflightReport (
     var `simulated`: kotlin.Boolean
     ,
     var `estimatedGas`: kotlin.ULong
+    ,
+    var `readConsistency`: kotlin.String?
+    ,
+    var `maxFeeQuoteWei`: kotlin.String?
     ,
     var `mode`: kotlin.String?
     ,
@@ -2247,6 +2205,8 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.read(buf),
             FfiConverterULong.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
             FfiConverterSequenceTypeFfiCodeHashCheck.read(buf),
             FfiConverterSequenceTypeFfiRootCheck.read(buf),
         )
@@ -2261,6 +2221,8 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.allocationSize(value.`chainIdMatches`) +
             FfiConverterBoolean.allocationSize(value.`simulated`) +
             FfiConverterULong.allocationSize(value.`estimatedGas`) +
+            FfiConverterOptionalString.allocationSize(value.`readConsistency`) +
+            FfiConverterOptionalString.allocationSize(value.`maxFeeQuoteWei`) +
             FfiConverterOptionalString.allocationSize(value.`mode`) +
             FfiConverterSequenceTypeFfiCodeHashCheck.allocationSize(value.`codeHashChecks`) +
             FfiConverterSequenceTypeFfiRootCheck.allocationSize(value.`rootChecks`)
@@ -2275,6 +2237,8 @@ public object FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
             FfiConverterBoolean.write(value.`chainIdMatches`, buf)
             FfiConverterBoolean.write(value.`simulated`, buf)
             FfiConverterULong.write(value.`estimatedGas`, buf)
+            FfiConverterOptionalString.write(value.`readConsistency`, buf)
+            FfiConverterOptionalString.write(value.`maxFeeQuoteWei`, buf)
             FfiConverterOptionalString.write(value.`mode`, buf)
             FfiConverterSequenceTypeFfiCodeHashCheck.write(value.`codeHashChecks`, buf)
             FfiConverterSequenceTypeFfiRootCheck.write(value.`rootChecks`, buf)
@@ -3829,6 +3793,14 @@ sealed class FfiException: kotlin.Exception() {
             get() = "v1=${ v1 }"
     }
 
+    class HandleAlreadyRegistered(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
     class SecretHandleNotFound(
 
         val v1: kotlin.String
@@ -3870,6 +3842,14 @@ sealed class FfiException: kotlin.Exception() {
     }
 
     class InvalidManifest(
+
+        val v1: kotlin.String
+        ) : FfiException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+
+    class InvalidSignedTransaction(
 
         val v1: kotlin.String
         ) : FfiException() {
@@ -3931,25 +3911,31 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
             9 -> FfiException.SignerNotFound(
                 FfiConverterString.read(buf),
                 )
-            10 -> FfiException.SecretHandleNotFound(
+            10 -> FfiException.HandleAlreadyRegistered(
                 FfiConverterString.read(buf),
                 )
-            11 -> FfiException.VerifiedProofHandleNotFound(
+            11 -> FfiException.SecretHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            12 -> FfiException.ExecutionHandleNotFound(
+            12 -> FfiException.VerifiedProofHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            13 -> FfiException.JobNotFound(
+            13 -> FfiException.ExecutionHandleNotFound(
                 FfiConverterString.read(buf),
                 )
-            14 -> FfiException.SignerRequiresExternalSigning(
+            14 -> FfiException.JobNotFound(
                 FfiConverterString.read(buf),
                 )
-            15 -> FfiException.InvalidManifest(
+            15 -> FfiException.SignerRequiresExternalSigning(
                 FfiConverterString.read(buf),
                 )
-            16 -> FfiException.OperationFailed(
+            16 -> FfiException.InvalidManifest(
+                FfiConverterString.read(buf),
+                )
+            17 -> FfiException.InvalidSignedTransaction(
+                FfiConverterString.read(buf),
+                )
+            18 -> FfiException.OperationFailed(
                 FfiConverterString.read(buf),
                 )
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
@@ -4003,6 +3989,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
             )
+            is FfiException.HandleAlreadyRegistered -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
             is FfiException.SecretHandleNotFound -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
@@ -4029,6 +4020,11 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 + FfiConverterString.allocationSize(value.v1)
             )
             is FfiException.InvalidManifest -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is FfiException.InvalidSignedTransaction -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.v1)
@@ -4088,38 +4084,48 @@ public object FfiConverterTypeFfiError : FfiConverterRustBuffer<FfiException> {
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SecretHandleNotFound -> {
+            is FfiException.HandleAlreadyRegistered -> {
                 buf.putInt(10)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.VerifiedProofHandleNotFound -> {
+            is FfiException.SecretHandleNotFound -> {
                 buf.putInt(11)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.ExecutionHandleNotFound -> {
+            is FfiException.VerifiedProofHandleNotFound -> {
                 buf.putInt(12)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.JobNotFound -> {
+            is FfiException.ExecutionHandleNotFound -> {
                 buf.putInt(13)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.SignerRequiresExternalSigning -> {
+            is FfiException.JobNotFound -> {
                 buf.putInt(14)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.InvalidManifest -> {
+            is FfiException.SignerRequiresExternalSigning -> {
                 buf.putInt(15)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
-            is FfiException.OperationFailed -> {
+            is FfiException.InvalidManifest -> {
                 buf.putInt(16)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.InvalidSignedTransaction -> {
+                buf.putInt(17)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is FfiException.OperationFailed -> {
+                buf.putInt(18)
                 FfiConverterString.write(value.v1, buf)
                 Unit
             }
@@ -4649,94 +4655,6 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
-    @Throws(FfiException::class) fun `dangerouslyExportCommitmentPreimage`(`handle`: kotlin.String): FfiCommitment {
-            return FfiConverterTypeFfiCommitment.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportFinalizedPreflightedTransaction`(`handle`: kotlin.String): FfiFinalizedPreflightedTransaction {
-            return FfiConverterTypeFfiFinalizedPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportMasterKeys`(`handle`: kotlin.String): FfiMasterKeys {
-            return FfiConverterTypeFfiMasterKeys.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportPreflightedTransaction`(`handle`: kotlin.String): FfiPreflightedTransaction {
-            return FfiConverterTypeFfiPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportSecret`(`handle`: kotlin.String): FfiSecrets {
-            return FfiConverterTypeFfiSecrets.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `dangerouslyExportSubmittedPreflightedTransaction`(`handle`: kotlin.String): FfiSubmittedPreflightedTransaction {
-            return FfiConverterTypeFfiSubmittedPreflightedTransaction.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(
-
-        FfiConverterString.lower(`handle`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `deriveDepositSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `scope`: kotlin.String, `index`: kotlin.String): FfiSecrets {
-            return FfiConverterTypeFfiSecrets.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
-
-        FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`scope`),FfiConverterString.lower(`index`),_status)
-}
-    )
-    }
-
-
-    @Throws(FfiException::class) fun `deriveMasterKeys`(`mnemonic`: kotlin.String): FfiMasterKeys {
-            return FfiConverterTypeFfiMasterKeys.lift(
-    uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(
-
-        FfiConverterString.lower(`mnemonic`),_status)
-}
-    )
-    }
-
-
     @Throws(FfiException::class) fun `deriveMasterKeysHandle`(`mnemonic`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(FfiException) { _status ->
@@ -4748,12 +4666,12 @@ public object FfiConverterSequenceSequenceString: FfiConverterRustBuffer<List<Li
     }
 
 
-    @Throws(FfiException::class) fun `deriveWithdrawalSecrets`(`masterNullifier`: kotlin.String, `masterSecret`: kotlin.String, `label`: kotlin.String, `index`: kotlin.String): FfiSecrets {
-            return FfiConverterTypeFfiSecrets.lift(
+    @Throws(FfiException::class) fun `deriveMasterKeysHandleBytes`(`mnemonic`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
     uniffiRustCallWithError(FfiException) { _status ->
-    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
+    UniffiLib.uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle_bytes(
 
-        FfiConverterString.lower(`masterNullifier`),FfiConverterString.lower(`masterSecret`),FfiConverterString.lower(`label`),FfiConverterString.lower(`index`),_status)
+        FfiConverterByteArray.lower(`mnemonic`),_status)
 }
     )
     }

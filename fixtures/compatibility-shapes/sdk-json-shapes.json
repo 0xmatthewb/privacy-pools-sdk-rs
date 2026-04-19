@@ -67,6 +67,8 @@
         "expectedChainId": "number",
         "kind": "string",
         "mode": "string",
+        "maxFeeQuoteWei": "null",
+        "readConsistency": "string",
         "rootChecks": [
           {
             "actualRoot": "string",
@@ -179,6 +181,8 @@
         "expectedChainId": "number",
         "kind": "string",
         "mode": "string",
+        "maxFeeQuoteWei": "null",
+        "readConsistency": "string",
         "rootChecks": [
           {
             "actualRoot": "string",
@@ -233,6 +237,8 @@
         "expectedChainId": "number",
         "kind": "string",
         "mode": "string",
+        "maxFeeQuoteWei": "null",
+        "readConsistency": "string",
         "rootChecks": [],
         "simulated": "boolean",
         "target": "string"
@@ -467,6 +473,8 @@
         "expected_chain_id": "number",
         "kind": "string",
         "mode": "string",
+        "max_fee_quote_wei": "null",
+        "read_consistency": "string",
         "root_checks": [
           {
             "actual_root": "string",
@@ -599,6 +607,8 @@
         "expected_chain_id": "number",
         "kind": "string",
         "mode": "string",
+        "max_fee_quote_wei": "null",
+        "read_consistency": "string",
         "root_checks": [
           {
             "actual_root": "string",
@@ -653,6 +663,8 @@
         "expected_chain_id": "number",
         "kind": "string",
         "mode": "string",
+        "max_fee_quote_wei": "null",
+        "read_consistency": "string",
         "root_checks": [],
         "simulated": "boolean",
         "target": "string"

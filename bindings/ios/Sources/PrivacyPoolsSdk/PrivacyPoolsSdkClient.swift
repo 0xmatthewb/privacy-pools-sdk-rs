@@ -12,15 +12,19 @@ public enum PrivacyPoolsSdkClient {
     }
 
     public static func masterKeys(forMnemonic mnemonic: String) throws -> FfiMasterKeys {
-        try deriveMasterKeys(mnemonic: mnemonic)
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func masterKeysHandle(forMnemonic mnemonic: String) throws -> String {
         try deriveMasterKeysHandle(mnemonic: mnemonic)
     }
 
+    public static func masterKeysHandle(forMnemonicBytes mnemonicBytes: Data) throws -> String {
+        try deriveMasterKeysHandleBytes(mnemonic: mnemonicBytes)
+    }
+
     public static func exportMasterKeys(handle: String) throws -> FfiMasterKeys {
-        try dangerouslyExportMasterKeys(handle: handle)
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func depositSecrets(
@@ -29,12 +33,7 @@ public enum PrivacyPoolsSdkClient {
         scope: String,
         index: String,
     ) throws -> FfiSecrets {
-        try deriveDepositSecrets(
-            masterNullifier: masterNullifier,
-            masterSecret: masterSecret,
-            scope: scope,
-            index: index
-        )
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func depositSecretsHandle(
@@ -55,12 +54,7 @@ public enum PrivacyPoolsSdkClient {
         label: String,
         index: String,
     ) throws -> FfiSecrets {
-        try deriveWithdrawalSecrets(
-            masterNullifier: masterNullifier,
-            masterSecret: masterSecret,
-            label: label,
-            index: index
-        )
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func withdrawalSecretsHandle(
@@ -76,7 +70,7 @@ public enum PrivacyPoolsSdkClient {
     }
 
     public static func exportSecret(handle: String) throws -> FfiSecrets {
-        try dangerouslyExportSecret(handle: handle)
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func commitment(
@@ -106,7 +100,7 @@ public enum PrivacyPoolsSdkClient {
     }
 
     public static func exportCommitmentPreimage(handle: String) throws -> FfiCommitment {
-        try dangerouslyExportCommitmentPreimage(handle: handle)
+        throw dangerousKeyExportUnavailable()
     }
 
     public static func withdrawalWitnessRequestHandle(
@@ -910,4 +904,12 @@ public enum PrivacyPoolsSdkClient {
             }
         }
     }
+}
+
+private func dangerousKeyExportUnavailable() -> NSError {
+    NSError(
+        domain: "PrivacyPoolsSdk",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "plaintext secret export is unavailable in this build"]
+    )
 }

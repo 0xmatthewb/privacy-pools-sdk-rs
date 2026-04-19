@@ -388,6 +388,8 @@ export type ArtifactBytesInput = {
   bytes: Uint8Array | ArrayBuffer | number[];
 };
 
+export type ByteInput = Uint8Array | ArrayBuffer | number[];
+
 export type SignedManifestArtifactBytesInput = {
   filename: string;
   bytes: Uint8Array | ArrayBuffer | number[];
@@ -745,6 +747,7 @@ export class PrivacyPoolsSdkClient {
   supportsExperimentalThreadedBrowserProving(): Promise<boolean>;
   deriveMasterKeys(mnemonic: string): Promise<MasterKeys>;
   deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+  deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
   deriveDepositSecrets(
     masterKeys: MasterKeys,
     scope: string,
@@ -1111,6 +1114,7 @@ export function initializeExperimentalThreadedBrowserProving(options?: {
   threadCount?: number;
 }): Promise<ExperimentalThreadedInitialization>;
 export function deriveMasterKeysHandle(mnemonic: string): Promise<SecretHandle>;
+export function deriveMasterKeysHandleBytes(mnemonicBytes: ByteInput): Promise<SecretHandle>;
 export function generateDepositSecretsHandle(
   masterKeys: MasterKeys | V1MasterKeys | SecretHandle,
   scope: string | bigint,

@@ -423,6 +423,20 @@ pub struct ArtifactVersion {
     pub version: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadConsistency {
+    #[default]
+    Latest,
+    Finalized,
+}
+
+impl ReadConsistency {
+    pub const fn is_latest(&self) -> bool {
+        matches!(self, Self::Latest)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RootReadKind {
@@ -435,6 +449,8 @@ pub struct RootRead {
     pub kind: RootReadKind,
     pub contract_address: Address,
     pub pool_address: Address,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub consistency: ReadConsistency,
     pub call_data: Bytes,
 }
 
@@ -458,6 +474,10 @@ pub struct ExecutionPolicy {
     pub caller: Address,
     pub expected_pool_code_hash: Option<B256>,
     pub expected_entrypoint_code_hash: Option<B256>,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub read_consistency: ReadConsistency,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fee_quote_wei: Option<u128>,
     #[serde(default, skip_serializing_if = "ExecutionPolicyMode::is_strict")]
     pub mode: ExecutionPolicyMode,
 }
@@ -474,6 +494,8 @@ impl ExecutionPolicy {
             caller,
             expected_pool_code_hash: Some(pool_code_hash),
             expected_entrypoint_code_hash: Some(entrypoint_code_hash),
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::Strict,
         }
     }
@@ -484,6 +506,8 @@ impl ExecutionPolicy {
             caller,
             expected_pool_code_hash: None,
             expected_entrypoint_code_hash: None,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::InsecureDev,
         }
     }
@@ -521,6 +545,10 @@ pub struct ExecutionPreflightReport {
     pub chain_id_matches: bool,
     pub simulated: bool,
     pub estimated_gas: u64,
+    #[serde(default, skip_serializing_if = "ReadConsistency::is_latest")]
+    pub read_consistency: ReadConsistency,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_fee_quote_wei: Option<u128>,
     #[serde(default)]
     pub mode: ExecutionPolicyMode,
     pub code_hash_checks: Vec<CodeHashCheck>,
@@ -742,6 +770,8 @@ mod tests {
         .expect("legacy report decodes");
 
         assert_eq!(report.mode, ExecutionPolicyMode::Strict);
+        assert_eq!(report.read_consistency, ReadConsistency::Latest);
+        assert_eq!(report.max_fee_quote_wei, None);
     }
 
     #[test]

@@ -5,7 +5,7 @@ use ark_ff::{BigInteger, PrimeField};
 use ark_groth16::{Groth16, ProvingKey};
 use ark_relations::r1cs::ConstraintMatrices;
 use ark_std::UniformRand;
-use ark_std::rand::thread_rng;
+use ark_std::rand::rngs::OsRng;
 #[cfg(all(feature = "native-witness", not(target_arch = "wasm32")))]
 use circom_prover::prover::ProofLib;
 use circom_prover::prover::{
@@ -774,7 +774,7 @@ fn prove_with_prepared_key_bn254(
         .iter()
         .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
         .collect::<Vec<_>>();
-    let mut rng = thread_rng();
+    let mut rng = OsRng;
     let r = Bn254Fr::rand(&mut rng);
     let s = Bn254Fr::rand(&mut rng);
     let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
@@ -808,7 +808,7 @@ fn prove_with_prepared_key_bls12_381(
         .iter()
         .map(|scalar| BigUint::from_bytes_le(scalar.into_bigint().to_bytes_le().as_ref()))
         .collect::<Vec<_>>();
-    let mut rng = thread_rng();
+    let mut rng = OsRng;
     let r = Bls12_381Fr::rand(&mut rng);
     let s = Bls12_381Fr::rand(&mut rng);
     let proof = Groth16::<Bls12_381, CircomReduction>::create_proof_with_reduction_and_matrices(

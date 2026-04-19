@@ -1,7 +1,7 @@
 use alloy_primitives::{Address, B256, U256};
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
-use napi::{Error, Result as NapiResult};
+use napi::{Error, Result as NapiResult, bindgen_prelude::Buffer};
 use napi_derive::napi;
 use privacy_pools_sdk::{
     CommitmentCircuitSession, FinalizedPreflightedTransaction, PreflightedTransaction,
@@ -39,7 +39,12 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+use zeroize::Zeroize;
 use uuid::Uuid;
+
+const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
 
 static SDK: LazyLock<PrivacyPoolsSdk> = LazyLock::new(PrivacyPoolsSdk::default);
 static SESSION_COUNTER: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(1));
@@ -210,6 +215,8 @@ struct JsDepositEvent {
     value: String,
     precommitment_hash: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -220,6 +227,8 @@ struct JsWithdrawalEvent {
     spent_nullifier_hash: String,
     new_commitment_hash: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -230,6 +239,8 @@ struct JsRagequitEvent {
     label: String,
     value: String,
     block_number: u64,
+    transaction_index: u64,
+    log_index: u64,
     transaction_hash: String,
 }
 
@@ -376,6 +387,8 @@ struct JsExecutionPolicy {
     caller: String,
     expected_pool_code_hash: Option<String>,
     expected_entrypoint_code_hash: Option<String>,
+    read_consistency: Option<String>,
+    max_fee_quote_wei: Option<String>,
     mode: Option<String>,
 }
 
@@ -410,6 +423,8 @@ struct JsExecutionPreflightReport {
     chain_id_matches: bool,
     simulated: bool,
     estimated_gas: u64,
+    read_consistency: Option<String>,
+    max_fee_quote_wei: Option<String>,
     mode: Option<String>,
     code_hash_checks: Vec<JsCodeHashCheck>,
     root_checks: Vec<JsRootCheck>,
@@ -510,10 +525,22 @@ pub fn get_stable_backend_name() -> NapiResult<String> {
 }
 
 #[napi]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
     let keys = SDK.generate_master_keys(&mnemonic).map_err(to_napi_error)?;
     to_json_string(&privacy_pools_sdk::core::wire::WireMasterKeys::from(&keys))
         .map_err(to_napi_error)
+}
+
+fn derive_master_keys_from_utf8_bytes(mut mnemonic: Vec<u8>) -> NapiResult<String> {
+    let result = (|| {
+        let phrase = std::str::from_utf8(&mnemonic)
+            .map_err(|error| to_napi_error(anyhow!(error.to_string())))?;
+        let keys = SDK.generate_master_keys(phrase).map_err(to_napi_error)?;
+        register_secret_handle(SecretHandleEntry::MasterKeys(keys)).map_err(to_napi_error)
+    })();
+    mnemonic.zeroize();
+    result
 }
 
 #[napi]
@@ -523,14 +550,13 @@ pub fn derive_master_keys_handle(mnemonic: String) -> NapiResult<String> {
 }
 
 #[napi]
-pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
+pub fn derive_master_keys_handle_bytes(mnemonic: Buffer) -> NapiResult<String> {
+    derive_master_keys_from_utf8_bytes(mnemonic.to_vec())
+}
 
-    #[cfg(feature = "dangerous-exports")]
+#[napi]
+#[cfg(feature = "dangerous-exports")]
+pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::MasterKeys(keys) => {
             to_json_string(&to_js_master_keys(&keys)).map_err(to_napi_error)
@@ -542,6 +568,7 @@ pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
 }
 
 #[napi]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_deposit_secrets(
     master_keys_json: String,
     scope: String,
@@ -594,6 +621,7 @@ pub fn generate_deposit_secrets_handle(
 }
 
 #[napi]
+#[cfg(feature = "dangerous-key-export")]
 pub fn derive_withdrawal_secrets(
     master_keys_json: String,
     label: String,
@@ -695,14 +723,8 @@ pub fn get_commitment_from_handles(
 }
 
 #[napi]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_commitment_preimage(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::CommitmentRequest(request) => {
             to_json_string(&to_js_commitment(request.commitment)).map_err(to_napi_error)
@@ -714,14 +736,8 @@ pub fn dangerously_export_commitment_preimage(handle: String) -> NapiResult<Stri
 }
 
 #[napi]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_secret(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::Secrets { nullifier, secret } => to_json_string(&JsSecrets {
             nullifier: nullifier.to_decimal_string(),
@@ -917,7 +933,10 @@ pub fn verify_artifact_bytes(
     artifacts_json: String,
 ) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
-    let artifacts = parse_json::<Vec<JsArtifactBytes>>(&artifacts_json)
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        &artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_artifact_bytes)
         .map_err(to_napi_error)?;
     let bundle = SDK
@@ -952,7 +971,11 @@ pub fn verify_signed_manifest_artifacts(
     public_key_hex: String,
     artifacts_json: String,
 ) -> NapiResult<String> {
-    let artifacts = parse_json::<Vec<JsSignedManifestArtifactBytes>>(&artifacts_json)
+    let artifacts =
+        parse_json_with_limit::<Vec<JsSignedManifestArtifactBytes>>(
+            &artifacts_json,
+            MAX_ARTIFACT_JSON_INPUT_BYTES,
+        )
         .and_then(from_js_signed_manifest_artifact_bytes)
         .map_err(to_napi_error)?;
     let verified = privacy_pools_sdk::artifacts::verify_signed_manifest_artifact_bytes(
@@ -998,7 +1021,10 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
     artifacts_json: String,
 ) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
-    let artifacts = parse_json::<Vec<JsArtifactBytes>>(&artifacts_json)
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        &artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_artifact_bytes)
         .map_err(to_napi_error)?;
     let bundle = SDK
@@ -1060,7 +1086,10 @@ pub fn prepare_commitment_circuit_session_from_bytes(
     artifacts_json: String,
 ) -> NapiResult<String> {
     let manifest = parse_manifest(&manifest_json).map_err(to_napi_error)?;
-    let artifacts = parse_json::<Vec<JsArtifactBytes>>(&artifacts_json)
+    let artifacts = parse_json_with_limit::<Vec<JsArtifactBytes>>(
+        &artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_artifact_bytes)
         .map_err(to_napi_error)?;
     let bundle = SDK
@@ -1625,7 +1654,7 @@ pub fn plan_verified_ragequit_transaction_with_handle(
 }
 
 #[napi]
-pub fn preflight_verified_withdrawal_transaction_with_handle(
+pub async fn preflight_verified_withdrawal_transaction_with_handle(
     chain_id: String,
     pool_address: String,
     rpc_url: String,
@@ -1650,15 +1679,15 @@ pub fn preflight_verified_withdrawal_transaction_with_handle(
         pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
         policy,
     };
-    let preflighted = block_on_sdk(
-        SDK.preflight_verified_withdrawal_transaction_with_client(&config, &proof, &client),
-    )
-    .map_err(to_napi_error)?;
+    let preflighted = SDK
+        .preflight_verified_withdrawal_transaction_with_client(&config, &proof, &client)
+        .await
+        .map_err(to_napi_error)?;
     register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
 }
 
 #[napi]
-pub fn preflight_verified_relay_transaction_with_handle(
+pub async fn preflight_verified_relay_transaction_with_handle(
     chain_id: String,
     entrypoint_address: String,
     pool_address: String,
@@ -1685,15 +1714,15 @@ pub fn preflight_verified_relay_transaction_with_handle(
         pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
         policy,
     };
-    let preflighted = block_on_sdk(
-        SDK.preflight_verified_relay_transaction_with_client(&config, &proof, &client),
-    )
-    .map_err(to_napi_error)?;
+    let preflighted = SDK
+        .preflight_verified_relay_transaction_with_client(&config, &proof, &client)
+        .await
+        .map_err(to_napi_error)?;
     register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
 }
 
 #[napi]
-pub fn preflight_verified_ragequit_transaction_with_handle(
+pub async fn preflight_verified_ragequit_transaction_with_handle(
     chain_id: String,
     pool_address: String,
     rpc_url: String,
@@ -1718,15 +1747,15 @@ pub fn preflight_verified_ragequit_transaction_with_handle(
         pool_address: parse_address(&pool_address).map_err(to_napi_error)?,
         policy,
     };
-    let preflighted = block_on_sdk(
-        SDK.preflight_verified_ragequit_transaction_with_client(&config, &proof, &client),
-    )
-    .map_err(to_napi_error)?;
+    let preflighted = SDK
+        .preflight_verified_ragequit_transaction_with_client(&config, &proof, &client)
+        .await
+        .map_err(to_napi_error)?;
     register_execution_handle(ExecutionHandleEntry::Preflighted(preflighted)).map_err(to_napi_error)
 }
 
 #[napi]
-pub fn finalize_preflighted_transaction_handle(
+pub async fn finalize_preflighted_transaction_handle(
     rpc_url: String,
     preflighted_handle: String,
 ) -> NapiResult<String> {
@@ -1740,9 +1769,10 @@ pub fn finalize_preflighted_transaction_handle(
     };
     let client =
         privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
-    let finalized =
-        block_on_sdk(SDK.finalize_preflighted_transaction_with_client(preflighted, &client))
-            .map_err(to_napi_error)?;
+    let finalized = SDK
+        .finalize_preflighted_transaction_with_client(preflighted, &client)
+        .await
+        .map_err(to_napi_error)?;
     register_execution_handle(ExecutionHandleEntry::Finalized(finalized)).map_err(to_napi_error)
 }
 
@@ -1757,7 +1787,7 @@ pub fn submit_preflighted_transaction_handle(
 }
 
 #[napi]
-pub fn submit_finalized_preflighted_transaction_handle(
+pub async fn submit_finalized_preflighted_transaction_handle(
     rpc_url: String,
     finalized_handle: String,
     signed_transaction: String,
@@ -1772,26 +1802,20 @@ pub fn submit_finalized_preflighted_transaction_handle(
     };
     let encoded_tx =
         hex::decode(signed_transaction.trim_start_matches("0x")).map_err(to_napi_error)?;
+    privacy_pools_sdk::chain::validate_signed_transaction_request(&encoded_tx, finalized.request())
+        .map_err(to_napi_error)?;
     let client =
         privacy_pools_sdk::chain::HttpExecutionClient::new(&rpc_url).map_err(to_napi_error)?;
-    let submitted = block_on_sdk(SDK.submit_finalized_preflighted_transaction_with_client(
-        finalized,
-        &encoded_tx,
-        &client,
-    ))
-    .map_err(to_napi_error)?;
+    let submitted = SDK
+        .submit_finalized_preflighted_transaction_with_client(finalized, &encoded_tx, &client)
+        .await
+        .map_err(to_napi_error)?;
     register_execution_handle(ExecutionHandleEntry::Submitted(submitted)).map_err(to_napi_error)
 }
 
 #[napi]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_preflighted_transaction(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Preflighted(preflighted) => {
             to_json_string(&to_js_preflighted_transaction(&preflighted)).map_err(to_napi_error)
@@ -1803,14 +1827,8 @@ pub fn dangerously_export_preflighted_transaction(handle: String) -> NapiResult<
 }
 
 #[napi]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_finalized_preflighted_transaction(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Finalized(finalized) => {
             to_json_string(&to_js_finalized_preflighted_transaction(&finalized))
@@ -1823,14 +1841,8 @@ pub fn dangerously_export_finalized_preflighted_transaction(handle: String) -> N
 }
 
 #[napi]
+#[cfg(feature = "dangerous-exports")]
 pub fn dangerously_export_submitted_preflighted_transaction(handle: String) -> NapiResult<String> {
-    #[cfg(not(feature = "dangerous-exports"))]
-    {
-        let _ = handle;
-        return Err(dangerous_exports_disabled_error());
-    }
-
-    #[cfg(feature = "dangerous-exports")]
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Submitted(submitted) => {
             to_json_string(&to_js_submitted_preflighted_transaction(&submitted))
@@ -1878,7 +1890,10 @@ pub fn is_current_state_root(expected_root: String, current_root: String) -> Nap
 
 #[napi]
 pub fn checkpoint_recovery(events_json: String, policy_json: String) -> NapiResult<String> {
-    let events = parse_json::<Vec<JsPoolEvent>>(&events_json)
+    let events = parse_json_with_limit::<Vec<JsPoolEvent>>(
+        &events_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_pool_events)
         .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
@@ -1907,7 +1922,10 @@ pub fn recover_account_state(
     pools_json: String,
     policy_json: String,
 ) -> NapiResult<String> {
-    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(&pools_json)
+    let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
+        &pools_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_pool_recovery_inputs)
         .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
@@ -1928,7 +1946,10 @@ pub fn recover_account_state_with_keyset(
     let keyset = parse_json::<JsRecoveryKeyset>(&keyset_json)
         .and_then(|keyset| from_js_recovery_keyset(&keyset))
         .map_err(to_napi_error)?;
-    let pools = parse_json::<Vec<JsPoolRecoveryInput>>(&pools_json)
+    let pools = parse_json_with_limit::<Vec<JsPoolRecoveryInput>>(
+        &pools_json,
+        MAX_RECOVERY_JSON_INPUT_BYTES,
+    )
         .and_then(from_js_pool_recovery_inputs)
         .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
@@ -1944,6 +1965,20 @@ fn parse_json<T>(value: &str) -> Result<T>
 where
     T: DeserializeOwned,
 {
+    parse_json_with_limit(value, MAX_CONTROL_JSON_INPUT_BYTES)
+}
+
+fn parse_json_with_limit<T>(value: &str, max_bytes: usize) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    if value.len() > max_bytes {
+        bail!(
+            "JSON payload exceeds maximum size: {} > {} bytes",
+            value.len(),
+            max_bytes
+        );
+    }
     serde_json::from_str(value).context("failed to parse JSON payload")
 }
 
@@ -1971,6 +2006,12 @@ fn parse_u64(value: &str) -> Result<u64> {
     value
         .parse::<u64>()
         .with_context(|| format!("invalid u64 `{value}`"))
+}
+
+fn parse_u128(value: &str) -> Result<u128> {
+    value
+        .parse::<u128>()
+        .with_context(|| format!("invalid u128 `{value}`"))
 }
 
 fn parse_artifact_kind(value: &str) -> Result<ArtifactKind> {
@@ -2030,6 +2071,21 @@ fn execution_policy_mode_label(mode: ExecutionPolicyMode) -> String {
     match mode {
         ExecutionPolicyMode::Strict => "strict".to_owned(),
         ExecutionPolicyMode::InsecureDev => "insecure_dev".to_owned(),
+    }
+}
+
+fn parse_read_consistency(value: &str) -> Result<privacy_pools_sdk::core::ReadConsistency> {
+    match value {
+        "latest" => Ok(privacy_pools_sdk::core::ReadConsistency::Latest),
+        "finalized" => Ok(privacy_pools_sdk::core::ReadConsistency::Finalized),
+        other => bail!("invalid read consistency: {other}"),
+    }
+}
+
+fn read_consistency_label(consistency: privacy_pools_sdk::core::ReadConsistency) -> String {
+    match consistency {
+        privacy_pools_sdk::core::ReadConsistency::Latest => "latest".to_owned(),
+        privacy_pools_sdk::core::ReadConsistency::Finalized => "finalized".to_owned(),
     }
 }
 
@@ -2174,27 +2230,6 @@ fn lock_error<T>(error: std::sync::PoisonError<T>) -> anyhow::Error {
 
 fn to_napi_error(error: impl std::fmt::Display) -> Error {
     Error::from_reason(error.to_string())
-}
-
-#[cfg(not(feature = "dangerous-exports"))]
-fn dangerous_exports_disabled_error() -> Error {
-    to_napi_error(
-        "dangerous export helpers are disabled in this build; rebuild with feature `dangerous-exports` to use the debug surface",
-    )
-}
-
-fn block_on_sdk<T, E>(
-    future: impl std::future::Future<Output = std::result::Result<T, E>>,
-) -> Result<T>
-where
-    E: std::error::Error + Send + Sync + 'static,
-{
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("failed to build SDK runtime")?
-        .block_on(future)
-        .map_err(Into::into)
 }
 
 fn to_master_keys(keys: &JsMasterKeys) -> Result<MasterKeys> {
@@ -2449,6 +2484,8 @@ fn to_js_execution_preflight(report: ExecutionPreflightReport) -> JsExecutionPre
         chain_id_matches: report.chain_id_matches,
         simulated: report.simulated,
         estimated_gas: report.estimated_gas,
+        read_consistency: Some(read_consistency_label(report.read_consistency)),
+        max_fee_quote_wei: report.max_fee_quote_wei.map(|value| value.to_string()),
         mode: Some(execution_policy_mode_label(report.mode)),
         code_hash_checks: report
             .code_hash_checks
@@ -2664,6 +2701,17 @@ fn from_js_execution_policy(policy: JsExecutionPolicy) -> Result<ExecutionPolicy
             .as_deref()
             .map(parse_b256)
             .transpose()?,
+        read_consistency: policy
+            .read_consistency
+            .as_deref()
+            .map(parse_read_consistency)
+            .transpose()?
+            .unwrap_or(privacy_pools_sdk::core::ReadConsistency::Latest),
+        max_fee_quote_wei: policy
+            .max_fee_quote_wei
+            .as_deref()
+            .map(parse_u128)
+            .transpose()?,
         mode,
     })
 }
@@ -2726,6 +2774,8 @@ fn from_js_deposit_event(event: &JsDepositEvent) -> Result<DepositEvent> {
         value: parse_field(&event.value)?,
         precommitment_hash: parse_field(&event.precommitment_hash)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -2736,6 +2786,8 @@ fn from_js_withdrawal_event(event: &JsWithdrawalEvent) -> Result<WithdrawalEvent
         spent_nullifier_hash: parse_field(&event.spent_nullifier_hash)?,
         new_commitment_hash: parse_field(&event.new_commitment_hash)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -2746,6 +2798,8 @@ fn from_js_ragequit_event(event: &JsRagequitEvent) -> Result<RagequitEvent> {
         label: parse_field(&event.label)?,
         value: parse_field(&event.value)?,
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: parse_b256(&event.transaction_hash)?,
     })
 }
@@ -2756,6 +2810,8 @@ fn to_js_ragequit_event(event: &RagequitEvent) -> JsRagequitEvent {
         label: field_label(event.label),
         value: field_label(event.value),
         block_number: event.block_number,
+        transaction_index: event.transaction_index,
+        log_index: event.log_index,
         transaction_hash: event.transaction_hash.to_string(),
     }
 }

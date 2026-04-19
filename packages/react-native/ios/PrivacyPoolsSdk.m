@@ -8,11 +8,11 @@ RCT_EXTERN_METHOD(getVersion:(RCTPromiseResolveBlock)resolve
 RCT_EXTERN_METHOD(getStableBackendName:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(deriveMasterKeys:(NSString *)mnemonic
+RCT_EXTERN_METHOD(deriveMasterKeysHandle:(NSString *)mnemonic
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(deriveMasterKeysHandle:(NSString *)mnemonic
+RCT_EXTERN_METHOD(deriveMasterKeysHandleBytes:(NSArray<NSNumber *> *)mnemonicBytes
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
@@ -20,22 +20,8 @@ RCT_EXTERN_METHOD(dangerouslyExportMasterKeys:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
-RCT_EXTERN_METHOD(deriveDepositSecrets:(NSString *)masterNullifier
-                  masterSecret:(NSString *)masterSecret
-                  scope:(NSString *)scope
-                  index:(NSString *)index
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-
 RCT_EXTERN_METHOD(generateDepositSecretsHandle:(NSString *)masterKeysHandle
                   scope:(NSString *)scope
-                  index:(NSString *)index
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-
-RCT_EXTERN_METHOD(deriveWithdrawalSecrets:(NSString *)masterNullifier
-                  masterSecret:(NSString *)masterSecret
-                  label:(NSString *)label
                   index:(NSString *)index
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)

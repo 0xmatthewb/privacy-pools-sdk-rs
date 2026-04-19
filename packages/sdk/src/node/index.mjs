@@ -87,6 +87,12 @@ export class PrivacyPoolsSdkClient {
     return unwrapNativeValue(native.deriveMasterKeysHandle(mnemonic));
   }
 
+  async deriveMasterKeysHandleBytes(mnemonicBytes) {
+    return unwrapNativeValue(
+      native.deriveMasterKeysHandleBytes(normalizeNodeBytes(mnemonicBytes)),
+    );
+  }
+
   async deriveDepositSecrets(masterKeys, scope, index) {
     return parseNativeJson(
       native.deriveDepositSecrets(JSON.stringify(masterKeys), scope, index),
@@ -776,6 +782,8 @@ const defaultClient = createPrivacyPoolsSdkClient();
 
 export const deriveMasterKeysHandle = (mnemonic) =>
   defaultClient.deriveMasterKeysHandle(mnemonic);
+export const deriveMasterKeysHandleBytes = (mnemonicBytes) =>
+  defaultClient.deriveMasterKeysHandleBytes(mnemonicBytes);
 export const generateDepositSecretsHandle = (masterKeys, scope, index) =>
   defaultClient.generateDepositSecretsHandle(masterKeys, scope, index);
 export const generateWithdrawalSecretsHandle = (masterKeys, label, index) =>
@@ -1102,11 +1110,43 @@ function normalizeExecutionPolicy(policy = {}, chainId) {
       policy.expectedPoolCodeHash ?? policy.expected_pool_code_hash ?? null,
     expectedEntrypointCodeHash:
       policy.expectedEntrypointCodeHash ?? policy.expected_entrypoint_code_hash ?? null,
+    readConsistency:
+      policy.readConsistency ?? policy.read_consistency ?? "latest",
+    maxFeeQuoteWei:
+      policy.maxFeeQuoteWei ?? policy.max_fee_quote_wei ?? null,
     mode: policy.mode ?? "strict",
   };
 }
 
+function normalizeNodeBytes(bytes) {
+  if (Buffer.isBuffer(bytes)) {
+    return bytes;
+  }
+
+  if (bytes instanceof Uint8Array) {
+    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  if (bytes instanceof ArrayBuffer) {
+    return Buffer.from(bytes);
+  }
+
+  if (Array.isArray(bytes)) {
+    return Buffer.from(bytes);
+  }
+
+  throw new TypeError("mnemonic bytes must be a Buffer, Uint8Array, ArrayBuffer, or number[]");
+}
+
+function isPromiseLike(value) {
+  return value !== null && typeof value === "object" && typeof value.then === "function";
+}
+
 function parseNativeJson(payload) {
+  if (isPromiseLike(payload)) {
+    return payload.then(parseNativeJson);
+  }
+
   unwrapNativeValue(payload);
 
   try {
@@ -1122,6 +1162,10 @@ function parseNativeJson(payload) {
 }
 
 function unwrapNativeValue(value) {
+  if (isPromiseLike(value)) {
+    return value.then(unwrapNativeValue);
+  }
+
   if (value instanceof Error) {
     throw value;
   }

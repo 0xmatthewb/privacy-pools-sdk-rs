@@ -1108,6 +1108,8 @@ async fn build_stateful_execution_trace(
             B256::from_str(&execution.entrypoint_code_hash)
                 .context("failed to parse stateful entrypoint code hash")?,
         ),
+        read_consistency: core::ReadConsistency::Latest,
+        max_fee_quote_wei: None,
         mode: core::ExecutionPolicyMode::Strict,
     };
     let valid_client = chain::HttpExecutionClient::new(&execution.valid_rpc_url)

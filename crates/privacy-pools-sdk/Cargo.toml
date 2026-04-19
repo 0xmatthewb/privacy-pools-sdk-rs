@@ -38,6 +38,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+alloy-sol-types.workspace = true
 async-trait.workspace = true
 hex.workspace = true
 proptest.workspace = true

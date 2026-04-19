@@ -1183,6 +1183,11 @@ impl PrivacyPoolsSdk {
         ))
     }
 
+    /// Generates master keys using the shipped v1-compatible derivation path.
+    ///
+    /// This intentionally matches the deployed TS SDK path that derives
+    /// BIP-44 account private keys and Poseidon-hashes those raw scalars. It
+    /// does not follow the unused legacy TS `genMasterKeys` helper variant.
     pub fn generate_master_keys(
         &self,
         mnemonic: &str,
@@ -1310,7 +1315,7 @@ impl PrivacyPoolsSdk {
     }
 
     pub fn plan_pool_state_root_read(&self, pool_address: Address) -> core::RootRead {
-        chain::state_root_read(pool_address)
+        chain::state_root_read(pool_address, core::ReadConsistency::Latest)
     }
 
     pub fn artifact_statuses(
@@ -1403,7 +1408,11 @@ impl PrivacyPoolsSdk {
         entrypoint_address: Address,
         pool_address: Address,
     ) -> core::RootRead {
-        chain::asp_root_read(entrypoint_address, pool_address)
+        chain::asp_root_read(
+            entrypoint_address,
+            pool_address,
+            core::ReadConsistency::Latest,
+        )
     }
 
     pub fn is_current_state_root(&self, expected_root: U256, current_root: U256) -> bool {
@@ -2313,6 +2322,14 @@ impl PrivacyPoolsSdk {
         let finalized = self
             .finalize_prepared_transaction_with_client(prepared, &client)
             .await?;
+        let live_chain_id = privacy_pools_sdk_chain::ExecutionClient::chain_id(&client).await?;
+        if live_chain_id != finalized.request.chain_id {
+            return Err(signer::SignerError::ChainIdMismatch {
+                expected: finalized.request.chain_id,
+                actual: live_chain_id,
+            }
+            .into());
+        }
         let signed_transaction = signer.sign_transaction_request(&finalized.request)?;
 
         self.submit_finalized_transaction_with_client(finalized, &signed_transaction, &client)

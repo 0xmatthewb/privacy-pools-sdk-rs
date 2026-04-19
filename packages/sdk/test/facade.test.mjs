@@ -400,9 +400,11 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _commitment: 11n,
                 _label: 12n,
                 _value: 13n,
-                _merkleRoot: 14n,
+                _precommitmentHash: 14n,
               },
               blockNumber: 10n,
+              transactionIndex: 0,
+              logIndex: 0,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000010",
             },
@@ -417,6 +419,8 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _newCommitment: 7n,
               },
               blockNumber: 12n,
+              transactionIndex: 1,
+              logIndex: 2,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000012",
             },
@@ -432,6 +436,8 @@ test("DataService fetches public pool events through caller RPC transport", asyn
                 _value: 23n,
               },
               blockNumber: 14n,
+              transactionIndex: 3,
+              logIndex: 4,
               transactionHash:
                 "0x0000000000000000000000000000000000000000000000000000000000000014",
             },
@@ -578,6 +584,87 @@ test("contract and recovery facade wrappers use Rust-backed bindings", async () 
   assert.equal(checkpoint.commitmentsSeen, 2);
 });
 
+test("data service preserves zero-valued event fields and rejects missing ones", async () => {
+  const poolAddress = "0x1234567890123456789012345678901234567890";
+  const pool = { chainId: 1, address: poolAddress };
+
+  for (const entry of [nodeEntry, browserEntry]) {
+    const fakeClient = {
+      getBlockNumber: async () => 20n,
+      getLogs: async ({ event }) => {
+        if (event.name !== "Deposited") {
+          return [];
+        }
+        return [
+          {
+            args: {
+              _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              _commitment: 11n,
+              _label: 12n,
+              _value: 0n,
+              _precommitmentHash: 14n,
+            },
+            blockNumber: 10n,
+            transactionIndex: 0,
+            logIndex: 0,
+            transactionHash:
+              "0x0000000000000000000000000000000000000000000000000000000000000010",
+          },
+          {
+            args: {
+              _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              _commitment: 21n,
+              _label: 22n,
+              _precommitmentHash: 24n,
+            },
+            blockNumber: 11n,
+            transactionIndex: 0,
+            logIndex: 1,
+            transactionHash:
+              "0x0000000000000000000000000000000000000000000000000000000000000011",
+          },
+        ];
+      },
+    };
+    const dataService = new entry.DataService(
+      [
+        {
+          chainId: 1,
+          rpcUrl: "http://127.0.0.1:8545",
+          startBlock: 10n,
+          client: fakeClient,
+        },
+      ],
+      new Map([[1, { blockChunkSize: 20, concurrency: 1, retryOnFailure: false }]]),
+    );
+
+    await assert.rejects(
+      () => dataService.getDeposits(pool),
+      /missing deposit value/,
+    );
+
+    fakeClient.getLogs = async () => [
+      {
+        args: {
+          _depositor: "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+          _commitment: 11n,
+          _label: 12n,
+          _value: 0n,
+          _precommitmentHash: 14n,
+        },
+        blockNumber: 10n,
+        transactionIndex: 0,
+        logIndex: 0,
+        transactionHash:
+          "0x0000000000000000000000000000000000000000000000000000000000000010",
+      },
+    ];
+
+    const deposits = await dataService.getDeposits(pool);
+    assert.equal(deposits[0].value, 0n);
+  }
+});
+
 function readFixtureText(path) {
   return readFileSync(join(fixturesRoot, path), "utf8");
 }
@@ -586,18 +673,12 @@ function readFixtureJson(path) {
   return JSON.parse(readFixtureText(path));
 }
 
-async function buildStrictRecoveryPool(entry) {
-  const masterKeys = await entry.generateMasterKeys(cryptoFixture.mnemonic);
-  const depositSecrets = await entry.generateDepositSecrets(
-    masterKeys,
-    cryptoFixture.scope,
-    0n,
-  );
-  const commitment = await entry.getCommitment(
+async function buildStrictRecoveryPool(_entry) {
+  const commitment = await nodeEntry.getCommitment(
     withdrawalFixture.existingValue,
     cryptoFixture.label,
-    depositSecrets.nullifier,
-    depositSecrets.secret,
+    cryptoFixture.depositSecrets.nullifier,
+    cryptoFixture.depositSecrets.secret,
   );
   return [
     {
@@ -609,6 +690,8 @@ async function buildStrictRecoveryPool(entry) {
           value: withdrawalFixture.existingValue,
           precommitmentHash: commitment.preimage.precommitment.hash,
           blockNumber: 10,
+          transactionIndex: 0,
+          logIndex: 0,
           transactionHash:
             "0x0000000000000000000000000000000000000000000000000000000000000001",
         },

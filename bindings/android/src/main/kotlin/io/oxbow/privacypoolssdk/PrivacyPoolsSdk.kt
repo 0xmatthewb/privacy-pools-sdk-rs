@@ -9,13 +9,8 @@ import io.oxbow.privacypoolssdk.cancelJob as ffiCancelJob
 import io.oxbow.privacypoolssdk.checkpointRecovery as ffiCheckpointRecovery
 import io.oxbow.privacypoolssdk.clearSecretHandles as ffiClearSecretHandles
 import io.oxbow.privacypoolssdk.clearVerifiedProofHandles as ffiClearVerifiedProofHandles
-import io.oxbow.privacypoolssdk.dangerouslyExportCommitmentPreimage as ffiDangerouslyExportCommitmentPreimage
-import io.oxbow.privacypoolssdk.dangerouslyExportMasterKeys as ffiDangerouslyExportMasterKeys
-import io.oxbow.privacypoolssdk.dangerouslyExportSecret as ffiDangerouslyExportSecret
-import io.oxbow.privacypoolssdk.deriveMasterKeys as ffiDeriveMasterKeys
-import io.oxbow.privacypoolssdk.deriveDepositSecrets as ffiDeriveDepositSecrets
 import io.oxbow.privacypoolssdk.deriveMasterKeysHandle as ffiDeriveMasterKeysHandle
-import io.oxbow.privacypoolssdk.deriveWithdrawalSecrets as ffiDeriveWithdrawalSecrets
+import io.oxbow.privacypoolssdk.deriveMasterKeysHandleBytes as ffiDeriveMasterKeysHandleBytes
 import io.oxbow.privacypoolssdk.finalizePreparedTransaction as ffiFinalizePreparedTransaction
 import io.oxbow.privacypoolssdk.finalizePreparedTransactionForSigner as ffiFinalizePreparedTransactionForSigner
 import io.oxbow.privacypoolssdk.formatGroth16ProofBundle as ffiFormatGroth16ProofBundle
@@ -89,13 +84,16 @@ object PrivacyPoolsSdk {
     fun stableBackendName(): String = ffiGetStableBackendName()
 
     @Throws(FfiException::class)
-    fun masterKeys(mnemonic: String): FfiMasterKeys = ffiDeriveMasterKeys(mnemonic)
+    fun masterKeys(mnemonic: String): FfiMasterKeys = dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun masterKeysHandle(mnemonic: String): String = ffiDeriveMasterKeysHandle(mnemonic)
 
     @Throws(FfiException::class)
-    fun exportMasterKeys(handle: String): FfiMasterKeys = ffiDangerouslyExportMasterKeys(handle)
+    fun masterKeysHandle(mnemonicBytes: ByteArray): String = ffiDeriveMasterKeysHandleBytes(mnemonicBytes)
+
+    @Throws(FfiException::class)
+    fun exportMasterKeys(handle: String): FfiMasterKeys = dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun depositSecrets(
@@ -103,7 +101,7 @@ object PrivacyPoolsSdk {
         masterSecret: String,
         scope: String,
         index: String,
-    ): FfiSecrets = ffiDeriveDepositSecrets(masterNullifier, masterSecret, scope, index)
+    ): FfiSecrets = dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun depositSecretsHandle(masterKeysHandle: String, scope: String, index: String): String =
@@ -115,14 +113,14 @@ object PrivacyPoolsSdk {
         masterSecret: String,
         label: String,
         index: String,
-    ): FfiSecrets = ffiDeriveWithdrawalSecrets(masterNullifier, masterSecret, label, index)
+    ): FfiSecrets = dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun withdrawalSecretsHandle(masterKeysHandle: String, label: String, index: String): String =
         ffiGenerateWithdrawalSecretsHandle(masterKeysHandle, label, index)
 
     @Throws(FfiException::class)
-    fun exportSecret(handle: String): FfiSecrets = ffiDangerouslyExportSecret(handle)
+    fun exportSecret(handle: String): FfiSecrets = dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun commitment(
@@ -138,7 +136,7 @@ object PrivacyPoolsSdk {
 
     @Throws(FfiException::class)
     fun exportCommitmentPreimage(handle: String): FfiCommitment =
-        ffiDangerouslyExportCommitmentPreimage(handle)
+        dangerousKeyExportUnavailable()
 
     @Throws(FfiException::class)
     fun withdrawalWitnessRequestHandle(request: FfiWithdrawalWitnessRequest): String =
@@ -733,4 +731,8 @@ object PrivacyPoolsSdk {
             Thread.sleep(pollIntervalMs)
         }
     }
+}
+
+private fun <T> dangerousKeyExportUnavailable(): T {
+    throw UnsupportedOperationException("plaintext secret export is unavailable in this build")
 }

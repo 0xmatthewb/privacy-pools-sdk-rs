@@ -28,6 +28,7 @@ thiserror.workspace = true
 tokio.workspace = true
 uniffi.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+zeroize.workspace = true
 
 [dev-dependencies]
 alloy-consensus.workspace = true

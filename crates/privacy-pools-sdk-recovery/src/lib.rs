@@ -7,7 +7,7 @@ use privacy_pools_sdk_crypto::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const MAX_CONSECUTIVE_DEPOSIT_MISSES: u64 = 10;
+const MAX_CONSECUTIVE_DEPOSIT_MISSES: u64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CompatibilityMode {
@@ -65,6 +65,8 @@ pub struct DepositEvent {
     pub value: FieldElement,
     pub precommitment_hash: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -74,6 +76,8 @@ pub struct WithdrawalEvent {
     pub spent_nullifier_hash: FieldElement,
     pub new_commitment_hash: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -83,6 +87,8 @@ pub struct RagequitEvent {
     pub label: FieldElement,
     pub value: FieldElement,
     pub block_number: u64,
+    pub transaction_index: u64,
+    pub log_index: u64,
     pub transaction_hash: B256,
 }
 
@@ -190,6 +196,8 @@ pub enum RecoveryError {
     },
     #[error("duplicate ragequit event for scope {scope} and label {label}")]
     DuplicateRagequitEvent { scope: Scope, label: FieldElement },
+    #[error("unmatched ragequit event for scope {scope} and label {label}")]
+    UnmatchedRagequitEvent { scope: Scope, label: FieldElement },
     #[error("deposit commitment mismatch for scope {scope}: expected {expected}, got {actual}")]
     DepositCommitmentMismatch {
         scope: String,
@@ -371,8 +379,11 @@ fn validate_pool_inputs(pools: &[PoolRecoveryInput]) -> Result<(), RecoveryError
 }
 
 fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(deposit_event_cursor);
+
     let mut normalized: Vec<DepositEvent> = Vec::new();
-    for event in events {
+    for event in &ordered {
         if let Some(existing) = normalized
             .iter_mut()
             .find(|candidate| candidate.precommitment_hash == event.precommitment_hash)
@@ -384,7 +395,7 @@ fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>
                 continue;
             }
 
-            if event.block_number < existing.block_number {
+            if deposit_event_cursor(event) < deposit_event_cursor(existing) {
                 *existing = event.clone();
             }
 
@@ -400,13 +411,15 @@ fn normalize_deposit_events(events: &[DepositEvent]) -> Result<Vec<DepositEvent>
 fn normalize_withdrawal_events(
     events: &[WithdrawalEvent],
 ) -> Result<Vec<WithdrawalEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(withdrawal_event_cursor);
+
     let mut normalized: Vec<WithdrawalEvent> = Vec::new();
-    for event in events {
-        if let Some(existing) = normalized
-            .iter_mut()
-            .find(|candidate| candidate.spent_nullifier_hash == event.spent_nullifier_hash)
+    for event in &ordered {
+        if normalized
+            .iter()
+            .any(|candidate| candidate.spent_nullifier_hash == event.spent_nullifier_hash)
         {
-            *existing = event.clone();
             continue;
         }
 
@@ -419,13 +432,12 @@ fn normalize_withdrawal_events(
 fn normalize_ragequit_events(
     events: &[RagequitEvent],
 ) -> Result<Vec<RagequitEvent>, RecoveryError> {
+    let mut ordered = events.to_vec();
+    ordered.sort_by_key(ragequit_event_cursor);
+
     let mut normalized: Vec<RagequitEvent> = Vec::new();
-    for event in events {
-        if let Some(existing) = normalized
-            .iter_mut()
-            .find(|candidate| candidate.label == event.label)
-        {
-            *existing = event.clone();
+    for event in &ordered {
+        if normalized.iter().any(|candidate| candidate.label == event.label) {
             continue;
         }
 
@@ -612,9 +624,26 @@ fn process_ragequit_events(
     ragequit_events: &[RagequitEvent],
 ) -> Result<(), RecoveryError> {
     for event in ragequit_events {
-        let _ = book.attach_ragequit(scope, event.label, event.clone());
+        if !book.attach_ragequit(scope, event.label, event.clone()) {
+            return Err(RecoveryError::UnmatchedRagequitEvent {
+                scope,
+                label: event.label,
+            });
+        }
     }
     Ok(())
+}
+
+fn deposit_event_cursor(event: &DepositEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
+}
+
+fn withdrawal_event_cursor(event: &WithdrawalEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
+}
+
+fn ragequit_event_cursor(event: &RagequitEvent) -> (u64, u64, u64) {
+    (event.block_number, event.transaction_index, event.log_index)
 }
 
 #[derive(Debug, Default, Clone)]

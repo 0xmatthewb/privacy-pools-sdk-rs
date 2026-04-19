@@ -1207,15 +1207,19 @@ public struct FfiExecutionPolicy: Equatable, Hashable {
     public var caller: String
     public var expectedPoolCodeHash: String?
     public var expectedEntrypointCodeHash: String?
+    public var readConsistency: String?
+    public var maxFeeQuoteWei: String?
     public var mode: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?, mode: String?) {
+    public init(expectedChainId: UInt64, caller: String, expectedPoolCodeHash: String?, expectedEntrypointCodeHash: String?, readConsistency: String?, maxFeeQuoteWei: String?, mode: String?) {
         self.expectedChainId = expectedChainId
         self.caller = caller
         self.expectedPoolCodeHash = expectedPoolCodeHash
         self.expectedEntrypointCodeHash = expectedEntrypointCodeHash
+        self.readConsistency = readConsistency
+        self.maxFeeQuoteWei = maxFeeQuoteWei
         self.mode = mode
     }
 
@@ -1239,6 +1243,8 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
                 caller: FfiConverterString.read(from: &buf),
                 expectedPoolCodeHash: FfiConverterOptionString.read(from: &buf),
                 expectedEntrypointCodeHash: FfiConverterOptionString.read(from: &buf),
+                readConsistency: FfiConverterOptionString.read(from: &buf),
+                maxFeeQuoteWei: FfiConverterOptionString.read(from: &buf),
                 mode: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -1248,6 +1254,8 @@ public struct FfiConverterTypeFfiExecutionPolicy: FfiConverterRustBuffer {
         FfiConverterString.write(value.caller, into: &buf)
         FfiConverterOptionString.write(value.expectedPoolCodeHash, into: &buf)
         FfiConverterOptionString.write(value.expectedEntrypointCodeHash, into: &buf)
+        FfiConverterOptionString.write(value.readConsistency, into: &buf)
+        FfiConverterOptionString.write(value.maxFeeQuoteWei, into: &buf)
         FfiConverterOptionString.write(value.mode, into: &buf)
     }
 }
@@ -1277,13 +1285,15 @@ public struct FfiExecutionPreflightReport: Equatable, Hashable {
     public var chainIdMatches: Bool
     public var simulated: Bool
     public var estimatedGas: UInt64
+    public var readConsistency: String?
+    public var maxFeeQuoteWei: String?
     public var mode: String?
     public var codeHashChecks: [FfiCodeHashCheck]
     public var rootChecks: [FfiRootCheck]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(kind: String, caller: String, target: String, expectedChainId: UInt64, actualChainId: UInt64, chainIdMatches: Bool, simulated: Bool, estimatedGas: UInt64, mode: String?, codeHashChecks: [FfiCodeHashCheck], rootChecks: [FfiRootCheck]) {
+    public init(kind: String, caller: String, target: String, expectedChainId: UInt64, actualChainId: UInt64, chainIdMatches: Bool, simulated: Bool, estimatedGas: UInt64, readConsistency: String?, maxFeeQuoteWei: String?, mode: String?, codeHashChecks: [FfiCodeHashCheck], rootChecks: [FfiRootCheck]) {
         self.kind = kind
         self.caller = caller
         self.target = target
@@ -1292,6 +1302,8 @@ public struct FfiExecutionPreflightReport: Equatable, Hashable {
         self.chainIdMatches = chainIdMatches
         self.simulated = simulated
         self.estimatedGas = estimatedGas
+        self.readConsistency = readConsistency
+        self.maxFeeQuoteWei = maxFeeQuoteWei
         self.mode = mode
         self.codeHashChecks = codeHashChecks
         self.rootChecks = rootChecks
@@ -1321,6 +1333,8 @@ public struct FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
                 chainIdMatches: FfiConverterBool.read(from: &buf),
                 simulated: FfiConverterBool.read(from: &buf),
                 estimatedGas: FfiConverterUInt64.read(from: &buf),
+                readConsistency: FfiConverterOptionString.read(from: &buf),
+                maxFeeQuoteWei: FfiConverterOptionString.read(from: &buf),
                 mode: FfiConverterOptionString.read(from: &buf),
                 codeHashChecks: FfiConverterSequenceTypeFfiCodeHashCheck.read(from: &buf),
                 rootChecks: FfiConverterSequenceTypeFfiRootCheck.read(from: &buf)
@@ -1336,6 +1350,8 @@ public struct FfiConverterTypeFfiExecutionPreflightReport: FfiConverterRustBuffe
         FfiConverterBool.write(value.chainIdMatches, into: &buf)
         FfiConverterBool.write(value.simulated, into: &buf)
         FfiConverterUInt64.write(value.estimatedGas, into: &buf)
+        FfiConverterOptionString.write(value.readConsistency, into: &buf)
+        FfiConverterOptionString.write(value.maxFeeQuoteWei, into: &buf)
         FfiConverterOptionString.write(value.mode, into: &buf)
         FfiConverterSequenceTypeFfiCodeHashCheck.write(value.codeHashChecks, into: &buf)
         FfiConverterSequenceTypeFfiRootCheck.write(value.rootChecks, into: &buf)
@@ -3264,6 +3280,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case SignerNotFound(String
     )
+    case HandleAlreadyRegistered(String
+    )
     case SecretHandleNotFound(String
     )
     case VerifiedProofHandleNotFound(String
@@ -3275,6 +3293,8 @@ public enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     case SignerRequiresExternalSigning(String
     )
     case InvalidManifest(String
+    )
+    case InvalidSignedTransaction(String
     )
     case OperationFailed(String
     )
@@ -3334,25 +3354,31 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         case 9: return .SignerNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .SecretHandleNotFound(
+        case 10: return .HandleAlreadyRegistered(
             try FfiConverterString.read(from: &buf)
             )
-        case 11: return .VerifiedProofHandleNotFound(
+        case 11: return .SecretHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 12: return .ExecutionHandleNotFound(
+        case 12: return .VerifiedProofHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 13: return .JobNotFound(
+        case 13: return .ExecutionHandleNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 14: return .SignerRequiresExternalSigning(
+        case 14: return .JobNotFound(
             try FfiConverterString.read(from: &buf)
             )
-        case 15: return .InvalidManifest(
+        case 15: return .SignerRequiresExternalSigning(
             try FfiConverterString.read(from: &buf)
             )
-        case 16: return .OperationFailed(
+        case 16: return .InvalidManifest(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 17: return .InvalidSignedTransaction(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 18: return .OperationFailed(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -3412,38 +3438,48 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SecretHandleNotFound(v1):
+        case let .HandleAlreadyRegistered(v1):
             writeInt(&buf, Int32(10))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .VerifiedProofHandleNotFound(v1):
+        case let .SecretHandleNotFound(v1):
             writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .ExecutionHandleNotFound(v1):
+        case let .VerifiedProofHandleNotFound(v1):
             writeInt(&buf, Int32(12))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .JobNotFound(v1):
+        case let .ExecutionHandleNotFound(v1):
             writeInt(&buf, Int32(13))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .SignerRequiresExternalSigning(v1):
+        case let .JobNotFound(v1):
             writeInt(&buf, Int32(14))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .InvalidManifest(v1):
+        case let .SignerRequiresExternalSigning(v1):
             writeInt(&buf, Int32(15))
             FfiConverterString.write(v1, into: &buf)
 
 
-        case let .OperationFailed(v1):
+        case let .InvalidManifest(v1):
             writeInt(&buf, Int32(16))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .InvalidSignedTransaction(v1):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(v1, into: &buf)
+
+
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(18))
             FfiConverterString.write(v1, into: &buf)
 
         }
@@ -3879,65 +3915,6 @@ public func clearVerifiedProofHandles()throws  -> Bool  {
     )
 })
 }
-public func dangerouslyExportCommitmentPreimage(handle: String)throws  -> FfiCommitment  {
-    return try  FfiConverterTypeFfiCommitment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func dangerouslyExportFinalizedPreflightedTransaction(handle: String)throws  -> FfiFinalizedPreflightedTransaction  {
-    return try  FfiConverterTypeFfiFinalizedPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func dangerouslyExportMasterKeys(handle: String)throws  -> FfiMasterKeys  {
-    return try  FfiConverterTypeFfiMasterKeys_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func dangerouslyExportPreflightedTransaction(handle: String)throws  -> FfiPreflightedTransaction  {
-    return try  FfiConverterTypeFfiPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func dangerouslyExportSecret(handle: String)throws  -> FfiSecrets  {
-    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func dangerouslyExportSubmittedPreflightedTransaction(handle: String)throws  -> FfiSubmittedPreflightedTransaction  {
-    return try  FfiConverterTypeFfiSubmittedPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(
-        FfiConverterString.lower(handle),$0
-    )
-})
-}
-public func deriveDepositSecrets(masterNullifier: String, masterSecret: String, scope: String, index: String)throws  -> FfiSecrets  {
-    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_deposit_secrets(
-        FfiConverterString.lower(masterNullifier),
-        FfiConverterString.lower(masterSecret),
-        FfiConverterString.lower(scope),
-        FfiConverterString.lower(index),$0
-    )
-})
-}
-public func deriveMasterKeys(mnemonic: String)throws  -> FfiMasterKeys  {
-    return try  FfiConverterTypeFfiMasterKeys_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys(
-        FfiConverterString.lower(mnemonic),$0
-    )
-})
-}
 public func deriveMasterKeysHandle(mnemonic: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(
@@ -3945,13 +3922,10 @@ public func deriveMasterKeysHandle(mnemonic: String)throws  -> String  {
     )
 })
 }
-public func deriveWithdrawalSecrets(masterNullifier: String, masterSecret: String, label: String, index: String)throws  -> FfiSecrets  {
-    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-    uniffi_privacy_pools_sdk_ffi_fn_func_derive_withdrawal_secrets(
-        FfiConverterString.lower(masterNullifier),
-        FfiConverterString.lower(masterSecret),
-        FfiConverterString.lower(label),
-        FfiConverterString.lower(index),$0
+public func deriveMasterKeysHandleBytes(mnemonic: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle_bytes(
+        FfiConverterData.lower(mnemonic),$0
     )
 })
 }
@@ -4638,34 +4612,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage() != 10373) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction() != 19222) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys() != 61984) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction() != 33607) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret() != 41510) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction() != 18160) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_deposit_secrets() != 41615) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys() != 31528) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_withdrawal_secrets() != 59433) {
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle_bytes() != 2592) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_finalize_preflighted_transaction_handle() != 15730) {
