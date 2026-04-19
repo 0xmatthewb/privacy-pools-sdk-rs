@@ -22,6 +22,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - run: cargo check --workspace --tests --all-features --locked
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo fmt --all -- --check
@@ -41,6 +43,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
@@ -70,6 +74,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - name: install rust policy tools
         uses: ./.github/actions/install-rust-ci-tools
         with:
@@ -176,6 +182,8 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - name: install browser ci tools
         uses: ./.github/actions/install-rust-ci-tools
         with:
@@ -225,6 +233,8 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - run: cargo build --workspace --release --locked --target x86_64-unknown-linux-gnu
 
   rust:
@@ -246,6 +256,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - name: download rust core assurance artifact
         continue-on-error: true
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -297,6 +309,8 @@ jobs:
           toolchain: nightly-2026-04-15
           components: rust-src
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - name: install fuzz tools
         uses: ./.github/actions/install-rust-ci-tools
         with:
@@ -336,6 +350,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
@@ -378,6 +394,8 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: foundry-rs/foundry-toolchain@8789b3e21e6c11b2697f5eb56eddae542f746c10 # v1
         with:
           version: stable
@@ -401,6 +419,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
@@ -422,6 +442,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
@@ -458,6 +480,8 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
@@ -479,6 +503,9 @@ jobs:
         with:
           working-directory: packages/sdk
       - run: cargo run -p xtask -- sdk-web-package --debug
+      - name: Install Playwright browsers
+        working-directory: packages/sdk
+        run: npx playwright install --with-deps chromium
       - run: npm run test:browser:worker
         working-directory: packages/sdk
 
@@ -496,6 +523,8 @@ jobs:
           toolchain: 1.93.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: v2-glibc-reset
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
           node-version: "22"
