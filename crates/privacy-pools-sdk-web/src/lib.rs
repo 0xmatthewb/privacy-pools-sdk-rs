@@ -41,9 +41,9 @@ use std::{
 use uuid::Uuid;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use zeroize::Zeroize;
 #[cfg(all(target_arch = "wasm32", feature = "threaded"))]
 pub use wasm_bindgen_rayon::init_thread_pool;
+use zeroize::Zeroize;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -979,11 +979,9 @@ pub fn verify_withdrawal_proof_for_handles_json(
 }
 
 pub fn checkpoint_recovery_json(events_json: &str, policy_json: &str) -> Result<String> {
-    let events = parse_json_with_limit::<Vec<JsPoolEvent>>(
-        events_json,
-        MAX_RECOVERY_JSON_INPUT_BYTES,
-    )
-    .and_then(from_js_pool_events)?;
+    let events =
+        parse_json_with_limit::<Vec<JsPoolEvent>>(events_json, MAX_RECOVERY_JSON_INPUT_BYTES)
+            .and_then(from_js_pool_events)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
     let checkpoint = privacy_pools_sdk_recovery::checkpoint(&events, policy)?;
@@ -1006,7 +1004,7 @@ pub fn recover_account_state_json(
         pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_pool_recovery_inputs)?;
+    .and_then(from_js_pool_recovery_inputs)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
     let state = privacy_pools_sdk_recovery::recover_account_state(mnemonic, &pools, policy)?;
@@ -1024,7 +1022,7 @@ pub fn recover_account_state_with_keyset_json(
         pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_pool_recovery_inputs)?;
+    .and_then(from_js_pool_recovery_inputs)?;
     let policy = parse_json::<JsRecoveryPolicy>(policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))?;
     let state =
@@ -3604,7 +3602,10 @@ fn from_wasm_artifact_bytes(
             })
         })
         .collect::<Result<Vec<_>>>()?;
-    let total_bytes = artifacts.iter().map(|artifact| artifact.bytes.len()).sum::<usize>();
+    let total_bytes = artifacts
+        .iter()
+        .map(|artifact| artifact.bytes.len())
+        .sum::<usize>();
     if total_bytes > MAX_TOTAL_ARTIFACT_BYTES {
         bail!(
             "artifact bundle exceeds maximum size: {} > {} bytes",

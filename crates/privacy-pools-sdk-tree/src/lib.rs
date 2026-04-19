@@ -1,10 +1,33 @@
+//! Fail-closed Merkle helpers for Privacy Pools circuit witnesses.
+//!
+//! All public entrypoints validate canonical BN254 field elements before they
+//! enter the tree. Verification returns `false` instead of panicking on
+//! malformed proofs, and generation rejects non-canonical leaves up front.
+//!
+//! Reorg handling is intentionally stateless: callers should rebuild proofs and
+//! witnesses from the canonical post-reorg leaf sequence rather than trying to
+//! mutate a cached tree in place. A typical recovery flow is "rewind local
+//! events to the reorg boundary, replay the canonical leaf stream, then call
+//! [`generate_merkle_proof`] and [`to_circuit_witness`] again".
+
 use alloy_primitives::U256;
 use lean_imt::lean_imt::{LeanIMT, LeanIMTError, MerkleProof as LeanMerkleProof};
-use privacy_pools_sdk_core::{CircuitMerkleWitness, FieldElement, MerkleProof, parse_decimal_field};
+use privacy_pools_sdk_core::{
+    CircuitMerkleWitness, FieldElement, MerkleProof, parse_decimal_field,
+};
 use privacy_pools_sdk_crypto::poseidon_hash;
+use std::sync::LazyLock;
 use thiserror::Error;
 
 pub const DEFAULT_CIRCUIT_DEPTH: usize = 32;
+static SNARK_SCALAR_FIELD_MODULUS: LazyLock<FieldElement> = LazyLock::new(|| {
+    // This literal is fixed by the protocol. If parsing ever regresses, return
+    // zero so all field checks fail closed instead of silently accepting values.
+    parse_decimal_field(
+        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
+    )
+    .unwrap_or(U256::ZERO)
+});
 
 #[derive(Debug, Error)]
 pub enum TreeError {
@@ -149,12 +172,22 @@ fn from_lean_proof(proof: LeanMerkleProof<32>) -> MerkleProof {
 }
 
 fn lean_poseidon_hash(input: &[u8]) -> [u8; 32] {
+    if input.len() != 64 {
+        return [0_u8; 32];
+    }
+
     let left = U256::from_be_slice(&input[..32]);
     let right = U256::from_be_slice(&input[32..64]);
-    field_to_bytes(
-        poseidon_hash(&[left, right])
-            .unwrap_or_else(|_| panic!("poseidon pair hash should not fail for canonical pairs")),
-    )
+    if ensure_canonical_field(left, "left").is_err()
+        || ensure_canonical_field(right, "right").is_err()
+    {
+        return [0_u8; 32];
+    }
+
+    match poseidon_hash(&[left, right]) {
+        Ok(value) => field_to_bytes(value),
+        Err(_) => [0_u8; 32],
+    }
 }
 
 fn bytes_to_field(bytes: [u8; 32]) -> U256 {
@@ -187,10 +220,7 @@ fn ensure_canonical_field(value: FieldElement, field: &'static str) -> Result<()
 }
 
 fn snark_scalar_field_modulus() -> FieldElement {
-    parse_decimal_field(
-        "21888242871839275222246405745257275088548364400416034343698204186575808495617",
-    )
-    .expect("valid BN254 scalar field modulus")
+    *SNARK_SCALAR_FIELD_MODULUS
 }
 
 #[cfg(test)]
@@ -256,6 +286,28 @@ mod tests {
 
         assert_eq!(proof.index, 1);
         assert!(verify_merkle_proof(&proof));
+    }
+
+    #[test]
+    fn rejects_non_canonical_leaves_without_panicking() {
+        let modulus = snark_scalar_field_modulus();
+        assert!(matches!(
+            generate_merkle_proof(&[modulus], modulus),
+            Err(TreeError::NonCanonicalField { field, .. }) if field == "leaf"
+        ));
+    }
+
+    #[test]
+    fn non_canonical_proofs_fail_closed() {
+        let modulus = snark_scalar_field_modulus();
+        let proof = MerkleProof {
+            root: U256::from(1_u64),
+            leaf: modulus,
+            index: 0,
+            siblings: vec![],
+        };
+
+        assert!(!verify_merkle_proof(&proof));
     }
 
     #[test]

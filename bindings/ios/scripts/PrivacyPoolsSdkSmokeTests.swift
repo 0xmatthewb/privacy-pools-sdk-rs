@@ -3,6 +3,8 @@ import PrivacyPoolsSdk
 import XCTest
 
 private let reportMarker = "PRIVACY_POOLS_IOS_NATIVE_REPORT="
+private let smokeReadConsistency = "finalized"
+private let smokeMaxFeeQuoteWei = "1000000000"
 
 final class PrivacyPoolsSdkSmokeTests: XCTestCase {
     func testNativeMobileParitySurface() throws {
@@ -213,6 +215,79 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
             rpcUrl: try string(executionFixture, "validRpcUrl"),
             policy: executionPolicy(executionFixture)
         )
+        guard prepared.preflight.readConsistency == smokeReadConsistency else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkSmoke",
+                code: 4,
+                userInfo: [NSLocalizedDescriptionKey: "execution policy read_consistency did not round-trip"]
+            )
+        }
+        guard prepared.preflight.maxFeeQuoteWei == smokeMaxFeeQuoteWei else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkSmoke",
+                code: 5,
+                userInfo: [NSLocalizedDescriptionKey: "execution policy max_fee_quote_wei did not round-trip"]
+            )
+        }
+        let nullablePrepared = try PrivacyPoolsSdkClient.prepareWithdrawalExecution(
+            backendProfile: "stable",
+            manifestJson: withdrawalManifest,
+            artifactsRoot: artifactsRoot,
+            request: withdrawalRequest,
+            chainId: UInt64(try integer(executionFixture, "expectedChainId")),
+            poolAddress: try string(executionFixture, "poolAddress"),
+            rpcUrl: try string(executionFixture, "validRpcUrl"),
+            policy: FfiExecutionPolicy(
+                expectedChainId: UInt64(try integer(executionFixture, "expectedChainId")),
+                caller: try string(executionFixture, "caller"),
+                expectedPoolCodeHash: try string(executionFixture, "expectedPoolCodeHash"),
+                expectedEntrypointCodeHash: try string(executionFixture, "expectedEntrypointCodeHash"),
+                readConsistency: nil,
+                maxFeeQuoteWei: nil,
+                mode: "strict"
+            )
+        )
+        guard nullablePrepared.preflight.readConsistency == nil else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkSmoke",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "null read_consistency did not round-trip"]
+            )
+        }
+        guard nullablePrepared.preflight.maxFeeQuoteWei == nil else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkSmoke",
+                code: 7,
+                userInfo: [NSLocalizedDescriptionKey: "null max_fee_quote_wei did not round-trip"]
+            )
+        }
+        let signerHandle = "host-signer-collision"
+        _ = try PrivacyPoolsSdkClient.registerHostProvidedSigner(
+            handle: signerHandle,
+            address: try string(executionFixture, "caller")
+        )
+        let handleCollisionRejected: Bool
+        do {
+            _ = try PrivacyPoolsSdkClient.registerHostProvidedSigner(
+                handle: signerHandle,
+                address: try string(executionFixture, "caller")
+            )
+            handleCollisionRejected = false
+        } catch let error as FfiError {
+            if case .HandleAlreadyRegistered = error {
+                handleCollisionRejected = true
+            } else {
+                throw error
+            }
+        }
+        _ = try PrivacyPoolsSdkClient.unregisterSigner(handle: signerHandle)
+        guard handleCollisionRejected else {
+            throw NSError(
+                domain: "PrivacyPoolsSdkSmoke",
+                code: 8,
+                userInfo: [NSLocalizedDescriptionKey: "duplicate signer handles must fail closed"]
+            )
+        }
         let finalized = try PrivacyPoolsSdkClient.finalizePreparedTransaction(
             rpcUrl: try string(executionFixture, "validRpcUrl"),
             prepared: prepared
@@ -254,6 +329,8 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
                     caller: try string(executionFixture, "caller"),
                     expectedPoolCodeHash: mutateHex(try string(executionFixture, "expectedPoolCodeHash")),
                     expectedEntrypointCodeHash: try string(executionFixture, "expectedEntrypointCodeHash"),
+                    readConsistency: smokeReadConsistency,
+                    maxFeeQuoteWei: smokeMaxFeeQuoteWei,
                     mode: "strict"
                 )
             )
@@ -511,6 +588,8 @@ final class PrivacyPoolsSdkSmokeTests: XCTestCase {
             caller: try string(fixture, "caller"),
             expectedPoolCodeHash: try string(fixture, "expectedPoolCodeHash"),
             expectedEntrypointCodeHash: try string(fixture, "expectedEntrypointCodeHash"),
+            readConsistency: smokeReadConsistency,
+            maxFeeQuoteWei: smokeMaxFeeQuoteWei,
             mode: "strict"
         )
     }

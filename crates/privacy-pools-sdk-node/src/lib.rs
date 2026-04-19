@@ -39,8 +39,8 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-use zeroize::Zeroize;
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -937,8 +937,8 @@ pub fn verify_artifact_bytes(
         &artifacts_json,
         MAX_ARTIFACT_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_artifact_bytes)
-        .map_err(to_napi_error)?;
+    .and_then(from_js_artifact_bytes)
+    .map_err(to_napi_error)?;
     let bundle = SDK
         .verify_artifact_bundle_bytes(&manifest, &circuit, artifacts)
         .map_err(to_napi_error)?;
@@ -971,13 +971,12 @@ pub fn verify_signed_manifest_artifacts(
     public_key_hex: String,
     artifacts_json: String,
 ) -> NapiResult<String> {
-    let artifacts =
-        parse_json_with_limit::<Vec<JsSignedManifestArtifactBytes>>(
-            &artifacts_json,
-            MAX_ARTIFACT_JSON_INPUT_BYTES,
-        )
-        .and_then(from_js_signed_manifest_artifact_bytes)
-        .map_err(to_napi_error)?;
+    let artifacts = parse_json_with_limit::<Vec<JsSignedManifestArtifactBytes>>(
+        &artifacts_json,
+        MAX_ARTIFACT_JSON_INPUT_BYTES,
+    )
+    .and_then(from_js_signed_manifest_artifact_bytes)
+    .map_err(to_napi_error)?;
     let verified = privacy_pools_sdk::artifacts::verify_signed_manifest_artifact_bytes(
         payload_json.as_bytes(),
         &signature_hex,
@@ -1025,8 +1024,8 @@ pub fn prepare_withdrawal_circuit_session_from_bytes(
         &artifacts_json,
         MAX_ARTIFACT_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_artifact_bytes)
-        .map_err(to_napi_error)?;
+    .and_then(from_js_artifact_bytes)
+    .map_err(to_napi_error)?;
     let bundle = SDK
         .verify_artifact_bundle_bytes(&manifest, "withdraw", artifacts)
         .map_err(to_napi_error)?;
@@ -1090,8 +1089,8 @@ pub fn prepare_commitment_circuit_session_from_bytes(
         &artifacts_json,
         MAX_ARTIFACT_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_artifact_bytes)
-        .map_err(to_napi_error)?;
+    .and_then(from_js_artifact_bytes)
+    .map_err(to_napi_error)?;
     let bundle = SDK
         .verify_artifact_bundle_bytes(&manifest, "commitment", artifacts)
         .map_err(to_napi_error)?;
@@ -1890,12 +1889,10 @@ pub fn is_current_state_root(expected_root: String, current_root: String) -> Nap
 
 #[napi]
 pub fn checkpoint_recovery(events_json: String, policy_json: String) -> NapiResult<String> {
-    let events = parse_json_with_limit::<Vec<JsPoolEvent>>(
-        &events_json,
-        MAX_RECOVERY_JSON_INPUT_BYTES,
-    )
-        .and_then(from_js_pool_events)
-        .map_err(to_napi_error)?;
+    let events =
+        parse_json_with_limit::<Vec<JsPoolEvent>>(&events_json, MAX_RECOVERY_JSON_INPUT_BYTES)
+            .and_then(from_js_pool_events)
+            .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))
         .map_err(to_napi_error)?;
@@ -1926,8 +1923,8 @@ pub fn recover_account_state(
         &pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_pool_recovery_inputs)
-        .map_err(to_napi_error)?;
+    .and_then(from_js_pool_recovery_inputs)
+    .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))
         .map_err(to_napi_error)?;
@@ -1950,8 +1947,8 @@ pub fn recover_account_state_with_keyset(
         &pools_json,
         MAX_RECOVERY_JSON_INPUT_BYTES,
     )
-        .and_then(from_js_pool_recovery_inputs)
-        .map_err(to_napi_error)?;
+    .and_then(from_js_pool_recovery_inputs)
+    .map_err(to_napi_error)?;
     let policy = parse_json::<JsRecoveryPolicy>(&policy_json)
         .and_then(|policy| from_js_recovery_policy(&policy))
         .map_err(to_napi_error)?;

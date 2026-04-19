@@ -148,8 +148,8 @@ fn strict_policy(
         expected_pool_code_hash: Some(expected_pool_code_hash),
         expected_entrypoint_code_hash: Some(expected_entrypoint_code_hash),
         mode: ExecutionPolicyMode::Strict,
-            read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+        read_consistency: ReadConsistency::Latest,
+        max_fee_quote_wei: None,
     }
 }
 

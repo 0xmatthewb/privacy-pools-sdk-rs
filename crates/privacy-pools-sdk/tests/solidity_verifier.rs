@@ -1,18 +1,10 @@
-use alloy_primitives::{address, bytes, U256};
+use alloy_primitives::{U256, address, bytes};
 use alloy_sol_types::SolValue;
 use privacy_pools_sdk::{
-    PrivacyPoolsSdk,
-    artifacts::ArtifactManifest,
-    chain, core,
-    prover::BackendProfile,
+    PrivacyPoolsSdk, artifacts::ArtifactManifest, chain, core, prover::BackendProfile,
 };
 use serde_json::Value;
-use std::{
-    fs,
-    path::PathBuf,
-    process::Command,
-    str::FromStr,
-};
+use std::{fs, path::PathBuf, process::Command, str::FromStr};
 
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -77,7 +69,9 @@ fn reference_withdrawal_request(sdk: &PrivacyPoolsSdk) -> core::WithdrawalWitnes
         .expect("new nullifier")
         .into(),
         new_secret: U256::from_str(
-            withdrawal_fixture["newSecret"].as_str().expect("new secret"),
+            withdrawal_fixture["newSecret"]
+                .as_str()
+                .expect("new secret"),
         )
         .expect("new secret")
         .into(),
@@ -99,9 +93,7 @@ fn witness_from_fixture(value: &Value) -> core::CircuitMerkleWitness {
     }
 }
 
-fn proof_coordinates(
-    proof: &core::ProofBundle,
-) -> ([U256; 2], [[U256; 2]; 2], [U256; 2]) {
+fn proof_coordinates(proof: &core::ProofBundle) -> ([U256; 2], [[U256; 2]; 2], [U256; 2]) {
     let parse = |value: &str, field: &str| {
         core::parse_decimal_field(value)
             .unwrap_or_else(|error| panic!("failed to parse {field}: {error}"))

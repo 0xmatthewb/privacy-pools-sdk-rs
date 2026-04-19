@@ -67,8 +67,10 @@ pub const WITHDRAW_PUBLIC_SIGNAL_COUNT: usize = 8;
 pub const RAGEQUIT_PUBLIC_SIGNAL_COUNT: usize = 4;
 
 static WITHDRAW_VKEY_PUBLIC_SIGNAL_COUNT: LazyLock<usize> = LazyLock::new(|| {
-    parse_vkey_public_signal_count(include_str!("../../../fixtures/artifacts/withdraw.vkey.json"))
-        .expect("withdraw verification key should declare nPublic")
+    parse_vkey_public_signal_count(include_str!(
+        "../../../fixtures/artifacts/withdraw.vkey.json"
+    ))
+    .expect("withdraw verification key should declare nPublic")
 });
 
 #[derive(Debug, Error)]
@@ -79,7 +81,9 @@ pub enum ChainError {
     InvalidWithdrawPublicSignals(usize),
     #[error("ragequit proof must contain exactly 4 public signals, got {0}")]
     InvalidRagequitPublicSignals(usize),
-    #[error("{circuit} verification key expects {actual} public signals but formatter expects {expected}")]
+    #[error(
+        "{circuit} verification key expects {actual} public signals but formatter expects {expected}"
+    )]
     PublicSignalCountDrift {
         circuit: &'static str,
         expected: usize,
@@ -786,14 +790,14 @@ fn ensure_public_signal_count(
 }
 
 fn parse_vkey_public_signal_count(vkey_json: &str) -> Result<usize, ChainError> {
-    let json: Value =
-        serde_json::from_str(vkey_json).map_err(|error| ChainError::InvalidRelayData(error.to_string()))?;
-    let count = json
-        .get("nPublic")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| ChainError::InvalidRelayData("verification key missing nPublic".to_owned()))?;
-    usize::try_from(count)
-        .map_err(|_| ChainError::InvalidRelayData("verification key nPublic exceeds usize".to_owned()))
+    let json: Value = serde_json::from_str(vkey_json)
+        .map_err(|error| ChainError::InvalidRelayData(error.to_string()))?;
+    let count = json.get("nPublic").and_then(Value::as_u64).ok_or_else(|| {
+        ChainError::InvalidRelayData("verification key missing nPublic".to_owned())
+    })?;
+    usize::try_from(count).map_err(|_| {
+        ChainError::InvalidRelayData("verification key nPublic exceeds usize".to_owned())
+    })
 }
 
 pub async fn preflight_withdrawal<C: ExecutionClient>(
@@ -967,22 +971,26 @@ pub async fn reconfirm_preflight<C: ExecutionClient>(
                     "relay preflight report is missing a pool state root check".to_owned(),
                 )
             })?;
-        verify_pool_entrypoint_address(client, pool_address, report.target, report.read_consistency)
-            .await?;
+        verify_pool_entrypoint_address(
+            client,
+            pool_address,
+            report.target,
+            report.read_consistency,
+        )
+        .await?;
     }
 
     let mut root_checks = Vec::with_capacity(report.root_checks.len());
     for check in &report.root_checks {
         match check.kind {
             RootReadKind::PoolState => {
-                let actual_root =
-                    verify_known_pool_root(
-                        client,
-                        check.pool_address,
-                        check.expected_root,
-                        report.read_consistency,
-                    )
-                    .await?;
+                let actual_root = verify_known_pool_root(
+                    client,
+                    check.pool_address,
+                    check.expected_root,
+                    report.read_consistency,
+                )
+                .await?;
                 root_checks.push(RootCheck {
                     kind: check.kind,
                     contract_address: check.contract_address,
@@ -1144,14 +1152,13 @@ async fn preflight_transaction<C: ExecutionClient>(
     for (read, expected_root, mismatch_error) in root_reads {
         match read.kind {
             RootReadKind::PoolState => {
-                let actual_root =
-                    verify_known_pool_root(
-                        client,
-                        read.pool_address,
-                        expected_root,
-                        read.consistency,
-                    )
-                    .await?;
+                let actual_root = verify_known_pool_root(
+                    client,
+                    read.pool_address,
+                    expected_root,
+                    read.consistency,
+                )
+                .await?;
                 root_checks.push(RootCheck {
                     kind: read.kind,
                     contract_address: read.contract_address,
@@ -1352,7 +1359,11 @@ async fn verify_known_pool_root<C: ExecutionClient>(
 
     for _ in 0..ROOT_HISTORY_SIZE {
         let historical_root = client
-            .read_root(&historical_state_root_read(pool_address, index, consistency))
+            .read_root(&historical_state_root_read(
+                pool_address,
+                index,
+                consistency,
+            ))
             .await?;
         if historical_root == expected_root {
             return Ok(actual_known_root(expected_root));
@@ -1373,7 +1384,10 @@ fn block_id_for_consistency(consistency: ReadConsistency) -> BlockId {
     }
 }
 
-fn enforce_fee_cap(max_fee_quote_wei: Option<u128>, fees: &FeeParameters) -> Result<(), ChainError> {
+fn enforce_fee_cap(
+    max_fee_quote_wei: Option<u128>,
+    fees: &FeeParameters,
+) -> Result<(), ChainError> {
     let Some(cap) = max_fee_quote_wei else {
         return Ok(());
     };
@@ -2270,7 +2284,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         let report = preflight_withdrawal(&client, &plan, pool, state_root, asp_root, &policy)
@@ -2355,7 +2369,7 @@ mod tests {
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2448,7 +2462,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2528,7 +2542,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2626,7 +2640,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         let report =
@@ -2714,7 +2728,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2801,7 +2815,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2867,7 +2881,7 @@ mod tests {
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -2934,7 +2948,7 @@ mod tests {
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -3030,7 +3044,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -3118,7 +3132,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -3189,7 +3203,7 @@ mod tests {
             expected_entrypoint_code_hash: None,
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
 
         assert!(matches!(
@@ -3284,7 +3298,7 @@ mod tests {
             )),
             mode: ExecutionPolicyMode::Strict,
             read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+            max_fee_quote_wei: None,
         };
         let report = preflight_relay(
             &valid_client,

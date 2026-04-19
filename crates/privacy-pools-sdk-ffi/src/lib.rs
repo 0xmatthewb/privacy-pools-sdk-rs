@@ -12,11 +12,11 @@ use privacy_pools_sdk::{
     },
     core::{
         CircuitMerkleWitness, CodeHashCheck, CommitmentCircuitInput, CommitmentWitnessRequest,
-        ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport, ReadConsistency,
+        ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport,
         FinalizedTransactionRequest, FormattedGroth16Proof, MasterKeys, MerkleProof, ProofBundle,
-        RagequitExecutionConfig, RelayExecutionConfig, RootCheck, RootReadKind, SnarkJsProof,
-        TransactionPlan, TransactionReceiptSummary, Withdrawal, WithdrawalCircuitInput,
-        WithdrawalExecutionConfig, WithdrawalWitnessRequest,
+        RagequitExecutionConfig, ReadConsistency, RelayExecutionConfig, RootCheck, RootReadKind,
+        SnarkJsProof, TransactionPlan, TransactionReceiptSummary, Withdrawal,
+        WithdrawalCircuitInput, WithdrawalExecutionConfig, WithdrawalWitnessRequest,
         wire::{
             WireCircuitMerkleWitness, WireCommitment, WireCommitmentCircuitInput,
             WireCommitmentWitnessRequest, WireWithdrawal, WireWithdrawalCircuitInput,
@@ -4254,12 +4254,8 @@ mod tests {
         let asp_call = format!(
             "0x{}",
             hex::encode(
-                privacy_pools_sdk::chain::asp_root_read(
-                    entrypoint,
-                    pool,
-                    ReadConsistency::Latest,
-                )
-                .call_data
+                privacy_pools_sdk::chain::asp_root_read(entrypoint, pool, ReadConsistency::Latest,)
+                    .call_data
             )
         );
 

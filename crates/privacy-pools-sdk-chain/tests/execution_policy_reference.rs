@@ -129,8 +129,8 @@ fn strict_policy(fixture: &ExecutionPolicyFixture) -> ExecutionPolicy {
         expected_pool_code_hash: Some(B256::from_str(&fixture.pool_code_hash).unwrap()),
         expected_entrypoint_code_hash: Some(B256::from_str(&fixture.entrypoint_code_hash).unwrap()),
         mode: ExecutionPolicyMode::Strict,
-            read_consistency: ReadConsistency::Latest,
-            max_fee_quote_wei: None
+        read_consistency: ReadConsistency::Latest,
+        max_fee_quote_wei: None,
     }
 }
 

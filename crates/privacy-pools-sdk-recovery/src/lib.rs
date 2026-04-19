@@ -437,7 +437,10 @@ fn normalize_ragequit_events(
 
     let mut normalized: Vec<RagequitEvent> = Vec::new();
     for event in &ordered {
-        if normalized.iter().any(|candidate| candidate.label == event.label) {
+        if normalized
+            .iter()
+            .any(|candidate| candidate.label == event.label)
+        {
             continue;
         }
 

@@ -18,6 +18,8 @@ class NativeProveVerifyInstrumentedTest {
     companion object {
         private const val REPORT_TAG = "PrivacyPoolsNativeSmoke"
         private const val REPORT_MARKER = "PRIVACY_POOLS_ANDROID_NATIVE_REPORT"
+        private const val SMOKE_READ_CONSISTENCY = "finalized"
+        private const val SMOKE_MAX_FEE_QUOTE_WEI = "1000000000"
     }
 
     private val context: Context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -231,6 +233,48 @@ class NativeProveVerifyInstrumentedTest {
             executionFixture.getString("validRpcUrl"),
             executionPolicy(executionFixture),
         )
+        require(prepared.preflight.readConsistency == SMOKE_READ_CONSISTENCY) {
+            "execution policy read_consistency did not round-trip"
+        }
+        require(prepared.preflight.maxFeeQuoteWei == SMOKE_MAX_FEE_QUOTE_WEI) {
+            "execution policy max_fee_quote_wei did not round-trip"
+        }
+        val nullablePrepared = PrivacyPoolsSdk.prepareWithdrawalExecution(
+            "stable",
+            withdrawalManifest,
+            artifactsRoot,
+            withdrawalRequest,
+            executionFixture.getLong("expectedChainId").toULong(),
+            executionFixture.getString("poolAddress"),
+            executionFixture.getString("validRpcUrl"),
+            executionPolicy(executionFixture).copy(
+                readConsistency = null,
+                maxFeeQuoteWei = null,
+            ),
+        )
+        require(nullablePrepared.preflight.readConsistency == null) {
+            "null read_consistency did not round-trip"
+        }
+        require(nullablePrepared.preflight.maxFeeQuoteWei == null) {
+            "null max_fee_quote_wei did not round-trip"
+        }
+        val signerHandle = "host-signer-collision"
+        PrivacyPoolsSdk.registerHostProvidedSigner(
+            signerHandle,
+            executionFixture.getString("caller"),
+        )
+        val handleCollisionRejected = try {
+            PrivacyPoolsSdk.registerHostProvidedSigner(
+                signerHandle,
+                executionFixture.getString("caller"),
+            )
+            false
+        } catch (_: FfiException.HandleAlreadyRegistered) {
+            true
+        } finally {
+            PrivacyPoolsSdk.unregisterSigner(signerHandle)
+        }
+        require(handleCollisionRejected) { "duplicate signer handles must fail closed" }
         val finalized = PrivacyPoolsSdk.finalizePreparedTransaction(
             executionFixture.getString("validRpcUrl"),
             prepared,
@@ -531,6 +575,8 @@ class NativeProveVerifyInstrumentedTest {
         fixture.getString("caller"),
         fixture.getString("expectedPoolCodeHash"),
         fixture.getString("expectedEntrypointCodeHash"),
+        SMOKE_READ_CONSISTENCY,
+        SMOKE_MAX_FEE_QUOTE_WEI,
         "strict",
     )
 

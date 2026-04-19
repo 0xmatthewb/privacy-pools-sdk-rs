@@ -3915,6 +3915,48 @@ public func clearVerifiedProofHandles()throws  -> Bool  {
     )
 })
 }
+public func dangerouslyExportCommitmentPreimage(handle: String)throws  -> FfiCommitment  {
+    return try  FfiConverterTypeFfiCommitment_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_commitment_preimage(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func dangerouslyExportFinalizedPreflightedTransaction(handle: String)throws  -> FfiFinalizedPreflightedTransaction  {
+    return try  FfiConverterTypeFfiFinalizedPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_finalized_preflighted_transaction(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func dangerouslyExportMasterKeys(handle: String)throws  -> FfiMasterKeys  {
+    return try  FfiConverterTypeFfiMasterKeys_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_master_keys(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func dangerouslyExportPreflightedTransaction(handle: String)throws  -> FfiPreflightedTransaction  {
+    return try  FfiConverterTypeFfiPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_preflighted_transaction(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func dangerouslyExportSecret(handle: String)throws  -> FfiSecrets  {
+    return try  FfiConverterTypeFfiSecrets_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_secret(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
+public func dangerouslyExportSubmittedPreflightedTransaction(handle: String)throws  -> FfiSubmittedPreflightedTransaction  {
+    return try  FfiConverterTypeFfiSubmittedPreflightedTransaction_lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
+    uniffi_privacy_pools_sdk_ffi_fn_func_dangerously_export_submitted_preflighted_transaction(
+        FfiConverterString.lower(handle),$0
+    )
+})
+}
 public func deriveMasterKeysHandle(mnemonic: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
     uniffi_privacy_pools_sdk_ffi_fn_func_derive_master_keys_handle(
@@ -4610,6 +4652,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_clear_verified_proof_handles() != 21286) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_commitment_preimage() != 10373) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_finalized_preflighted_transaction() != 19222) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_master_keys() != 61984) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_preflighted_transaction() != 33607) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_secret() != 41510) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_privacy_pools_sdk_ffi_checksum_func_dangerously_export_submitted_preflighted_transaction() != 18160) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_privacy_pools_sdk_ffi_checksum_func_derive_master_keys_handle() != 60279) {
