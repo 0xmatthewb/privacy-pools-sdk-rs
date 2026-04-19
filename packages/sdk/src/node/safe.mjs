@@ -262,4 +262,5 @@ export {
   planWithdrawalTransaction,
   recoverAccountState,
   recoverAccountStateWithKeyset,
+  WithdrawalService,
 } from "./index.mjs";

@@ -79,6 +79,17 @@ class PrivacyPoolsSdkModule(
             ?.lowercase()
             ?: "ffi_error"
 
+    private inline fun <T> withFfiCatching(promise: Promise, block: () -> T) {
+        runCatching(block).fold(
+            onSuccess = { result ->
+                if (result != Unit) {
+                    promise.resolve(result)
+                }
+            },
+            onFailure = { rejectPromise(promise, it) }
+        )
+    }
+
     @ReactMethod
     fun getVersion(promise: Promise) {
         promise.resolve(NativeSdk.version())
@@ -86,30 +97,22 @@ class PrivacyPoolsSdkModule(
 
     @ReactMethod
     fun getStableBackendName(promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.stableBackendName())
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun deriveMasterKeysHandle(mnemonic: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.masterKeysHandle(mnemonic.encodeToByteArray()))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun deriveMasterKeysHandleBytes(mnemonicBytes: ReadableArray, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.masterKeysHandle(readableByteArray(mnemonicBytes)))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -125,10 +128,8 @@ class PrivacyPoolsSdkModule(
         index: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.depositSecretsHandle(masterKeysHandle, scope, index))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -139,10 +140,8 @@ class PrivacyPoolsSdkModule(
         index: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.withdrawalSecretsHandle(masterKeysHandle, label, index))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -159,14 +158,12 @@ class PrivacyPoolsSdkModule(
         secret: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 commitmentMap(
                     NativeSdk.commitment(value, label, nullifier, secret)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -177,10 +174,8 @@ class PrivacyPoolsSdkModule(
         secretsHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.commitmentFromHandles(value, label, secretsHandle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -191,86 +186,66 @@ class PrivacyPoolsSdkModule(
 
     @ReactMethod
     fun buildWithdrawalWitnessRequestHandle(request: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.withdrawalWitnessRequestHandle(
                     withdrawalWitnessRequestRecord(request)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun removeSecretHandle(handle: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.removeSecretHandle(handle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun clearSecretHandles(promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.clearSecretHandles())
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun removeVerifiedProofHandle(handle: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.removeVerifiedProofHandle(handle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun clearVerifiedProofHandles(promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.clearVerifiedProofHandles())
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun calculateWithdrawalContext(withdrawal: ReadableMap, scope: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.withdrawalContext(withdrawalRecord(withdrawal), scope)
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun generateMerkleProof(leaves: ReadableArray, leaf: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 merkleProofMap(
                     NativeSdk.merkleProof(readableStringList(leaves), leaf)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun buildCircuitMerkleWitness(proof: ReadableMap, depth: Double, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 circuitMerkleWitnessMap(
                     NativeSdk.circuitMerkleWitness(
@@ -279,40 +254,28 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun buildWithdrawalCircuitInput(request: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 withdrawalCircuitInputMap(
                     NativeSdk.withdrawalCircuitInput(withdrawalWitnessRequestRecord(request))
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun buildCommitmentCircuitInput(request: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 commitmentCircuitInputMap(
                     NativeSdk.commitmentCircuitInput(commitmentWitnessRequestRecord(request))
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -322,14 +285,12 @@ class PrivacyPoolsSdkModule(
         artifactsRoot: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 withdrawalCircuitSessionHandleMap(
                     NativeSdk.prepareWithdrawalCircuitSession(manifestJson, artifactsRoot)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -339,7 +300,7 @@ class PrivacyPoolsSdkModule(
         artifacts: ReadableArray,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 withdrawalCircuitSessionHandleMap(
                     NativeSdk.prepareWithdrawalCircuitSessionFromBytes(
@@ -348,19 +309,13 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun removeWithdrawalCircuitSession(handle: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.removeWithdrawalCircuitSession(handle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -370,14 +325,12 @@ class PrivacyPoolsSdkModule(
         artifactsRoot: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 commitmentCircuitSessionHandleMap(
                     NativeSdk.prepareCommitmentCircuitSession(manifestJson, artifactsRoot)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -387,7 +340,7 @@ class PrivacyPoolsSdkModule(
         artifacts: ReadableArray,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 commitmentCircuitSessionHandleMap(
                     NativeSdk.prepareCommitmentCircuitSessionFromBytes(
@@ -396,19 +349,13 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun removeCommitmentCircuitSession(handle: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.removeCommitmentCircuitSession(handle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -420,7 +367,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveWithdrawal(
@@ -431,10 +378,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -446,7 +389,7 @@ class PrivacyPoolsSdkModule(
         requestHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveWithdrawalWithHandles(
@@ -457,10 +400,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -471,7 +410,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveWithdrawalWithSession(
@@ -481,10 +420,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -496,7 +431,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveCommitment(
@@ -507,10 +442,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -522,7 +453,7 @@ class PrivacyPoolsSdkModule(
         requestHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveCommitmentWithHandle(
@@ -533,10 +464,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -547,7 +474,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 provingResultMap(
                     NativeSdk.proveCommitmentWithSession(
@@ -557,10 +484,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -572,7 +495,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startProveWithdrawalJob(
@@ -583,10 +506,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -597,7 +516,7 @@ class PrivacyPoolsSdkModule(
         request: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startProveWithdrawalJobWithSession(
@@ -607,10 +526,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -622,7 +537,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyWithdrawalProof(
                     backendProfile,
@@ -631,10 +546,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -645,7 +556,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyWithdrawalProofWithSession(
                     backendProfile,
@@ -653,10 +564,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -668,7 +575,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyCommitmentProof(
                     backendProfile,
@@ -677,10 +584,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -691,7 +594,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyCommitmentProofWithSession(
                     backendProfile,
@@ -699,10 +602,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -714,7 +613,7 @@ class PrivacyPoolsSdkModule(
         requestHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.proveAndVerifyCommitmentHandle(
                     backendProfile,
@@ -723,8 +622,6 @@ class PrivacyPoolsSdkModule(
                     requestHandle,
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -736,7 +633,7 @@ class PrivacyPoolsSdkModule(
         requestHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.proveAndVerifyWithdrawalHandle(
                     backendProfile,
@@ -745,8 +642,6 @@ class PrivacyPoolsSdkModule(
                     requestHandle,
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -759,7 +654,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyCommitmentProofForRequestHandle(
                     backendProfile,
@@ -769,10 +664,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -785,7 +676,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyRagequitProofForRequestHandle(
                     backendProfile,
@@ -795,10 +686,6 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -811,7 +698,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.verifyWithdrawalProofForRequestHandle(
                     backendProfile,
@@ -821,54 +708,34 @@ class PrivacyPoolsSdkModule(
                     proofBundleRecord(proof),
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun pollJobStatus(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(asyncJobStatusMap(NativeSdk.pollJobStatus(jobId)))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun getProveWithdrawalJobResult(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.getProveWithdrawalJobResult(jobId)?.let(::provingResultMap))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun cancelJob(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.cancelJob(jobId))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun removeJob(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.removeJob(jobId))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -884,7 +751,7 @@ class PrivacyPoolsSdkModule(
         policy: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 preparedExecutionMap(
                     NativeSdk.prepareWithdrawalExecution(
@@ -899,10 +766,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -934,7 +797,7 @@ class PrivacyPoolsSdkModule(
         policy: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startPrepareWithdrawalExecutionJob(
@@ -949,16 +812,12 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun startPrepareWithdrawalExecutionJobPayload(payload: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startPrepareWithdrawalExecutionJob(
@@ -973,23 +832,15 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun getPrepareWithdrawalExecutionJobResult(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.getPrepareWithdrawalExecutionJobResult(jobId)?.let(::preparedExecutionMap)
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1006,7 +857,7 @@ class PrivacyPoolsSdkModule(
         policy: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 preparedExecutionMap(
                     NativeSdk.prepareRelayExecution(
@@ -1022,10 +873,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1059,7 +906,7 @@ class PrivacyPoolsSdkModule(
         policy: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startPrepareRelayExecutionJob(
@@ -1075,16 +922,12 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun startPrepareRelayExecutionJobPayload(payload: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 asyncJobHandleMap(
                     NativeSdk.startPrepareRelayExecutionJob(
@@ -1100,29 +943,21 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun getPrepareRelayExecutionJobResult(jobId: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 NativeSdk.getPrepareRelayExecutionJobResult(jobId)?.let(::preparedExecutionMap)
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun registerHostProvidedSigner(handle: String, address: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 signerHandleMap(
                     NativeSdk.registerHostProvidedSigner(
@@ -1131,14 +966,12 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun registerMobileSecureStorageSigner(handle: String, address: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 signerHandleMap(
                     NativeSdk.registerMobileSecureStorageSigner(
@@ -1147,19 +980,13 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun unregisterSigner(handle: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.unregisterSigner(handle))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1169,7 +996,7 @@ class PrivacyPoolsSdkModule(
         prepared: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 finalizedExecutionMap(
                     NativeSdk.finalizePreparedTransaction(
@@ -1178,10 +1005,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1192,7 +1015,7 @@ class PrivacyPoolsSdkModule(
         prepared: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 finalizedExecutionMap(
                     NativeSdk.finalizePreparedTransactionForSigner(
@@ -1202,10 +1025,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1216,7 +1035,7 @@ class PrivacyPoolsSdkModule(
         prepared: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 submittedExecutionMap(
                     NativeSdk.submitPreparedTransaction(
@@ -1226,10 +1045,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1240,7 +1055,7 @@ class PrivacyPoolsSdkModule(
         signedTransaction: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 submittedExecutionMap(
                     NativeSdk.submitSignedTransaction(
@@ -1250,10 +1065,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1265,7 +1076,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.withdrawalTransactionPlan(
@@ -1276,10 +1087,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1292,7 +1099,7 @@ class PrivacyPoolsSdkModule(
         scope: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.relayTransactionPlan(
@@ -1304,10 +1111,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1318,7 +1121,7 @@ class PrivacyPoolsSdkModule(
         proof: ReadableMap,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.ragequitTransactionPlan(
@@ -1328,10 +1131,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1342,7 +1141,7 @@ class PrivacyPoolsSdkModule(
         proofHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.verifiedWithdrawalTransactionPlan(
@@ -1352,8 +1151,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1364,7 +1161,7 @@ class PrivacyPoolsSdkModule(
         proofHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.verifiedRelayTransactionPlan(
@@ -1374,8 +1171,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1386,7 +1181,7 @@ class PrivacyPoolsSdkModule(
         proofHandle: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 transactionPlanMap(
                     NativeSdk.verifiedRagequitTransactionPlan(
@@ -1396,50 +1191,38 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun planPoolStateRootRead(poolAddress: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(rootReadMap(NativeSdk.poolStateRootRead(poolAddress)))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun planAspRootRead(entrypointAddress: String, poolAddress: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(rootReadMap(NativeSdk.aspRootRead(entrypointAddress, poolAddress)))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun isCurrentStateRoot(expectedRoot: String, currentRoot: String, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(NativeSdk.isCurrentStateRoot(expectedRoot, currentRoot))
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun formatGroth16ProofBundle(proof: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 formattedGroth16ProofMap(
                     NativeSdk.formatGroth16Proof(proofBundleRecord(proof))
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1451,7 +1234,7 @@ class PrivacyPoolsSdkModule(
         bytes: ReadableArray,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             val byteArray = ByteArray(bytes.size())
             for (index in 0 until bytes.size()) {
                 byteArray[index] = bytes.getInt(index).toByte()
@@ -1467,8 +1250,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1479,14 +1260,12 @@ class PrivacyPoolsSdkModule(
         publicKeyHex: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 verifiedSignedManifestMap(
                     NativeSdk.verifySignedManifest(payloadJson, signatureHex, publicKeyHex)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1498,7 +1277,7 @@ class PrivacyPoolsSdkModule(
         artifacts: ReadableArray,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 verifiedSignedManifestMap(
                     NativeSdk.verifySignedManifestArtifacts(
@@ -1509,10 +1288,6 @@ class PrivacyPoolsSdkModule(
                     )
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1523,13 +1298,11 @@ class PrivacyPoolsSdkModule(
         circuit: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             val result = Arguments.createArray()
             NativeSdk.artifactStatuses(manifestJson, artifactsRoot, circuit)
                 .forEach { status -> result.pushMap(artifactStatusMap(status)) }
             promise.resolve(result)
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1540,20 +1313,18 @@ class PrivacyPoolsSdkModule(
         circuit: String,
         promise: Promise,
     ) {
-        try {
+        withFfiCatching(promise) {
             promise.resolve(
                 resolvedArtifactBundleMap(
                     NativeSdk.resolvedArtifactBundle(manifestJson, artifactsRoot, circuit)
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
         }
     }
 
     @ReactMethod
     fun checkpointRecovery(events: ReadableArray, policy: ReadableMap, promise: Promise) {
-        try {
+        withFfiCatching(promise) {
             val eventRecords = List(events.size()) { index ->
                 poolEventRecord(events.getMap(index) ?: bridgeInputError("missing recovery event at index $index"))
             }
@@ -1563,10 +1334,6 @@ class PrivacyPoolsSdkModule(
                     NativeSdk.recoveryCheckpoint(eventRecords, recoveryPolicyRecord(policy))
                 )
             )
-        } catch (error: FfiException) {
-            rejectPromise(promise, error)
-        } catch (error: Exception) {
-            rejectPromise(promise, error)
         }
     }
 
@@ -1775,14 +1542,10 @@ class PrivacyPoolsSdkModule(
         block: () -> FfiPreparedTransactionExecution,
     ) {
         Thread {
-            try {
+            withFfiCatching(promise) {
                 val prepared = block()
                 promise.resolve(preparedExecutionMap(prepared))
-            } catch (error: FfiException) {
-                rejectPromise(promise, error)
-            } catch (error: Exception) {
-                rejectPromise(promise, error)
-            }
+        }
         }.start()
     }
 

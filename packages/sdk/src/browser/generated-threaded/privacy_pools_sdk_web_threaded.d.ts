@@ -25,27 +25,17 @@ export function clearSecretHandles(): boolean;
 
 export function clearVerifiedProofHandles(): boolean;
 
-export function dangerouslyExportCommitmentPreimage(handle: string): string;
-
-export function dangerouslyExportFinalizedPreflightedTransaction(handle: string): string;
-
-export function dangerouslyExportMasterKeys(handle: string): string;
-
-export function dangerouslyExportPreflightedTransaction(handle: string): string;
-
-export function dangerouslyExportSecret(handle: string): string;
-
-export function dangerouslyExportSubmittedPreflightedTransaction(handle: string): string;
-
-export function deriveDepositSecretsJson(master_keys_json: string, scope: string, index: string): string;
-
 export function deriveMasterKeysHandle(mnemonic: string): string;
 
-export function deriveMasterKeysJson(mnemonic: string): string;
+export function deriveMasterKeysHandleBytes(mnemonic: Uint8Array): string;
 
 export function deriveRecoveryKeysetJson(mnemonic: string, policy_json: string): string;
 
-export function deriveWithdrawalSecretsJson(master_keys_json: string, label: string, index: string): string;
+export function exportFinalizedPreflightedTransactionInternal(handle: string): string;
+
+export function exportPreflightedTransactionInternal(handle: string): string;
+
+export function exportSubmittedPreflightedTransactionInternal(handle: string): string;
 
 export function formatGroth16ProofBundleJson(proof_json: string): string;
 
@@ -182,12 +172,12 @@ export interface InitOutput {
     readonly clearExecutionHandles: (a: number) => void;
     readonly clearSecretHandles: (a: number) => void;
     readonly clearVerifiedProofHandles: (a: number) => void;
-    readonly dangerouslyExportCommitmentPreimage: (a: number, b: number, c: number) => void;
-    readonly deriveDepositSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly deriveMasterKeysHandle: (a: number, b: number, c: number) => void;
-    readonly deriveMasterKeysJson: (a: number, b: number, c: number) => void;
+    readonly deriveMasterKeysHandleBytes: (a: number, b: number) => void;
     readonly deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly deriveWithdrawalSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly exportFinalizedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+    readonly exportPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+    readonly exportSubmittedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
     readonly formatGroth16ProofBundleJson: (a: number, b: number, c: number) => void;
     readonly generateDepositSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly generateMerkleProofJson: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -217,7 +207,6 @@ export interface InitOutput {
     readonly proveWithdrawalWithSessionWitnessJson: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly proveWithdrawalWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly recoverAccountStateJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly registerFinalizedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly registerReconfirmedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly registerSubmittedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -241,11 +230,7 @@ export interface InitOutput {
     readonly verifyWithdrawalProof: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly verifyWithdrawalProofForHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number) => void;
     readonly verifyWithdrawalProofWithSession: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly dangerouslyExportMasterKeys: (a: number, b: number, c: number) => void;
-    readonly dangerouslyExportSecret: (a: number, b: number, c: number) => void;
-    readonly dangerouslyExportPreflightedTransaction: (a: number, b: number, c: number) => void;
-    readonly dangerouslyExportFinalizedPreflightedTransaction: (a: number, b: number, c: number) => void;
-    readonly dangerouslyExportSubmittedPreflightedTransaction: (a: number, b: number, c: number) => void;
+    readonly recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
     readonly initThreadPool: (a: number) => number;
     readonly wbg_rayon_poolbuilder_build: (a: number) => void;

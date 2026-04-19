@@ -30,6 +30,16 @@ export const ErrorCode = Object.freeze({
   CompatibilityUnsupported: "compatibility_unsupported",
   MissingManifest: "missing_manifest",
   MissingArtifact: "missing_artifact",
+  chainIdMismatch: "chain-id-mismatch",
+  invalidSignedTransaction: "invalid-signed-transaction",
+  signerRequiresExternalSigning: "signer-requires-external-signing",
+  unmatchedRagequit: "unmatched-ragequit",
+  registryFull: "registry-full",
+  handleAlreadyRegistered: "handle-already-registered",
+  payloadTooLarge: "payload-too-large",
+  invalidMnemonic: "invalid-mnemonic",
+  invalidRelayData: "invalid-relay-data",
+  operationFailed: "operation-failed",
 });
 
 export const DEFAULT_LOG_FETCH_CONFIG = Object.freeze({

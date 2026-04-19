@@ -12,12 +12,12 @@ export const checkpointRecoveryJson: (a: number, b: number, c: number, d: number
 export const clearExecutionHandles: (a: number) => void;
 export const clearSecretHandles: (a: number) => void;
 export const clearVerifiedProofHandles: (a: number) => void;
-export const dangerouslyExportCommitmentPreimage: (a: number, b: number, c: number) => void;
-export const deriveDepositSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const deriveMasterKeysHandle: (a: number, b: number, c: number) => void;
-export const deriveMasterKeysJson: (a: number, b: number, c: number) => void;
+export const deriveMasterKeysHandleBytes: (a: number, b: number) => void;
 export const deriveRecoveryKeysetJson: (a: number, b: number, c: number, d: number, e: number) => void;
-export const deriveWithdrawalSecretsJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+export const exportFinalizedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+export const exportPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
+export const exportSubmittedPreflightedTransactionInternal: (a: number, b: number, c: number) => void;
 export const formatGroth16ProofBundleJson: (a: number, b: number, c: number) => void;
 export const generateDepositSecretsHandle: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const generateMerkleProofJson: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -47,7 +47,6 @@ export const proveWithdrawalWithSessionWitnessBinary: (a: number, b: number, c: 
 export const proveWithdrawalWithSessionWitnessJson: (a: number, b: number, c: number, d: number, e: number) => void;
 export const proveWithdrawalWithWitnessJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const recoverAccountStateJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-export const recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const registerFinalizedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
 export const registerReconfirmedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number) => void;
 export const registerSubmittedPreflightedTransactionJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -71,11 +70,7 @@ export const verifySignedManifestArtifactsJson: (a: number, b: number, c: number
 export const verifyWithdrawalProof: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
 export const verifyWithdrawalProofForHandlesJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: number) => void;
 export const verifyWithdrawalProofWithSession: (a: number, b: number, c: number, d: number, e: number) => void;
-export const dangerouslyExportMasterKeys: (a: number, b: number, c: number) => void;
-export const dangerouslyExportSecret: (a: number, b: number, c: number) => void;
-export const dangerouslyExportPreflightedTransaction: (a: number, b: number, c: number) => void;
-export const dangerouslyExportFinalizedPreflightedTransaction: (a: number, b: number, c: number) => void;
-export const dangerouslyExportSubmittedPreflightedTransaction: (a: number, b: number, c: number) => void;
+export const recoverAccountStateWithKeysetJson: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const __wbg_wbg_rayon_poolbuilder_free: (a: number, b: number) => void;
 export const initThreadPool: (a: number) => number;
 export const wbg_rayon_poolbuilder_build: (a: number) => void;
