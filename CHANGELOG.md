@@ -7,12 +7,33 @@ The Rust crate is named `privacy-pools-sdk`. The repository remains
 
 ## Unreleased
 
-- Prepare the Rust SDK for a publish-ready alpha without publishing crates.
-- Add crate metadata and versioned local dependencies for Cargo packaging.
-- Add redacted secret field-element types for Rust secret material.
-- Prefer the Rust-facing `processor` spelling inside `Withdrawal` while
-  preserving the protocol wire key `processooor`.
-- Add request/config object APIs for common derivation, commitment, proving,
-  and transaction-planning flows.
-- Add stable SDK error codes and broad error categories.
-- Add Rustdoc examples, a Rust SDK example, security policy, and release notes.
+### Security hardening
+
+- Fail closed on dynamic fee drift, signed manifest bounds, and browser/runtime
+  execution regressions.
+- Harden FFI background-job recovery, relay data handling, and typed preflight
+  reporting.
+
+### Assurance and fuzz
+
+- Add TS parity fixtures, wrong-chain fuzz seed coverage, preflight tooling,
+  cycle detection, cargo-audit config generation, and toolchain canary checks.
+- Add generated-artifact freshness, action pinning, and advisory-policy CI
+  ratchets.
+
+### Bindings
+
+- Refresh checked-in browser WASM artifacts and mobile bindings under a pinned
+  binaryen toolchain.
+- Add shared non-crypto bindings-core parser and limit foundations for web,
+  node, and ffi surfaces.
+
+### CI
+
+- Pin Linux runners to `ubuntu-22.04`, add nextest/JUnit preparation, and
+  expand release and PR workflow coverage.
+
+### Docs
+
+- Add preflight, regeneration, CI triage, binding parity, flake triage, and
+  toolchain upgrade runbooks.

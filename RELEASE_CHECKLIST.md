@@ -37,6 +37,11 @@ cargo install --locked cargo-hack cargo-audit cargo-deny cargo-vet cargo-geiger 
   checks, package dry run, binding generation drift checks, dependency checks,
   docs checks, browser SDK smoke, React Native package smoke, and React Native
   typecheck through `xtask assurance --profile pr`.
+- PR CI must also pass `cargo-deny-policy`, `rust-v1 parity`,
+  `check:generated`, `check:default-artifact-symbols`, `rust-fuzz-smoke`,
+  `solidity-verifier`, `mobile-smoke`, `dependency-cycles`, and `cargo-audit`.
+- `reference-benchmarks` is required for same-repo release-sensitive validation
+  when benchmark regression review is part of the promotion criteria.
 - The manual `release` workflow must pass release version checks, dependency
   checks, SBOM generation, packaging, and release evidence input bundling.
 - Local all-surface mobile smoke must pass for the same commit before
@@ -50,6 +55,8 @@ cargo install --locked cargo-hack cargo-audit cargo-deny cargo-vet cargo-geiger 
   performance review.
 - The scheduled `assurance-fuzz` workflow should be green on the candidate
   branch or the release branch tip before promotion work begins.
+- `cargo run -p xtask -- preflight` should be green locally before promotion
+  work starts from a maintainer workstation.
 
 ## Evidence Bundle
 

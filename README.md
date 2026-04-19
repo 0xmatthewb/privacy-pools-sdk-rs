@@ -146,6 +146,7 @@ cargo run -p xtask -- feature-check
 cargo run -p xtask -- package-check
 cargo run -p xtask -- dependency-check
 cargo run -p xtask -- release-check --channel alpha
+cargo run -p xtask -- preflight
 cargo run -p xtask -- assurance --profile pr --runtime all
 cargo run -p xtask -- assurance --profile nightly --runtime all --skip-fuzz
 cargo run -p xtask -- bindings
@@ -157,6 +158,20 @@ cargo run -p xtask -- sdk-smoke
 
 The regular CI workflow runs the fast Rust, Node, browser, and React Native
 assurance lanes on every push and pull request.
+For the local Rust PR gate, run `cargo run -p xtask -- preflight`.
+To wire that into Git locally, symlink
+`scripts/hooks/pre-push.sh` to `.git/hooks/pre-push`.
+
+### Dangerous Feature Gates
+
+The debug-only JS exports under `@0xmatthewb/privacy-pools-sdk/debug` stay split
+across two independent Cargo feature gates:
+
+| Feature | What it gates | JS exports |
+| --- | --- | --- |
+| `dangerous-key-export` | APIs that return plaintext secret material | `dangerouslyExportMasterKeys`, `dangerouslyExportCommitmentPreimage`, `dangerouslyExportSecret`, plus the matching `createWorkerDebugClient(...)` methods |
+| `dangerous-exports` | Debug and inspection APIs that do not return plaintext secret material | `dangerouslyExportPreflightedTransaction`, `dangerouslyExportFinalizedPreflightedTransaction`, `dangerouslyExportSubmittedPreflightedTransaction`, plus the matching `createWorkerDebugClient(...)` methods |
+
 `assurance-nightly.yml` is the scheduled continuous assessment path for the
 shared assurance catalog and can optionally ingest manually supplied mobile
 evidence. The heavyweight producer workflows remain on-demand:
@@ -187,7 +202,13 @@ Further documentation:
 - [`docs/v1-js-compatibility-matrix.md`](docs/v1-js-compatibility-matrix.md)
 - [`docs/assurance.md`](docs/assurance.md)
 - [`docs/assurance-review-guide.md`](docs/assurance-review-guide.md)
+- [`docs/binding-parity.md`](docs/binding-parity.md)
+- [`docs/ci-runbook.md`](docs/ci-runbook.md)
 - [`docs/dependency-audit.md`](docs/dependency-audit.md)
+- [`docs/flake-triage.md`](docs/flake-triage.md)
+- [`docs/preflight.md`](docs/preflight.md)
+- [`docs/regeneration.md`](docs/regeneration.md)
+- [`docs/toolchain-upgrade-protocol.md`](docs/toolchain-upgrade-protocol.md)
 - [`docs/audit-pack.md`](docs/audit-pack.md)
 - [`security/audit-ledger.md`](security/audit-ledger.md)
 - [`docs/multi-runtime-status.md`](docs/multi-runtime-status.md)
