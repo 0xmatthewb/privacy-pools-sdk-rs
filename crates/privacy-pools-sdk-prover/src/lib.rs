@@ -898,11 +898,11 @@ impl<'a> ByteReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigUint;
     use privacy_pools_sdk_artifacts::{
         ArtifactBytes, ArtifactDescriptor, ArtifactKind, ArtifactManifest,
     };
     use privacy_pools_sdk_core::{CommitmentCircuitInput, parse_decimal_field};
-    use num_bigint::BigUint;
     use serde_json::Value;
     use std::fs;
 

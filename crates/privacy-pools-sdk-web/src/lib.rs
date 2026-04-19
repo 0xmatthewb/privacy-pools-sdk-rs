@@ -593,9 +593,9 @@ fn secret_handle(handle: &str) -> Result<SecretHandleEntry> {
 
 fn register_verified_proof_handle(entry: VerifiedProofHandleEntry) -> Result<String> {
     let handle = Uuid::new_v4().to_string();
-    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY
-        .write()
-        .map_err(|error| anyhow::anyhow!("verified proof handle registry lock poisoned: {error}"))?;
+    let mut registry = VERIFIED_PROOF_HANDLE_REGISTRY.write().map_err(|error| {
+        anyhow::anyhow!("verified proof handle registry lock poisoned: {error}")
+    })?;
     evict_lowest_key_if_needed(&mut registry, MAX_VERIFIED_PROOF_HANDLES);
     registry.insert(handle.clone(), entry);
     Ok(handle)
@@ -3901,10 +3901,7 @@ fn prove_with_session_witness(
     session: &BrowserCircuitSession,
     witness_json: &str,
 ) -> Result<JsProvingResult> {
-    let witness = parse_json_with_limit::<Vec<String>>(
-        witness_json,
-        MAX_WITNESS_JSON_INPUT_BYTES,
-    )?;
+    let witness = parse_json_with_limit::<Vec<String>>(witness_json, MAX_WITNESS_JSON_INPUT_BYTES)?;
     let witness = prover::parse_witness_values(&witness)?;
     let prepared = session.prepared.as_ref().with_context(|| {
         format!(

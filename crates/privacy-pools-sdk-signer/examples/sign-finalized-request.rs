@@ -37,7 +37,9 @@ fn main() -> ExitCode {
 
 fn run() -> Result<String, String> {
     let mut args = env::args().skip(1);
-    let mnemonic = args.next().ok_or_else(|| "missing mnemonic argument".to_owned())?;
+    let mnemonic = args
+        .next()
+        .ok_or_else(|| "missing mnemonic argument".to_owned())?;
     let request_json = args
         .next()
         .ok_or_else(|| "missing finalized request JSON argument".to_owned())?;
@@ -46,7 +48,8 @@ fn run() -> Result<String, String> {
     }
 
     let request = parse_request(&request_json)?;
-    let signer = LocalMnemonicSigner::from_phrase_nth(&mnemonic, 0).map_err(|error| error.to_string())?;
+    let signer =
+        LocalMnemonicSigner::from_phrase_nth(&mnemonic, 0).map_err(|error| error.to_string())?;
     let signed = signer
         .sign_transaction_request(&request)
         .map_err(|error| error.to_string())?;

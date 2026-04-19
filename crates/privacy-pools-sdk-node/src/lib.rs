@@ -537,8 +537,8 @@ pub fn get_stable_backend_name() -> NapiResult<String> {
     SDK.stable_backend_name().map_err(to_napi_error)
 }
 
-#[napi]
 #[cfg(feature = "dangerous-key-export")]
+#[napi]
 pub fn derive_master_keys(mnemonic: String) -> NapiResult<String> {
     let keys = SDK.generate_master_keys(&mnemonic).map_err(to_napi_error)?;
     to_json_string(&privacy_pools_sdk::core::wire::WireMasterKeys::from(&keys))
@@ -567,8 +567,8 @@ pub fn derive_master_keys_handle_bytes(mnemonic: Buffer) -> NapiResult<String> {
     derive_master_keys_from_utf8_bytes(mnemonic.to_vec())
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::MasterKeys(keys) => {
@@ -580,8 +580,8 @@ pub fn dangerously_export_master_keys(handle: String) -> NapiResult<String> {
     }
 }
 
-#[napi]
 #[cfg(feature = "dangerous-key-export")]
+#[napi]
 pub fn derive_deposit_secrets(
     master_keys_json: String,
     scope: String,
@@ -633,8 +633,8 @@ pub fn generate_deposit_secrets_handle(
     .map_err(to_napi_error)
 }
 
-#[napi]
 #[cfg(feature = "dangerous-key-export")]
+#[napi]
 pub fn derive_withdrawal_secrets(
     master_keys_json: String,
     label: String,
@@ -735,8 +735,8 @@ pub fn get_commitment_from_handles(
     .map_err(to_napi_error)
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_commitment_preimage(handle: String) -> NapiResult<String> {
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::CommitmentRequest(request) => {
@@ -748,8 +748,8 @@ pub fn dangerously_export_commitment_preimage(handle: String) -> NapiResult<Stri
     }
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_secret(handle: String) -> NapiResult<String> {
     match get_secret_handle(&handle).map_err(to_napi_error)? {
         SecretHandleEntry::Secrets { nullifier, secret } => to_json_string(&JsSecrets {
@@ -1837,8 +1837,8 @@ pub async fn submit_finalized_preflighted_transaction_handle(
     register_execution_handle(ExecutionHandleEntry::Submitted(submitted)).map_err(to_napi_error)
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_preflighted_transaction(handle: String) -> NapiResult<String> {
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Preflighted(preflighted) => {
@@ -1850,8 +1850,8 @@ pub fn dangerously_export_preflighted_transaction(handle: String) -> NapiResult<
     }
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_finalized_preflighted_transaction(handle: String) -> NapiResult<String> {
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Finalized(finalized) => {
@@ -1864,8 +1864,8 @@ pub fn dangerously_export_finalized_preflighted_transaction(handle: String) -> N
     }
 }
 
-#[napi]
 #[cfg(feature = "dangerous-exports")]
+#[napi]
 pub fn dangerously_export_submitted_preflighted_transaction(handle: String) -> NapiResult<String> {
     match get_execution_handle(&handle).map_err(to_napi_error)? {
         ExecutionHandleEntry::Submitted(submitted) => {
@@ -2957,7 +2957,10 @@ mod tests {
             .unwrap();
         }
 
-        assert_eq!(SECRET_HANDLE_REGISTRY.read().unwrap().len(), MAX_SECRET_HANDLES);
+        assert_eq!(
+            SECRET_HANDLE_REGISTRY.read().unwrap().len(),
+            MAX_SECRET_HANDLES
+        );
         clear_registries();
     }
 

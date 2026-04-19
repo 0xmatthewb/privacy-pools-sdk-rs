@@ -2021,9 +2021,11 @@ mod tests {
         ])
         .expect_err("report output without device metadata must fail");
 
-        assert!(error
-            .to_string()
-            .contains("--device-label is required when --report-json is set"));
+        assert!(
+            error
+                .to_string()
+                .contains("--device-label is required when --report-json is set")
+        );
     }
 
     #[test]
@@ -2046,9 +2048,11 @@ mod tests {
     #[test]
     fn parse_backend_rejects_unknown_profiles() {
         let error = parse_backend("fast").expect_err("unknown backend profile must fail");
-        assert!(error
-            .to_string()
-            .contains("unsupported backend profile: fast"));
+        assert!(
+            error
+                .to_string()
+                .contains("unsupported backend profile: fast")
+        );
     }
 }
 

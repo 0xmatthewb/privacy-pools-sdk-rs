@@ -764,7 +764,9 @@ mod tests {
 
         let error = PreparedVerifier::from_vkey_bytes(&vkey_json)
             .expect_err("verification key z = 0 should fail");
-        assert!(matches!(error, VerifierError::InvalidVerificationKey(message) if message.contains("z must not be zero")));
+        assert!(
+            matches!(error, VerifierError::InvalidVerificationKey(message) if message.contains("z must not be zero"))
+        );
     }
 
     #[test]

@@ -237,6 +237,8 @@ jobs:
         with:
           profile: fuzz
       - name: fuzz smoke
+        env:
+          RUSTUP_TOOLCHAIN: nightly-2026-04-15
         run: >
           cargo run -p xtask -- assurance --profile nightly --runtime rust
           --only-checks
@@ -277,7 +279,7 @@ jobs:
         with:
           profile: browser-pr
       - name: install symbol scan tools
-        run: sudo apt-get update && sudo apt-get install -y wabt binutils
+        run: sudo apt-get update && sudo apt-get install -y binaryen wabt binutils
       - run: rustup target add wasm32-unknown-unknown
       - run: npm ci
         working-directory: packages/sdk
@@ -301,7 +303,7 @@ jobs:
         with:
           toolchain: 1.93.0
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@8789b3e21e6c11b2697f5eb56eddae542f746c10 # v1
       - name: rust proof verifies against vendored withdrawal verifier
         run: >
           cargo test -p privacy-pools-sdk --test solidity_verifier
@@ -349,6 +351,7 @@ jobs:
         uses: ./.github/actions/install-rust-ci-tools
         with:
           profile: browser-pr
+      - run: sudo apt-get update && sudo apt-get install -y binaryen
       - run: npm ci
         working-directory: packages/sdk
       - run: npm run check:generated

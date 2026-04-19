@@ -2032,8 +2032,8 @@ mod tests {
         let drifted_vkey = include_str!("../../../fixtures/artifacts/commitment.vkey.json")
             .replacen("\"nPublic\": 4", "\"nPublic\": 5", 1);
         let actual = parse_vkey_public_signal_count(&drifted_vkey).unwrap();
-        let error =
-            ensure_public_signal_count("ragequit", actual, RAGEQUIT_PUBLIC_SIGNAL_COUNT).unwrap_err();
+        let error = ensure_public_signal_count("ragequit", actual, RAGEQUIT_PUBLIC_SIGNAL_COUNT)
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -2049,10 +2049,9 @@ mod tests {
 
     #[tokio::test]
     async fn falls_back_to_legacy_fee_quotes_when_eip1559_is_unavailable() {
-        let fees =
-            fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async { Ok(42) })
-                .await
-                .unwrap();
+        let fees = fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async { Ok(42) })
+            .await
+            .unwrap();
 
         assert_eq!(
             fees,
@@ -2066,10 +2065,9 @@ mod tests {
 
     #[tokio::test]
     async fn returns_transport_error_when_fee_quote_fallbacks_fail() {
-        let error = fee_parameters_from_quotes(
-            Err("1559 unsupported".to_owned()),
-            async { Err("legacy fee quote unavailable".to_owned()) },
-        )
+        let error = fee_parameters_from_quotes(Err("1559 unsupported".to_owned()), async {
+            Err("legacy fee quote unavailable".to_owned())
+        })
         .await
         .unwrap_err();
 

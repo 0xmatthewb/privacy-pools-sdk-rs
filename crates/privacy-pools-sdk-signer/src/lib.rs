@@ -181,7 +181,7 @@ impl SignerAdapter for ExternalSigner {
 #[cfg(all(test, feature = "local-mnemonic"))]
 mod tests {
     use super::*;
-    use alloy_primitives::{address, bytes, U256};
+    use alloy_primitives::{U256, address, bytes};
 
     fn sample_request(chain_id: u64) -> FinalizedTransactionRequest {
         FinalizedTransactionRequest {
