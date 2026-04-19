@@ -1,7 +1,8 @@
 use alloy_primitives::{Address, B256, U256, address, bytes};
 use privacy_pools_sdk_core::{
-    CodeHashCheck, ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport, RelayData,
-    RootCheck, RootRead, RootReadKind, TransactionKind, Withdrawal, WithdrawalExecutionConfig,
+    CodeHashCheck, ExecutionPolicy, ExecutionPolicyMode, ExecutionPreflightReport, ReadConsistency,
+    RelayData, RootCheck, RootRead, RootReadKind, TransactionKind, Withdrawal,
+    WithdrawalExecutionConfig,
 };
 use proptest::prelude::*;
 
@@ -32,6 +33,8 @@ proptest! {
             caller,
             expected_pool_code_hash,
             expected_entrypoint_code_hash,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: if insecure_dev {
                 ExecutionPolicyMode::InsecureDev
             } else {
@@ -65,6 +68,8 @@ proptest! {
             caller,
             expected_pool_code_hash: Some(code_hash),
             expected_entrypoint_code_hash: Some(code_hash),
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::Strict,
         };
         let config = WithdrawalExecutionConfig {
@@ -81,6 +86,8 @@ proptest! {
             chain_id_matches: true,
             simulated: true,
             estimated_gas: 21_000,
+            read_consistency: ReadConsistency::Latest,
+            max_fee_quote_wei: None,
             mode: ExecutionPolicyMode::Strict,
             code_hash_checks: vec![CodeHashCheck {
                 address: pool,
@@ -101,6 +108,7 @@ proptest! {
             kind: RootReadKind::Asp,
             contract_address: entrypoint,
             pool_address: pool,
+            consistency: ReadConsistency::Latest,
             call_data: bytes!("1234"),
         };
 

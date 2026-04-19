@@ -2504,6 +2504,7 @@ mod tests {
         async fn code_hash(
             &self,
             address: Address,
+            _consistency: core::ReadConsistency,
         ) -> Result<alloy_primitives::B256, chain::ChainError> {
             self.code_hashes.get(&address).copied().ok_or_else(|| {
                 chain::ChainError::Transport(format!("missing code hash for {address}"))
@@ -2672,6 +2673,8 @@ mod tests {
                         value,
                         precommitment_hash: legacy_deposit.preimage.precommitment.hash,
                         block_number: 10,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000001"
                         ),
@@ -2681,6 +2684,8 @@ mod tests {
                         spent_nullifier_hash: crypto::hash_nullifier(&legacy_nullifier).unwrap(),
                         new_commitment_hash: migrated_commitment.hash,
                         block_number: 20,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000002"
                         ),
@@ -2738,6 +2743,8 @@ mod tests {
                         value,
                         precommitment_hash: legacy_deposit.preimage.precommitment.hash,
                         block_number: 10,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000001"
                         ),
@@ -2747,6 +2754,8 @@ mod tests {
                         spent_nullifier_hash: crypto::hash_nullifier(&legacy_nullifier).unwrap(),
                         new_commitment_hash: migrated_commitment.hash,
                         block_number: 20,
+                        transaction_index: 0,
+                        log_index: 0,
                         transaction_hash: b256!(
                             "0000000000000000000000000000000000000000000000000000000000000002"
                         ),
@@ -3888,6 +3897,8 @@ mod tests {
                 chain_id_matches: true,
                 simulated: true,
                 estimated_gas: 21_000,
+                read_consistency: core::ReadConsistency::Latest,
+                max_fee_quote_wei: None,
                 mode: core::ExecutionPolicyMode::Strict,
                 code_hash_checks: vec![core::CodeHashCheck {
                     address: target,
@@ -3999,6 +4010,8 @@ mod tests {
                 chain_id_matches: true,
                 simulated: true,
                 estimated_gas: 21_000,
+                read_consistency: core::ReadConsistency::Latest,
+                max_fee_quote_wei: None,
                 mode: core::ExecutionPolicyMode::Strict,
                 code_hash_checks: vec![core::CodeHashCheck {
                     address: target,
