@@ -740,6 +740,7 @@ export const {
   ProofError,
   SDKError,
   Version,
+  WithdrawalService,
   bigintToHash,
   bigintToHex,
   calculateContext,

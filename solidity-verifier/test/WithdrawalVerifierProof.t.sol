@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {WithdrawalVerifier} from "../src/WithdrawalVerifier.sol";
 
 interface Vm {
+  function envString(string calldata key) external view returns (string memory value);
   function readFileBinary(string calldata path) external view returns (bytes memory data);
 }
 

@@ -37,10 +37,10 @@ serde_json.workspace = true
 thiserror.workspace = true
 url.workspace = true
 
-[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+[target.'cfg(any(target_os = "ios", target_os = "macos", target_os = "linux"))'.dependencies]
 alloy-provider = { workspace = true, features = ["reqwest", "reqwest-native-tls"] }
 
-[target.'cfg(not(any(target_os = "ios", target_os = "macos")))'.dependencies]
+[target.'cfg(not(any(target_os = "ios", target_os = "macos", target_os = "linux")))'.dependencies]
 alloy-provider = { workspace = true, features = ["reqwest", "reqwest-rustls-tls"] }
 
 [dev-dependencies]
