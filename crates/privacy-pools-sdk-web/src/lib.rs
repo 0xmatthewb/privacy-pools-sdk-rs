@@ -46,6 +46,7 @@ pub use wasm_bindgen_rayon::init_thread_pool;
 use zeroize::Zeroizing;
 
 const MAX_CONTROL_JSON_INPUT_BYTES: usize = 1024 * 1024;
+const MAX_WITNESS_JSON_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_RECOVERY_JSON_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_ARTIFACT_JSON_INPUT_BYTES: usize = 96 * 1024 * 1024;
 const MAX_ARTIFACT_BYTES: usize = 32 * 1024 * 1024;
@@ -3900,7 +3901,10 @@ fn prove_with_session_witness(
     session: &BrowserCircuitSession,
     witness_json: &str,
 ) -> Result<JsProvingResult> {
-    let witness = parse_json::<Vec<String>>(witness_json)?;
+    let witness = parse_json_with_limit::<Vec<String>>(
+        witness_json,
+        MAX_WITNESS_JSON_INPUT_BYTES,
+    )?;
     let witness = prover::parse_witness_values(&witness)?;
     let prepared = session.prepared.as_ref().with_context(|| {
         format!(
